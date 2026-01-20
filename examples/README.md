@@ -23,6 +23,10 @@ examples/
 │   ├── README.md          # Detailed usage instructions
 │   ├── main.py            # RL + sandbox minimal example
 │   └── pyproject.toml     # Dependency configuration
+├── mobile-use/            # Mobile automation example
+│   ├── README.md          # Detailed usage instructions
+│   ├── main.py            # Mobile device automation demo
+│   └── requirements.txt   # Dependencies
 └── shop-assistant/        # Shopping cart automation example
     ├── README.md          # Detailed usage instructions
     ├── automation_cart_demo.py  # Shopping flow automation demo
@@ -91,6 +95,24 @@ Demonstrates how to integrate AgentSandbox sandbox in reinforcement learning sce
 - Code execution for mathematical reasoning tasks
 - Agent tool calling training
 
+**Tech Stack**: AgentSandbox
+
+### mobile-use - Mobile Automation Example
+
+Demonstrates how to use AgentSandbox to automate mobile device interactions:
+
+- **Android Emulator**: Run Android devices in cloud sandbox
+- **Screen Control**: Automated tap, swipe, and text input operations
+- **Visual Verification**: Screenshot-based validation
+- **App Automation**: Complete mobile app interaction flows
+
+**Use Cases**:
+- Mobile app automated testing
+- Mobile UI/UX testing
+- Mobile app flow demonstration
+- Cross-device compatibility testing
+
+**Tech Stack**: playwright, Android
 
 ### shop-assistant - Shopping Cart Automation Example
 

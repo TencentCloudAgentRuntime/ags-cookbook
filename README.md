@@ -9,17 +9,36 @@ Agent Sandbox Cookbook is a comprehensive guide and example collection demonstra
 ## Project Structure
 
 ```
-agentsandbox-cookbook/
+ags-cookbook/
 ├── .gitignore                              
 ├── LICENSE                                 
 ├── README.md                               # Project documentation
+├── CODE_OF_CONDUCT.md                      # Code of conduct
+├── CONTRIBUTING.md                         # Contributing guidelines
+├── benchmarks/                             # Performance benchmarks
+│   └── k6/                                # K6 load testing scripts
+│       ├── README.md
+│       ├── sandbox-stress-test.js
+│       ├── sandbox-stress-test-data-plane.js
+│       ├── sandbox-stress-test-e2b-api.js
+│       └── sandbox-stress-test-non-exec.js
 ├── tutorials/                              # Tutorial documents
-│   └── sdk/
-│       └── e2b/
-│           ├── e2b_base.ipynb             # E2B SDK basics (includes code sandbox tutorial)
-│           └── browser_vnc.ipynb          # Browser sandbox tutorial
+│   ├── sdk/
+│   │   ├── e2b/
+│   │   │   ├── e2b_base.ipynb            # E2B SDK basics (includes code sandbox tutorial)
+│   │   │   └── browser_vnc.ipynb         # Browser sandbox tutorial
+│   │   └── go/
+│   │       ├── README.md
+│   │       └── example_test.go           # Go SDK examples
+│   └── yunapi/
+│       └── python/
+│           └── custom.ipynb              # Custom API tutorial
 └── examples/                               # Example code
     ├── README.md                          
+    ├── browser-agent/                     # Browser automation agent example
+    │   ├── README.md                      
+    │   ├── main.py          
+    │   └── pyproject.toml               
     ├── data-analysis/                     # Data analysis example
     │   ├── README.md                      
     │   ├── multi_context_demo.py          
@@ -27,6 +46,14 @@ agentsandbox-cookbook/
     ├── html-processing/                   # HTML collaboration example
     │   ├── README.md                      
     │   ├── html_collaboration_demo.py     
+    │   └── requirements.txt               
+    ├── mini-rl/                           # Mini reinforcement learning example
+    │   ├── README.md                      
+    │   ├── main.py          
+    │   └── pyproject.toml               
+    ├── mobile-use/                        # Mobile automation example
+    │   ├── README.md                      
+    │   ├── main.py          
     │   └── requirements.txt               
     └── shop-assistant/                    # Shopping cart automation example
         ├── README.md                      

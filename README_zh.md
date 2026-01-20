@@ -9,17 +9,36 @@ Agent Sandbox Cookbook 是一个全面的使用指南和示例集合，展示了
 ## 项目结构
 
 ```
-agentsandbox-cookbook/
+ags-cookbook/
 ├── .gitignore                              
 ├── LICENSE                                 
 ├── README.md                               # 项目主文档
+├── CODE_OF_CONDUCT.md                      # 行为准则
+├── CONTRIBUTING.md                         # 贡献指南
+├── benchmarks/                             # 性能基准测试
+│   └── k6/                                # K6 压力测试脚本
+│       ├── README.md
+│       ├── sandbox-stress-test.js
+│       ├── sandbox-stress-test-data-plane.js
+│       ├── sandbox-stress-test-e2b-api.js
+│       └── sandbox-stress-test-non-exec.js
 ├── tutorials/                              # 教程文档
-│   └── sdk/
-│       └── e2b/
-│           ├── e2b_base.ipynb             # E2B SDK基础教程（包含代码沙箱教程）
-│           └── browser_vnc.ipynb          # 浏览器沙箱教程
+│   ├── sdk/
+│   │   ├── e2b/
+│   │   │   ├── e2b_base.ipynb            # E2B SDK基础教程（包含代码沙箱教程）
+│   │   │   └── browser_vnc.ipynb         # 浏览器沙箱教程
+│   │   └── go/
+│   │       ├── README.md
+│   │       └── example_test.go           # Go SDK示例
+│   └── yunapi/
+│       └── python/
+│           └── custom.ipynb              # 自定义API教程
 └── examples/                               # 示例代码
     ├── README.md                          
+    ├── browser-agent/                     # 浏览器自动化代理示例
+    │   ├── README.md                      
+    │   ├── main.py          
+    │   └── pyproject.toml               
     ├── data-analysis/                     # 数据分析示例
     │   ├── README.md                      
     │   ├── multi_context_demo.py          
@@ -27,6 +46,14 @@ agentsandbox-cookbook/
     ├── html-processing/                   # HTML协作处理示例
     │   ├── README.md                      
     │   ├── html_collaboration_demo.py     
+    │   └── requirements.txt               
+    ├── mini-rl/                           # 迷你强化学习示例
+    │   ├── README.md                      
+    │   ├── main.py          
+    │   └── pyproject.toml               
+    ├── mobile-use/                        # 移动端自动化示例
+    │   ├── README.md                      
+    │   ├── main.py          
     │   └── requirements.txt               
     └── shop-assistant/                    # 购物车自动化示例
         ├── README.md                      

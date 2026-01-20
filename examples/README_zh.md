@@ -23,6 +23,10 @@ examples/
 │   ├── README.md          # 详细使用说明
 │   ├── main.py            # RL + 沙箱最小示例
 │   └── pyproject.toml     # 依赖配置
+├── mobile-use/            # 移动端自动化示例
+│   ├── README.md          # 详细使用说明
+│   ├── main.py            # 移动设备自动化演示
+│   └── requirements.txt   # 依赖包
 └── shop-assistant/        # 购物车自动化示例
     ├── README.md          # 详细使用说明
     ├── automation_cart_demo.py  # 购物流程自动化演示
@@ -91,6 +95,24 @@ examples/
 - 数学推理任务的代码执行
 - Agent 工具调用训练
 
+**技术栈**：AgentSandbox
+
+### mobile-use - 移动端自动化示例
+
+展示如何使用 AgentSandbox 实现移动设备自动化交互：
+
+- **Android 模拟器**：云端沙箱运行 Android 设备
+- **屏幕控制**：自动化点击、滑动、文本输入等操作
+- **可视化验证**：基于截图的验证
+- **应用自动化**：完整的移动应用交互流程
+
+**适用场景**：
+- 移动应用自动化测试
+- 移动端 UI/UX 测试
+- 移动应用流程演示
+- 跨设备兼容性测试
+
+**技术栈**：playwright, Android
 
 ### shop-assistant - 购物车自动化示例
 
