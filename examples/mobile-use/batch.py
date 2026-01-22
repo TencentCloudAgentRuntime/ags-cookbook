@@ -103,7 +103,7 @@ AsyncSandbox = None
 # =============================================================================
 # Constants
 # =============================================================================
-APK_DOWNLOAD_BASE_URL = "https://yuehuazhang-bj-1251707795.cos.ap-beijing.myqcloud.com/mobilesandbox/apk"
+APK_DOWNLOAD_BASE_URL = "https://agentsandbox-1251707795.cos.ap-guangzhou.myqcloud.com/repo/apk"
 
 DEFAULT_CONFIG = {
     'E2B_DOMAIN': '',              # Required
