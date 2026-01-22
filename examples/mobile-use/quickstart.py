@@ -160,7 +160,7 @@ atexit.register(cleanup)
 CHUNK_SIZE = 20 * 1024 * 1024  # 20MB per chunk
 
 # APK download base URL
-APK_DOWNLOAD_BASE_URL = "https://yuehuazhang-bj-1251707795.cos.ap-beijing.myqcloud.com/mobilesandbox/apk"
+APK_DOWNLOAD_BASE_URL = "https://agentsandbox-1251707795.cos.ap-guangzhou.myqcloud.com/repo/apk"
 
 # App configuration dictionary
 APP_CONFIGS = {
