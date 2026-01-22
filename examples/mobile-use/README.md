@@ -184,7 +184,7 @@ This approach handles large files efficiently and provides progress feedback.
 
 ## GPS Location Mocking
 
-The example uses Appium Settings LocationService for GPS mocking, which is suitable for containerized Android environments (redroid). The mock location will be returned when apps request location services.
+The example uses Appium Settings LocationService for GPS mocking, which is suitable for containerized Android environments. The mock location will be returned when apps request location services.
 
 ## Dependencies
 

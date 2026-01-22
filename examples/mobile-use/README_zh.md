@@ -184,7 +184,7 @@ get_location(driver)
 
 ## GPS 定位模拟
 
-示例使用 Appium Settings LocationService 进行 GPS 模拟，适用于容器化 Android 环境（redroid）。当应用请求位置服务时，将返回模拟位置。
+示例使用 Appium Settings LocationService 进行 GPS 模拟，适用于容器化 Android 环境。当应用请求位置服务时，将返回模拟位置。
 
 ## 依赖
 
