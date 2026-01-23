@@ -55,11 +55,14 @@ ags-cookbook/
     │   ├── README.md                      
     │   ├── main.py          
     │   └── requirements.txt               
-    └── shop-assistant/                    # 购物车自动化示例
+    ├── shop-assistant/                    # 购物车自动化示例
+    │   ├── README.md                      
+    │   ├── automation_cart_demo.py        
+    │   └── requirements.txt               
+    └── swe-agent/                         # SWE-agent与AGS集成示例
         ├── README.md                      
-        ├── automation_cart_demo.py        
-        └── requirements.txt               
-```
+        ├── README_zh.md                   
+        └── SWE-ReX/                       # 用于AGS集成的修改版SWE-ReX
 
 ## 主要特性
 
