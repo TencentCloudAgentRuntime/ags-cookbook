@@ -1,3 +1,26 @@
+"""
+Mobile Sandbox Quickstart Example
+
+This module demonstrates how to use AgentSandbox for Android mobile automation.
+It provides a complete example of:
+- Creating and managing mobile sandboxes
+- Connecting to Android devices via Appium
+- Installing and launching apps (with chunked APK upload)
+- Screen interactions (tap, screenshot)
+- GPS location mocking
+
+Usage:
+    1. Set E2B_API_KEY environment variable or create .env file
+    2. Run: python quickstart.py
+
+Requirements:
+    - e2b SDK
+    - Appium-Python-Client
+    - requests
+
+For more information, see the README.md file.
+"""
+
 import os
 import sys
 import time
@@ -6,11 +29,19 @@ import signal
 import atexit
 import requests
 from pathlib import Path
+from types import FrameType
+from typing import Optional, Dict, Any, Union
+
 from e2b import Sandbox
 from appium import webdriver
 from appium.options.android import UiAutomator2Options
 from appium.webdriver.appium_connection import AppiumConnection
 from appium.webdriver.client_config import AppiumClientConfig
+from appium.webdriver.webdriver import WebDriver
+
+# Script directory (captured at import time for use in cleanup/signal handlers)
+SCRIPT_DIR = Path(__file__).parent
+OUTPUT_DIR = SCRIPT_DIR / "output" / "quickstart_output"
 
 # Global variables for cleanup
 _driver = None
@@ -18,10 +49,10 @@ _sandbox = None
 _cleaned_up = False
 
 
-def _load_env_file():
+def _load_env_file() -> None:
     """
     Load environment variables from .env file.
-    
+
     Prefers python-dotenv if available, otherwise parses manually.
     """
     # Try to load .env file if python-dotenv is available
@@ -47,12 +78,12 @@ def _load_env_file():
             pass
 
 
-def _load_config():
+def _load_config() -> Dict[str, Any]:
     """
     Load configuration.
-    
+
     Priority: environment variables > .env file > default values
-    
+
     Returns:
         dict: Dictionary containing all configuration items
     """
@@ -69,7 +100,7 @@ def _load_config():
     return config
 
 
-def cleanup():
+def cleanup() -> None:
     """Cleanup resources: close driver and sandbox"""
     global _driver, _sandbox, _cleaned_up
     
@@ -84,9 +115,8 @@ def cleanup():
         if _driver is not None:
             print("  - Taking screenshot before exit...")
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            save_dir = Path.cwd() / "screenshots"
-            save_dir.mkdir(parents=True, exist_ok=True)
-            screenshot_path = save_dir / f"screenshot_before_exit_{timestamp}.png"
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            screenshot_path = OUTPUT_DIR / f"screenshot_before_exit_{timestamp}.png"
             _driver.save_screenshot(str(screenshot_path))
             print(f"  - Screenshot saved: {screenshot_path}")
     except Exception as e:
@@ -111,7 +141,7 @@ def cleanup():
     print("Test completed, sandbox cleaned up")
 
 
-def signal_handler(signum, frame):
+def signal_handler(signum: int, frame: Optional[FrameType]) -> None:
     """Handle SIGINT (Ctrl+C) and SIGTERM signals"""
     sig_name = signal.Signals(signum).name
     print(f"\nReceived {sig_name} signal, exiting...")
@@ -127,10 +157,10 @@ signal.signal(signal.SIGTERM, signal_handler)
 atexit.register(cleanup)
 
 # Chunked upload configuration
-CHUNK_SIZE = 10 * 1024 * 1024  # 10MB per chunk
+CHUNK_SIZE = 20 * 1024 * 1024  # 20MB per chunk
 
 # APK download base URL
-APK_DOWNLOAD_BASE_URL = "https://yuehuazhang-bj-1251707795.cos.ap-beijing.myqcloud.com/mobilesandbox/apk"
+APK_DOWNLOAD_BASE_URL = "https://agentsandbox-1251707795.cos.ap-guangzhou.myqcloud.com/repo/apk"
 
 # App configuration dictionary
 APP_CONFIGS = {
@@ -144,10 +174,6 @@ APP_CONFIGS = {
             'android.permission.ACCESS_FINE_LOCATION',
             'android.permission.ACCESS_COARSE_LOCATION',
             'android.permission.READ_EXTERNAL_STORAGE',
-            # Note: The following permissions are not declared in WeChat 8.0.67 (Android 13) manifest:
-            # - WRITE_EXTERNAL_STORAGE (deprecated in Android 13, uses granular media permissions)
-            # - READ_PHONE_STATE
-            # - WRITE_CONTACTS
             'android.permission.CAMERA',
             'android.permission.RECORD_AUDIO',
             'android.permission.READ_CONTACTS',
@@ -164,7 +190,6 @@ APP_CONFIGS = {
             'android.permission.ACCESS_COARSE_LOCATION',
             'android.permission.READ_EXTERNAL_STORAGE',
             'android.permission.WRITE_EXTERNAL_STORAGE',
-            # Note: READ_PHONE_STATE and REQUEST_INSTALL_PACKAGES are not in the manifest
         ]
     }
 }
@@ -232,7 +257,7 @@ def download_apk(apk_name: str, save_path: Path) -> bool:
         return False
 
 
-def is_app_installed(driver, package_name: str) -> bool:
+def is_app_installed(driver: WebDriver, package_name: str) -> bool:
     """Check if app is installed"""
     try:
         state = driver.query_app_state(package_name)
@@ -245,7 +270,7 @@ def is_app_installed(driver, package_name: str) -> bool:
         return package_name in str(result)
 
 
-def upload_app(driver, app_name: str, apk_path: str = None) -> bool:
+def upload_app(driver: WebDriver, app_name: str, apk_path: Optional[str] = None) -> bool:
     """Upload APK to device (using chunked upload)"""
     config = APP_CONFIGS.get(app_name.lower())
     if not config:
@@ -256,7 +281,7 @@ def upload_app(driver, app_name: str, apk_path: str = None) -> bool:
     
     if apk_path is None:
         # Default APK path: apk/ subdirectory under script directory
-        apk_dir = Path(__file__).parent / "apk"
+        apk_dir = SCRIPT_DIR / "apk"
         apk_path = apk_dir / config['apk_name']
     else:
         apk_path = Path(apk_path)
@@ -388,13 +413,13 @@ def upload_app(driver, app_name: str, apk_path: str = None) -> bool:
                 'command': 'rm',
                 'args': ['-f', remote_path]
             })
-        except:
+        except Exception:
             pass
         print()
         return False
 
 
-def install_app(driver, app_name: str) -> bool:
+def install_app(driver: WebDriver, app_name: str) -> bool:
     """Install uploaded APK"""
     config = APP_CONFIGS.get(app_name.lower())
     if not config:
@@ -447,15 +472,15 @@ def install_app(driver, app_name: str) -> bool:
                 print(f"[ok] {config['name']} available")
                 print()
                 return True
-        except:
+        except Exception:
             pass
-        
+
         print(f"[x] {config['name']} installation failed: {str(e)[:200]}")
         print()
         return False
 
 
-def grant_app_permissions(driver, app_name: str) -> bool:
+def grant_app_permissions(driver: WebDriver, app_name: str) -> bool:
     """Grant all necessary permissions to app"""
     config = APP_CONFIGS.get(app_name.lower())
     if not config:
@@ -481,7 +506,7 @@ def grant_app_permissions(driver, app_name: str) -> bool:
     return success_count > 0
 
 
-def launch_app(driver, app_name: str) -> bool:
+def launch_app(driver: WebDriver, app_name: str) -> bool:
     """Launch app"""
     config = APP_CONFIGS.get(app_name.lower())
     if not config:
@@ -522,10 +547,10 @@ def launch_app(driver, app_name: str) -> bool:
         return False
 
 
-def open_browser(driver, url: str) -> bool:
+def open_browser(driver: WebDriver, url: str) -> bool:
     """
     Open URL in browser.
-    
+
     Args:
         driver: Appium driver
         url: URL to open
@@ -558,10 +583,10 @@ def open_browser(driver, url: str) -> bool:
         return False
 
 
-def tap_screen(driver, x: int, y: int) -> bool:
+def tap_screen(driver: WebDriver, x: int, y: int) -> bool:
     """
     Tap screen at specified coordinates.
-    
+
     Args:
         driver: Appium driver
         x: X coordinate
@@ -590,11 +615,11 @@ def tap_screen(driver, x: int, y: int) -> bool:
         return False
 
 
-def take_screenshot(driver, filename: str = None) -> str:
+def take_screenshot(driver: WebDriver, filename: Optional[str] = None) -> Optional[str]:
     """
     Take screenshot.
-    
-    Screenshots are saved to the screenshots subdirectory under current working directory.
+
+    Screenshots are saved to output/quickstart_output/ under the script directory.
     Directory is created automatically if it doesn't exist.
     
     Args:
@@ -606,16 +631,15 @@ def take_screenshot(driver, filename: str = None) -> str:
     """
     print("[Action: screenshot] Taking screenshot...")
     
-    # Save to screenshots subdirectory under current working directory
-    save_dir = Path.cwd() / "screenshots"
-    save_dir.mkdir(parents=True, exist_ok=True)
+    # Save to output/quickstart_output/ under the script directory
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
     # Generate filename
     if filename is None:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = f"mobile_screenshot_{timestamp}.png"
     
-    screenshot_path = save_dir / filename
+    screenshot_path = OUTPUT_DIR / filename
     
     try:
         driver.save_screenshot(str(screenshot_path))
@@ -632,10 +656,10 @@ def take_screenshot(driver, filename: str = None) -> str:
         return None
 
 
-def get_location(driver, debug: bool = False) -> dict:
+def get_location(driver: WebDriver, debug: bool = False) -> Optional[Dict[str, Any]]:
     """
     Get current GPS location.
-    
+
     Note: 'last location=null' in dumpsys location is normal when no app
     is requesting location. Mock location will be returned when apps request it.
     
@@ -710,10 +734,10 @@ def get_location(driver, debug: bool = False) -> dict:
         return None
 
 
-def set_location(driver, latitude: float, longitude: float, altitude: float = 0.0) -> bool:
+def set_location(driver: WebDriver, latitude: float, longitude: float, altitude: float = 0.0) -> bool:
     """
     Set GPS location.
-    
+
     Uses Appium Settings LocationService to set mock location.
     
     Args:
@@ -750,9 +774,9 @@ def set_location(driver, latitude: float, longitude: float, altitude: float = 0.
                     'command': 'pm',
                     'args': ['grant', appium_settings_pkg, f'android.permission.{perm}']
                 })
-            except:
+            except Exception:
                 pass
-        
+
         # Grant mock location permission
         driver.execute_script('mobile: shell', {
             'command': 'appops',
@@ -798,7 +822,7 @@ def set_location(driver, latitude: float, longitude: float, altitude: float = 0.
         return False
 
 
-def install_and_launch_app(driver, app_name: str, max_retries: int = 1) -> bool:
+def install_and_launch_app(driver: WebDriver, app_name: str, max_retries: int = 1) -> bool:
     """
     Complete app installation and launch flow:
     upload_app -> install_app -> grant_app_permissions -> launch_app
@@ -851,10 +875,10 @@ def install_and_launch_app(driver, app_name: str, max_retries: int = 1) -> bool:
     return True
 
 
-def AppiumDriver(sandbox, port: int = 4723, http_timeout: int = 300, **options_kwargs):
+def AppiumDriver(sandbox: Sandbox, port: int = 4723, http_timeout: int = 300, **options_kwargs: Any) -> WebDriver:
     """
     Create Appium Driver connected to E2B sandbox.
-    
+
     Args:
         sandbox: E2B Sandbox instance
         port: Appium service port
@@ -884,10 +908,10 @@ def AppiumDriver(sandbox, port: int = 4723, http_timeout: int = 300, **options_k
     return webdriver.Remote(options=options, client_config=client_config)
 
 
-def create_driver(sandbox, max_retries=3, retry_interval=5):
+def create_driver(sandbox: Sandbox, max_retries: int = 3, retry_interval: int = 5) -> WebDriver:
     """
     Create Appium Driver, connect to Android device in sandbox.
-    
+
     First tries direct connection (usually works after sandbox starts),
     retries with health check if failed.
     
@@ -953,7 +977,7 @@ def create_driver(sandbox, max_retries=3, retry_interval=5):
     raise Exception(f"Appium service not ready within {max_retries * retry_interval}s")
 
 
-def get_device_info(driver):
+def get_device_info(driver: WebDriver) -> Dict[str, Any]:
     """Get device details"""
     capabilities = driver.capabilities
     window_size = driver.get_window_size()
@@ -962,7 +986,7 @@ def get_device_info(driver):
     try:
         wm_size = driver.execute_script('mobile: shell', {'command': 'wm', 'args': ['size']})
         wm_density = driver.execute_script('mobile: shell', {'command': 'wm', 'args': ['density']})
-    except:
+    except Exception:
         wm_size = "N/A"
         wm_density = "N/A"
     
@@ -982,10 +1006,10 @@ def main(
     e2b_api_key: str,
     sandbox_template: str,
     sandbox_timeout: int,
-):
+) -> None:
     """
     Main function - Execute mobile automation test.
-    
+
     Args:
         e2b_domain: E2B service domain
         e2b_api_key: E2B API Key

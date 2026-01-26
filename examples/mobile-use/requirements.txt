@@ -1,4 +1,13 @@
+# AgentSandbox Mobile Automation Dependencies
+
+# E2B SDK for sandbox management
 e2b>=2.9.0
+
+# Appium client for mobile automation
 Appium-Python-Client>=3.1.0
+
+# HTTP requests library
+requests>=2.28.0
+
+# Environment variable management (optional, script has fallback)
 python-dotenv>=1.0.0
-requests
