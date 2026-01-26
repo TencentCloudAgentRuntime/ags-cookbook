@@ -5,21 +5,28 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run Android d
 ## Architecture
 
 ```
-┌─────────────┐     Appium      ┌─────────────┐      ADB       ┌─────────────┐
-│   Python    │ ───────────────▶ │   Appium    │ ─────────────▶ │  AgentSandbox  │
-│   Script    │                 │   Driver    │                │   (Android) │
-└─────────────┘                 └─────────────┘                └─────────────┘
-      ▲                                 │                              │
-      │                                 │◀─────────────────────────────┘
-      │                                 │      Device State / Result
-      └─────────────────────────────────┘
+┌─────────────┐     Appium      ┌─────────────┐      ADB       ┌───────────────┐
+│   Python    │ ───────────────▶│   Appium    │ ─────────────▶│  AgentSandbox │
+│   Script    │                 │   Driver    │               │   (Android)   │
+└─────────────┘                 └─────────────┘               └───────────────┘
+      ▲                                │                              │
+      │                                │◀─────────────────────────────┘
+      │                                │      Device State / Result
+      └────────────────────────────────┘
               Response
 ```
 
 **Core Features**:
 - Android device runs in cloud sandbox, locally controlled via Appium
 - Supports ws-scrcpy for real-time screen streaming
-- Complete mobile automation capabilities: app installation, GPS mocking, browser control, Android screen capture, etc.
+- Complete mobile automation capabilities: app installation, GPS mocking, browser control, screen capture, etc.
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `quickstart.py` | Quick start example demonstrating basic mobile automation features |
+| `batch.py` | Batch operations script for high-concurrency sandbox testing (multi-process + async) |
 
 ## Quick Start
 
@@ -31,41 +38,58 @@ pip install -r requirements.txt
 
 ### 2. Configure API Keys
 
-You can set configuration in one of three ways:
-
-**Option 1: Environment variables (recommended for CI/CD)**
-```bash
-export E2B_API_KEY="your_e2b_api_key"
-export E2B_DOMAIN="ap-guangzhou.tencentags.com"          # Optional
-export SANDBOX_TEMPLATE="mobile-v1"                      # Optional
-export SANDBOX_TIMEOUT="3600"                            # Optional (1 hour)
-```
-
-**Option 2: .env file (recommended for local development)**
+**Option 1: .env file (recommended for local development)**
 ```bash
 # Copy the example file
 cp .env.example .env
 
-# Edit .env and add your API key
-# E2B_API_KEY=your_e2b_api_key
+# Edit .env and fill in your configuration
 ```
 
-**Option 3: Modify the code directly (not recommended)**
-Edit the default values in `main.py`.
-
-**Configuration Options:**
-- `E2B_API_KEY`: **Required** - Your AgentSandbox API Key
-- `E2B_DOMAIN`: Optional, default: `ap-guangzhou.tencentags.com`
-- `SANDBOX_TEMPLATE`: Optional, default: `mobile-v1`
-- `SANDBOX_TIMEOUT`: Optional, default: `3600` seconds (1 hour)
-
-### 3. Run Example
-
+**Option 2: Environment variables (recommended for CI/CD)**
 ```bash
-python main.py
+export E2B_API_KEY="your_api_key"
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
+export SANDBOX_TEMPLATE="mobile-v1"
 ```
 
-After running, a screen stream URL will be output, allowing you to watch the automation process in real-time.
+### 3. Run Examples
+
+**Quick Start Example:**
+```bash
+python quickstart.py
+```
+
+**Batch Operations:**
+```bash
+python batch.py
+```
+
+## Configuration
+
+### Required Configuration
+
+| Variable | Description |
+|----------|-------------|
+| `E2B_API_KEY` | Your AgentSandbox API Key |
+| `E2B_DOMAIN` | Service domain (e.g., `ap-guangzhou.tencentags.com`) |
+| `SANDBOX_TEMPLATE` | Sandbox template name (e.g., `mobile-v1`) |
+
+### Optional Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SANDBOX_TIMEOUT` | 3600 (quickstart) / 300 (batch) | Sandbox timeout in seconds |
+| `LOG_LEVEL` | INFO | Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL |
+
+### Batch Operations Configuration (batch.py only)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SANDBOX_COUNT` | 2 | Total number of sandboxes to create |
+| `PROCESS_COUNT` | 2 | Number of processes for parallel execution |
+| `THREAD_POOL_SIZE` | 5 | Thread pool size per process |
+| `USE_MOUNTED_APK` | false | Use mounted APK instead of uploading from local |
 
 ## Available Features
 
@@ -82,21 +106,36 @@ After running, a screen stream URL will be output, allowing you to watch the aut
 | `set_location` | Set GPS location (mock location) |
 | `install_and_launch_app` | Complete flow: upload → install → grant permissions → launch |
 
+## Output Directory
+
+Screenshots and logs are saved to the `output/` directory:
+
+```
+output/
+├── quickstart_output/     # quickstart.py output
+│   ├── mobile_screenshot_*.png
+│   └── screenshot_before_exit_*.png
+└── batch_output/          # batch.py output
+    └── {count}_{timestamp}/
+        ├── console.log
+        ├── summary.json
+        ├── details.json
+        └── sandbox_*/
+            ├── screenshot_1.png
+            ├── screenshot_2.png
+            └── ...
+```
+
 ## Supported Apps
 
-The example includes configurations for common Android apps:
+The example includes configurations for common Android apps. You can customize `APP_CONFIGS` dictionary to add your own apps.
 
+**quickstart.py:**
 - **WeChat** (`wechat`): Chinese messaging app
 - **应用宝** (`yyb`): Chinese app store
 
-You can extend `APP_CONFIGS` dictionary to add more apps.
-
-## Workflow
-
-1. **Create Sandbox**: Start cloud sandbox with Android template
-2. **Connect Appium**: Connect to Appium server in sandbox
-3. **Device Operations**: Perform various mobile automation tasks
-4. **Cleanup**: Close driver and kill sandbox
+**batch.py:**
+- **Meituan** (`meituan`): Chinese lifestyle service app
 
 ## Example Usage
 
@@ -104,7 +143,7 @@ You can extend `APP_CONFIGS` dictionary to add more apps.
 
 ```python
 # Open browser and navigate
-open_browser(driver, "http://example.com")
+open_browser(driver, "https://example.com")
 time.sleep(5)
 
 # Tap screen
@@ -145,17 +184,20 @@ This approach handles large files efficiently and provides progress feedback.
 
 ## GPS Location Mocking
 
-The example uses Appium Settings LocationService for GPS mocking, which is suitable for containerized Android environments (redroid). The mock location will be returned when apps request location services.
+The example uses Appium Settings LocationService for GPS mocking, which is suitable for containerized Android environments. The mock location will be returned when apps request location services.
 
 ## Dependencies
 
 - Python >= 3.8
 - e2b >= 2.9.0
 - Appium-Python-Client >= 3.1.0
+- requests >= 2.28.0
+- python-dotenv >= 1.0.0 (optional)
 
 ## Notes
 
-- **APK files**: Place APK files in the `apk/` directory within this example directory (e.g., `examples/mobile-use/apk/应用宝.apk`). You can also specify a custom path when calling `upload_app()`.
+- **APK files**: Place APK files in the `apk/` directory. If APK is not found, it will be automatically downloaded (if download URL is configured).
 - Screen stream URL uses ws-scrcpy protocol for real-time viewing
 - Appium connection uses authentication token from sandbox
 - GPS mocking works with LocationService in containerized Android environments
+- Use Ctrl+C to gracefully stop the script - resources will be automatically cleaned up
