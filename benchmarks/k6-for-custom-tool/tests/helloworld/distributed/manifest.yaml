@@ -1,0 +1,16 @@
+---
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: k6-helloworld
+spec:
+  parallelism: 4
+  script:
+    configMap:
+      name: 'k6-helloworld'
+      file: 'script.js'
+  arguments: -o experimental-prometheus-rw
+  runner:
+    env:
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus:9090/api/v1/write"

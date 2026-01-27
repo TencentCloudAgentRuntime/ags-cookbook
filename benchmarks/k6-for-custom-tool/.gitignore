@@ -1,0 +1,9 @@
+.vscode
+.idea
+
+node_modules
+package.json
+package-lock.json
+
+_output
+.env

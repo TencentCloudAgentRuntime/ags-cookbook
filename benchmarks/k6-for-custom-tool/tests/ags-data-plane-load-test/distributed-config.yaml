@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-distributed-config
+  annotations:
+    config.kubernetes.io/local-config: "true"
+data:
+  parallelism: "50"
+  image: "ccr.ccs.tencentyun.com/finofliu/xk6-ags:latest"
+  prometheusUrl: "http://prometheus:9090/api/v1/write"
+  trendStats: "p(50),p(75),p(90),p(95),p(99),min,max,avg"
+  cpuLimit: "1"
+  cpuRequest: "1"
+  memoryLimit: "2Gi"
+  memoryRequest: "2Gi"

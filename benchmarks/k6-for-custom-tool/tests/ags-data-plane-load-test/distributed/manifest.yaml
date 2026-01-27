@@ -1,0 +1,34 @@
+---
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: k6-ags-data-plane-load-test
+spec:
+  parallelism: 3
+  script:
+    configMap:
+      name: 'k6-ags-data-plane-load-test'
+      file: 'script.js'
+  arguments: -o experimental-prometheus-rw
+  initializer:
+    image: ccr.ccs.tencentyun.com/finofliu/xk6-ags:latest
+    envFrom:
+      - secretRef:
+          name: k6-ags-secrets
+  runner:
+    image: ccr.ccs.tencentyun.com/finofliu/xk6-ags:latest
+    resources:
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+      requests:
+        cpu: "1"
+        memory: "2Gi"
+    envFrom:
+      - secretRef:
+          name: k6-ags-secrets
+    env:
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus:9090/api/v1/write"
+      - name: K6_PROMETHEUS_RW_TREND_STATS
+        value: "p(50),p(75),p(90),p(95),p(99),min,max,avg"
