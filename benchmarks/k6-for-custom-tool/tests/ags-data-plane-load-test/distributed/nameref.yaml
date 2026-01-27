@@ -1,0 +1,11 @@
+nameReference:
+  - kind: ConfigMap
+    fieldSpecs:
+      - kind: TestRun
+        path: spec/script/configMap/name
+  - kind: Secret
+    fieldSpecs:
+      - kind: TestRun
+        path: spec/runner/envFrom/secretRef/name
+      - kind: TestRun
+        path: spec/initializer/envFrom/secretRef/name
