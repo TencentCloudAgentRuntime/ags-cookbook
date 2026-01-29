@@ -206,6 +206,16 @@ python sandbox_connect.py --sandbox-id abc123 \
 python sandbox_connect.py --sandbox-id abc123 --action shell --shell-cmd "pm list packages"
 ```
 
+**Uninstall app:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action uninstall_app --app-name yyb
+```
+
+**Get app state:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_app_state --app-name yyb
+```
+
 ### Command Line Help
 
 ```bash

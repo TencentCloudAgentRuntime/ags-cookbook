@@ -201,6 +201,16 @@ python sandbox_connect.py --sandbox-id abc123 \
 python sandbox_connect.py --sandbox-id abc123 --action shell --shell-cmd "pm list packages"
 ```
 
+**卸载应用：**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action uninstall_app --app-name yyb
+```
+
+**获取应用状态：**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_app_state --app-name yyb
+```
+
 ### 命令行帮助
 
 ```bash
