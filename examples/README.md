@@ -27,7 +27,7 @@ examples/
 │   ├── README.md          # Detailed usage instructions
 │   ├── quickstart.py      # Quick start example
 │   ├── batch.py           # Batch operations (multi-process + async)
-│   ├── mobile_actions.py  # Reusable mobile action library
+│   ├── sandbox_connect.py # Single sandbox connection tool (CLI)
 │   ├── test_mobile_actions.py  # Unit tests
 │   └── requirements.txt   # Dependencies
 └── shop-assistant/        # Shopping cart automation example
@@ -107,9 +107,8 @@ Demonstrates how to use AgentSandbox cloud sandbox to run Android devices with A
 - **Cloud Android Device**: Android runs in sandbox, locally controlled via Appium
 - **Screen Streaming**: Real-time screen viewing via ws-scrcpy
 - **Element Operations**: Find and click elements by text or resource-id
-- **Reusable Library**: `mobile_actions.py` with 22 verified operations
+- **CLI Tool**: `sandbox_connect.py` for connecting to existing sandboxes
 - **Batch Testing**: High-concurrency sandbox testing (multi-process + async)
-- **Unit Tests**: 58 unit tests with full coverage
 
 **Use Cases**:
 - Mobile app automated testing

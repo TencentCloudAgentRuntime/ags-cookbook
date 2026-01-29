@@ -55,8 +55,8 @@ ags-cookbook/
     │   ├── README.md                      
     │   ├── quickstart.py                  # 快速入门示例
     │   ├── batch.py                       # 批量操作脚本（多进程 + 异步）
-    │   ├── mobile_actions.py              # 可复用的移动端操作库
-    │   ├── test_mobile_actions.py         # 单元测试（58 个测试）
+    │   ├── sandbox_connect.py             # 单沙箱连接工具（CLI）
+    │   ├── test_mobile_actions.py         # 单元测试
     │   └── requirements.txt               
     └── shop-assistant/                    # 购物车自动化示例
         ├── README.md                      

@@ -55,8 +55,8 @@ ags-cookbook/
     │   ├── README.md                      
     │   ├── quickstart.py                  # Quick start example
     │   ├── batch.py                       # Batch operations (multi-process + async)
-    │   ├── mobile_actions.py              # Reusable mobile action library
-    │   ├── test_mobile_actions.py         # Unit tests (58 tests)
+    │   ├── sandbox_connect.py             # Single sandbox connection tool (CLI)
+    │   ├── test_mobile_actions.py         # Unit tests
     │   └── requirements.txt               
     └── shop-assistant/                    # Shopping cart automation example
         ├── README.md                      

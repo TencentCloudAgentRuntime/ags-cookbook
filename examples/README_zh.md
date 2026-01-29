@@ -27,7 +27,7 @@ examples/
 │   ├── README.md          # 详细使用说明
 │   ├── quickstart.py      # 快速入门示例
 │   ├── batch.py           # 批量操作脚本（多进程 + 异步）
-│   ├── mobile_actions.py  # 可复用的移动端操作库
+│   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
 │   ├── test_mobile_actions.py  # 单元测试
 │   └── requirements.txt   # 依赖包
 └── shop-assistant/        # 购物车自动化示例
@@ -107,9 +107,8 @@ examples/
 - **云端 Android 设备**：Android 运行在沙箱，本地通过 Appium 远程控制
 - **屏幕流**：通过 ws-scrcpy 实时查看屏幕
 - **元素操作**：通过文本或 resource-id 查找并点击元素
-- **可复用库**：`mobile_actions.py` 包含 22 个已验证的操作方法
+- **CLI 工具**：`sandbox_connect.py` 用于连接已存在的沙箱
 - **批量测试**：高并发沙箱测试（多进程 + 异步）
-- **单元测试**：58 个单元测试，完整覆盖
 
 **适用场景**：
 - 移动应用自动化测试
