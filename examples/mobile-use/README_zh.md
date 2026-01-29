@@ -124,6 +124,9 @@ python -m pytest test_mobile_actions.py -v
 |------|------|------|
 | **屏幕操作** | `tap_screen(driver, x, y)` | 点击屏幕指定坐标 |
 | | `take_screenshot(driver, save_path)` | 截图并保存 |
+| | `set_screen_resolution(driver, width, height, dpi)` | 设置屏幕分辨率 |
+| | `reset_screen_resolution(driver)` | 重置屏幕分辨率 |
+| **文本输入** | `input_text(driver, text)` | 输入文本到焦点输入框（支持中英文） |
 | **元素操作** | `find_element_by_text(driver, text, partial)` | 通过文本查找元素 |
 | | `find_element_by_id(driver, resource_id)` | 通过 resource-id 查找元素 |
 | | `click_element(driver, text, resource_id, partial)` | 通过文本或 resource-id 点击元素 |
@@ -205,13 +208,15 @@ python -m pytest test_mobile_actions.py -v --cov=mobile_actions --cov-report=ter
 | 分类 | 测试数量 | 状态 |
 |------|---------|------|
 | 屏幕操作 | 5 | ✅ |
+| 屏幕分辨率 | 6 | ✅ |
+| 文本输入 | 5 | ✅ |
 | 元素操作 | 10 | ✅ |
 | 界面分析 | 10 | ✅ |
 | 应用管理 | 11 | ✅ |
 | 系统操作 | 8 | ✅ |
 | GPS 定位 | 7 | ✅ |
 | 权限管理 | 7 | ✅ |
-| **总计** | **58** | **✅** |
+| **总计** | **69** | **✅** |
 
 ## 输出目录
 

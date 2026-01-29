@@ -124,6 +124,9 @@ The `mobile_actions.py` module provides a collection of verified, reusable mobil
 |----------|----------|-------------|
 | **Screen Operations** | `tap_screen(driver, x, y)` | Tap screen at specified coordinates |
 | | `take_screenshot(driver, save_path)` | Take and save screenshot |
+| | `set_screen_resolution(driver, width, height, dpi)` | Set screen resolution |
+| | `reset_screen_resolution(driver)` | Reset screen resolution to default |
+| **Text Input** | `input_text(driver, text)` | Input text to focused element (supports Chinese) |
 | **Element Operations** | `find_element_by_text(driver, text, partial)` | Find element by text |
 | | `find_element_by_id(driver, resource_id)` | Find element by resource-id |
 | | `click_element(driver, text, resource_id, partial)` | Click element by text or resource-id |
@@ -205,13 +208,15 @@ python -m pytest test_mobile_actions.py -v --cov=mobile_actions --cov-report=ter
 | Category | Tests | Status |
 |----------|-------|--------|
 | Screen Operations | 5 | ✅ |
+| Screen Resolution | 6 | ✅ |
+| Text Input | 5 | ✅ |
 | Element Operations | 10 | ✅ |
 | Page Analysis | 10 | ✅ |
 | App Management | 11 | ✅ |
 | System Operations | 8 | ✅ |
 | GPS Location | 7 | ✅ |
 | Permissions | 7 | ✅ |
-| **Total** | **58** | **✅** |
+| **Total** | **69** | **✅** |
 
 ## Output Directory
 

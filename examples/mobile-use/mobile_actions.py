@@ -4,7 +4,8 @@ Mobile Actions Module
 通用的手机操作方法集合，从 quickstart.py、batch.py 和 mobile_sandbox_client.py 中提取的已验证操作。
 
 包含:
-- 屏幕操作 (点击、截图)
+- 屏幕操作 (点击、截图、分辨率设置)
+- 文本输入 (输入文本到焦点元素)
 - 元素操作 (查找元素、点击元素)
 - 界面分析 (获取页面 XML、设备信息)
 - 应用管理 (启动、检查安装状态)
@@ -53,7 +54,9 @@ def take_screenshot(driver: WebDriver, save_path: Union[str, Path]) -> bool:
     """
     截图并保存到指定路径
     
-    来源: quickstart.py take_screenshot, batch.py _take_screenshot
+    来源: quickstart.py take_screenshot, batch.py _take_screenshot, mobile_sandbox_client.py take_screenshot
+    
+    测试命令: python3 test/mobile_sandbox_client.py --action screenshot
     
     Args:
         driver: Appium driver
@@ -70,6 +73,151 @@ def take_screenshot(driver: WebDriver, save_path: Union[str, Path]) -> bool:
             return True
         # 兼容不同 Appium 客户端版本
         return save_path.exists() and save_path.stat().st_size > 0
+    except Exception:
+        return False
+
+
+def set_screen_resolution(driver: WebDriver, width: int, height: int, dpi: Optional[int] = None) -> bool:
+    """
+    设置屏幕分辨率
+    
+    来源: mobile_sandbox_client.py set_screen_resolution
+    
+    测试命令: python3 test/mobile_sandbox_client.py --action set_screen_resolution --width 720 --height 1280
+    
+    通过 ADB 的 wm size 命令修改 Android 设备的屏幕分辨率。
+    注意：此修改是临时的，设备重启后会恢复默认分辨率。
+    
+    Args:
+        driver: Appium driver
+        width: 屏幕宽度（像素）
+        height: 屏幕高度（像素）
+        dpi: 屏幕 DPI（可选，不指定则保持当前 DPI）
+        
+    Returns:
+        是否成功
+    """
+    try:
+        # 设置分辨率
+        driver.execute_script('mobile: shell', {
+            'command': 'wm',
+            'args': ['size', f'{width}x{height}']
+        })
+        
+        # 如果指定了 DPI，设置 DPI
+        if dpi is not None:
+            driver.execute_script('mobile: shell', {
+                'command': 'wm',
+                'args': ['density', str(dpi)]
+            })
+        
+        # 等待设置生效
+        time.sleep(1)
+        
+        # 验证分辨率是否生效
+        result = driver.execute_script('mobile: shell', {
+            'command': 'wm',
+            'args': ['size']
+        })
+        
+        expected = f"{width}x{height}"
+        return expected in str(result)
+        
+    except Exception:
+        return False
+
+
+def reset_screen_resolution(driver: WebDriver) -> bool:
+    """
+    重置屏幕分辨率为默认值
+    
+    来源: mobile_sandbox_client.py reset_screen_resolution
+    
+    Args:
+        driver: Appium driver
+        
+    Returns:
+        是否成功
+    """
+    try:
+        driver.execute_script('mobile: shell', {
+            'command': 'wm',
+            'args': ['size', 'reset']
+        })
+        
+        driver.execute_script('mobile: shell', {
+            'command': 'wm',
+            'args': ['density', 'reset']
+        })
+        
+        return True
+    except Exception:
+        return False
+
+
+# ============================================================================
+# 文本输入
+# ============================================================================
+
+def input_text(driver: WebDriver, text: str) -> bool:
+    """
+    输入文本到当前焦点输入框
+    
+    来源: mobile_sandbox_client.py input_text
+    
+    测试命令: python3 test/mobile_sandbox_client.py --action input_text --text "Hello World"
+    
+    支持中英文输入：
+    - 英文/数字：使用 adb input text
+    - 中文：使用 ADB Broadcast 方法
+    
+    Args:
+        driver: Appium driver
+        text: 要输入的文本内容
+        
+    Returns:
+        是否成功
+    """
+    try:
+        # 方法1: 尝试获取当前焦点元素并使用 send_keys
+        try:
+            active_element = driver.switch_to.active_element
+            if active_element:
+                active_element.send_keys(text)
+                time.sleep(0.5)
+                return True
+        except Exception:
+            pass
+        
+        # 方法2: 使用 adb input text (适用于纯英文/数字)
+        # 检查是否包含中文
+        has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
+        
+        if has_chinese:
+            # 中文使用 am broadcast 方法
+            driver.execute_script('mobile: shell', {
+                'command': 'am',
+                'args': [
+                    'broadcast',
+                    '-a',
+                    'ADB_INPUT_TEXT',
+                    '--es',
+                    'msg',
+                    text
+                ]
+            })
+        else:
+            # 纯英文/数字，使用 input text
+            # 替换空格为 %s
+            escaped_text = text.replace(' ', '%s')
+            driver.execute_script('mobile: shell', {
+                'command': 'input',
+                'args': ['text', escaped_text]
+            })
+        
+        time.sleep(0.5)
+        return True
+        
     except Exception:
         return False
 

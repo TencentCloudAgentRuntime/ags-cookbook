@@ -740,6 +740,143 @@ class TestGrantPermissions:
 
 
 # ============================================================================
+# 屏幕分辨率测试
+# ============================================================================
+
+class TestSetScreenResolution:
+    """set_screen_resolution 测试"""
+
+    def test_set_resolution_success(self, mock_driver):
+        """测试设置分辨率成功"""
+        mock_driver.execute_script.return_value = "Physical size: 720x1280"
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.set_screen_resolution(mock_driver, 720, 1280)
+        
+        assert result is True
+
+    def test_set_resolution_with_dpi(self, mock_driver):
+        """测试设置分辨率和 DPI"""
+        mock_driver.execute_script.return_value = "Physical size: 720x1280"
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.set_screen_resolution(mock_driver, 720, 1280, dpi=320)
+        
+        assert result is True
+        # 验证 DPI 设置被调用
+        calls = mock_driver.execute_script.call_args_list
+        dpi_call_found = any('density' in str(call) for call in calls)
+        assert dpi_call_found
+
+    def test_set_resolution_failure(self, mock_driver):
+        """测试设置分辨率失败"""
+        mock_driver.execute_script.side_effect = Exception("Failed")
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.set_screen_resolution(mock_driver, 720, 1280)
+        
+        assert result is False
+
+    def test_set_resolution_verification_mismatch(self, mock_driver):
+        """测试分辨率验证不匹配"""
+        mock_driver.execute_script.return_value = "Physical size: 1080x1920"
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.set_screen_resolution(mock_driver, 720, 1280)
+        
+        assert result is False
+
+
+class TestResetScreenResolution:
+    """reset_screen_resolution 测试"""
+
+    def test_reset_resolution_success(self, mock_driver):
+        """测试重置分辨率成功"""
+        mock_driver.execute_script.return_value = None
+        
+        result = mobile_actions.reset_screen_resolution(mock_driver)
+        
+        assert result is True
+        assert mock_driver.execute_script.call_count == 2
+
+    def test_reset_resolution_failure(self, mock_driver):
+        """测试重置分辨率失败"""
+        mock_driver.execute_script.side_effect = Exception("Failed")
+        
+        result = mobile_actions.reset_screen_resolution(mock_driver)
+        
+        assert result is False
+
+
+# ============================================================================
+# 文本输入测试
+# ============================================================================
+
+class TestInputText:
+    """input_text 测试"""
+
+    def test_input_text_via_active_element(self, mock_driver):
+        """测试通过焦点元素输入文本"""
+        mock_element = Mock()
+        mock_driver.switch_to.active_element = mock_element
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.input_text(mock_driver, "Hello World")
+        
+        assert result is True
+        mock_element.send_keys.assert_called_once_with("Hello World")
+
+    def test_input_text_english_via_adb(self, mock_driver):
+        """测试通过 ADB 输入英文"""
+        mock_driver.switch_to.active_element = None
+        mock_driver.execute_script.return_value = None
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.input_text(mock_driver, "HelloWorld")
+        
+        assert result is True
+        # 验证使用 input text 命令
+        call_args = mock_driver.execute_script.call_args
+        assert 'input' in str(call_args)
+
+    def test_input_text_with_spaces(self, mock_driver):
+        """测试输入带空格的文本"""
+        mock_driver.switch_to.active_element = None
+        mock_driver.execute_script.return_value = None
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.input_text(mock_driver, "Hello World")
+        
+        assert result is True
+        # 验证空格被转义为 %s
+        call_args = mock_driver.execute_script.call_args
+        assert 'Hello%sWorld' in str(call_args)
+
+    def test_input_text_chinese(self, mock_driver):
+        """测试输入中文"""
+        mock_driver.switch_to.active_element = None
+        mock_driver.execute_script.return_value = None
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.input_text(mock_driver, "你好世界")
+        
+        assert result is True
+        # 验证使用 am broadcast 命令
+        call_args = mock_driver.execute_script.call_args
+        assert 'broadcast' in str(call_args) or 'ADB_INPUT_TEXT' in str(call_args)
+
+    def test_input_text_failure(self, mock_driver):
+        """测试输入文本失败"""
+        mock_driver.switch_to.active_element = None
+        mock_driver.execute_script.side_effect = Exception("Failed")
+        
+        with patch('mobile_actions.time.sleep'):
+            result = mobile_actions.input_text(mock_driver, "test")
+        
+        assert result is False
+
+
+# ============================================================================
 # 运行测试
 # ============================================================================
 
