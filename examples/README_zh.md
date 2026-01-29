@@ -28,7 +28,6 @@ examples/
 │   ├── quickstart.py      # 快速入门示例
 │   ├── batch.py           # 批量操作脚本（多进程 + 异步）
 │   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
-│   ├── test_mobile_actions.py  # 单元测试
 │   └── requirements.txt   # 依赖包
 └── shop-assistant/        # 购物车自动化示例
     ├── README.md          # 详细使用说明

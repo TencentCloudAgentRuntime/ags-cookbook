@@ -32,7 +32,6 @@ mobile-use/
 ├── quickstart.py              # 快速入门示例
 ├── batch.py                   # 批量操作脚本（多进程 + 异步）
 ├── sandbox_connect.py         # 单沙箱连接工具（CLI）
-├── test_mobile_actions.py     # 单元测试
 ├── apk/                       # APK 文件目录
 └── output/                    # 截图和日志输出目录
 ```
@@ -44,7 +43,6 @@ mobile-use/
 | `quickstart.py` | 快速入门示例，演示基本的移动端自动化功能 |
 | `batch.py` | 批量操作脚本，用于高并发沙箱测试（多进程 + 异步） |
 | `sandbox_connect.py` | 单沙箱连接工具，用于连接已存在的沙箱执行指定操作 |
-| `test_mobile_actions.py` | 单元测试 |
 
 ## 快速开始
 

@@ -32,7 +32,6 @@ mobile-use/
 ├── quickstart.py              # Quick start example
 ├── batch.py                   # Batch operations script (multi-process + async)
 ├── sandbox_connect.py         # Single sandbox connection tool (CLI)
-├── test_mobile_actions.py     # Unit tests
 ├── apk/                       # APK files directory
 └── output/                    # Screenshots and logs output
 ```
@@ -44,7 +43,6 @@ mobile-use/
 | `quickstart.py` | Quick start example demonstrating basic mobile automation features |
 | `batch.py` | Batch operations script for high-concurrency sandbox testing (multi-process + async) |
 | `sandbox_connect.py` | Single sandbox connection tool for connecting to existing sandboxes via CLI |
-| `test_mobile_actions.py` | Unit tests |
 
 ## Quick Start
 
@@ -81,11 +79,6 @@ python quickstart.py
 **Batch Operations:**
 ```bash
 python batch.py
-```
-
-**Run Unit Tests:**
-```bash
-python -m pytest test_mobile_actions.py -v
 ```
 
 ## Sandbox Connect Tool

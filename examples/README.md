@@ -28,7 +28,6 @@ examples/
 │   ├── quickstart.py      # Quick start example
 │   ├── batch.py           # Batch operations (multi-process + async)
 │   ├── sandbox_connect.py # Single sandbox connection tool (CLI)
-│   ├── test_mobile_actions.py  # Unit tests
 │   └── requirements.txt   # Dependencies
 └── shop-assistant/        # Shopping cart automation example
     ├── README.md          # Detailed usage instructions
