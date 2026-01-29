@@ -53,7 +53,10 @@ ags-cookbook/
     │   └── pyproject.toml               
     ├── mobile-use/                        # Mobile automation example
     │   ├── README.md                      
-    │   ├── main.py          
+    │   ├── quickstart.py                  # Quick start example
+    │   ├── batch.py                       # Batch operations (multi-process + async)
+    │   ├── mobile_actions.py              # Reusable mobile action library
+    │   ├── test_mobile_actions.py         # Unit tests (58 tests)
     │   └── requirements.txt               
     └── shop-assistant/                    # Shopping cart automation example
         ├── README.md                      
