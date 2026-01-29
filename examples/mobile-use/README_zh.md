@@ -245,7 +245,6 @@ output/
 **quickstart.py：**
 - **微信** (`wechat`)：中文即时通讯应用
 - **应用宝** (`yyb`)：中文应用商店
-- **问小白** (`wenxiaobai`)：ChatXbai 应用
 
 **batch.py：**
 - **美团** (`meituan`)：中文生活服务应用

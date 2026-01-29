@@ -326,7 +326,7 @@ def click_element(driver: WebDriver, text: str = None, resource_id: str = None, 
     
     来源: mobile_sandbox_client.py click_element
     
-    测试命令: python3 test/mobile_sandbox_client.py --action click_element --element-id "com.yuanshi.wenxiaobai:id/phone_login_ok"
+    测试命令: python3 test/mobile_sandbox_client.py --action click_element --element-id "com.example.app:id/button_ok"
     
     Args:
         driver: Appium driver

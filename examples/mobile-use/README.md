@@ -245,7 +245,6 @@ The example includes configurations for common Android apps. You can customize `
 **quickstart.py:**
 - **WeChat** (`wechat`): Chinese messaging app
 - **应用宝** (`yyb`): Chinese app store
-- **问小白** (`wenxiaobai`): ChatXbai app
 
 **batch.py:**
 - **Meituan** (`meituan`): Chinese lifestyle service app
