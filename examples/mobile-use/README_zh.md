@@ -112,6 +112,7 @@ python sandbox_connect.py --sandbox-id <沙箱ID> --action <动作> [其他参�
 | `grant_app_permissions` | 授予应用权限 |
 | `close_app` | 关闭应用 |
 | `uninstall_app` | 卸载应用 |
+| `get_app_state` | 获取应用状态（0=未安装, 1=未运行, 2=后台暂停, 3=后台运行, 4=前台运行） |
 
 **屏幕操作**：
 
@@ -121,6 +122,7 @@ python sandbox_connect.py --sandbox-id <沙箱ID> --action <动作> [其他参�
 | `screenshot` | 截取屏幕截图 | 无 |
 | `set_screen_resolution` | 设置屏幕分辨率 | `--width`, `--height`, `--dpi`(可选) |
 | `reset_screen_resolution` | 重置屏幕分辨率 | 无 |
+| `get_window_size` | 获取屏幕窗口尺寸 | 无 |
 
 **UI 操作**：
 
@@ -142,9 +144,7 @@ python sandbox_connect.py --sandbox-id <沙箱ID> --action <动作> [其他参�
 | 动作 | 说明 | 必需参数 |
 |------|------|----------|
 | `device_info` | 获取设备详细信息 | 无 |
-| `get_window_size` | 获取屏幕窗口尺寸 | 无 |
 | `get_device_model` | 获取设备型号 | 无 |
-| `get_app_state` | 获取应用状态 | `--app-name` |
 | `get_current_activity` | 获取当前 Activity | 无 |
 | `get_current_package` | 获取当前包名 | 无 |
 

@@ -112,6 +112,7 @@ python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other par
 | `grant_app_permissions` | Grant app permissions |
 | `close_app` | Close app |
 | `uninstall_app` | Uninstall app |
+| `get_app_state` | Get app state (0=not installed, 1=not running, 2=background paused, 3=background running, 4=foreground running) |
 
 **Screen Operations**:
 
@@ -121,6 +122,7 @@ python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other par
 | `screenshot` | Take screenshot | None |
 | `set_screen_resolution` | Set screen resolution | `--width`, `--height`, `--dpi`(optional) |
 | `reset_screen_resolution` | Reset screen resolution | None |
+| `get_window_size` | Get screen window size | None |
 
 **UI Operations**:
 
@@ -142,9 +144,7 @@ python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other par
 | Action | Description | Required Parameters |
 |--------|-------------|---------------------|
 | `device_info` | Get device details | None |
-| `get_window_size` | Get screen window size | None |
 | `get_device_model` | Get device model | None |
-| `get_app_state` | Get app state | `--app-name` |
 | `get_current_activity` | Get current Activity | None |
 | `get_current_package` | Get current package | None |
 
