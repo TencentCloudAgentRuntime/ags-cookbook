@@ -25,7 +25,10 @@ examples/
 │   └── pyproject.toml     # Dependency configuration
 ├── mobile-use/            # Mobile automation example
 │   ├── README.md          # Detailed usage instructions
-│   ├── main.py            # Mobile device automation demo
+│   ├── quickstart.py      # Quick start example
+│   ├── batch.py           # Batch operations (multi-process + async)
+│   ├── mobile_actions.py  # Reusable mobile action library
+│   ├── test_mobile_actions.py  # Unit tests
 │   └── requirements.txt   # Dependencies
 └── shop-assistant/        # Shopping cart automation example
     ├── README.md          # Detailed usage instructions
@@ -99,20 +102,22 @@ Demonstrates how to integrate AgentSandbox sandbox in reinforcement learning sce
 
 ### mobile-use - Mobile Automation Example
 
-Demonstrates how to use AgentSandbox to automate mobile device interactions:
+Demonstrates how to use AgentSandbox cloud sandbox to run Android devices with Appium for mobile automation:
 
-- **Android Emulator**: Run Android devices in cloud sandbox
-- **Screen Control**: Automated tap, swipe, and text input operations
-- **Visual Verification**: Screenshot-based validation
-- **App Automation**: Complete mobile app interaction flows
+- **Cloud Android Device**: Android runs in sandbox, locally controlled via Appium
+- **Screen Streaming**: Real-time screen viewing via ws-scrcpy
+- **Element Operations**: Find and click elements by text or resource-id
+- **Reusable Library**: `mobile_actions.py` with 22 verified operations
+- **Batch Testing**: High-concurrency sandbox testing (multi-process + async)
+- **Unit Tests**: 58 unit tests with full coverage
 
 **Use Cases**:
 - Mobile app automated testing
 - Mobile UI/UX testing
-- Mobile app flow demonstration
-- Cross-device compatibility testing
+- High-concurrency mobile testing
+- GPS location mocking
 
-**Tech Stack**: playwright, Android
+**Tech Stack**: Appium, Android, pytest
 
 ### shop-assistant - Shopping Cart Automation Example
 

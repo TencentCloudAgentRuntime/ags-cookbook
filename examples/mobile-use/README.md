@@ -21,12 +21,30 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run Android d
 - Supports ws-scrcpy for real-time screen streaming
 - Complete mobile automation capabilities: app installation, GPS mocking, browser control, screen capture, etc.
 
+## Project Structure
+
+```
+mobile-use/
+├── README.md                  # English documentation
+├── README_zh.md               # Chinese documentation
+├── .env.example               # Environment configuration example
+├── requirements.txt           # Python dependencies
+├── quickstart.py              # Quick start example
+├── batch.py                   # Batch operations script (multi-process + async)
+├── mobile_actions.py          # Reusable mobile action library
+├── test_mobile_actions.py     # Unit tests for mobile_actions
+├── apk/                       # APK files directory
+└── output/                    # Screenshots and logs output
+```
+
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
 | `quickstart.py` | Quick start example demonstrating basic mobile automation features |
 | `batch.py` | Batch operations script for high-concurrency sandbox testing (multi-process + async) |
+| `mobile_actions.py` | Reusable mobile action library with verified operations |
+| `test_mobile_actions.py` | Unit tests for mobile_actions module |
 
 ## Quick Start
 
@@ -65,6 +83,11 @@ python quickstart.py
 python batch.py
 ```
 
+**Run Unit Tests:**
+```bash
+python -m pytest test_mobile_actions.py -v
+```
+
 ## Configuration
 
 ### Required Configuration
@@ -91,20 +114,104 @@ python batch.py
 | `THREAD_POOL_SIZE` | 5 | Thread pool size per process |
 | `USE_MOUNTED_APK` | false | Use mounted APK instead of uploading from local |
 
-## Available Features
+## Mobile Actions Library
 
-| Feature | Description |
-|---------|-------------|
-| `upload_app` | Upload APK to device using chunked upload (supports large files) |
-| `install_app` | Install uploaded APK on device |
-| `grant_app_permissions` | Grant all necessary permissions to app |
-| `launch_app` | Launch installed app |
-| `open_browser` | Open URL in device browser |
-| `tap_screen` | Tap screen at specified coordinates |
-| `take_screenshot` | Take device screenshot |
-| `get_location` | Get current GPS location |
-| `set_location` | Set GPS location (mock location) |
-| `install_and_launch_app` | Complete flow: upload → install → grant permissions → launch |
+The `mobile_actions.py` module provides a collection of verified, reusable mobile operations extracted from `quickstart.py`, `batch.py`, and tested scripts.
+
+### Available Functions
+
+| Category | Function | Description |
+|----------|----------|-------------|
+| **Screen Operations** | `tap_screen(driver, x, y)` | Tap screen at specified coordinates |
+| | `take_screenshot(driver, save_path)` | Take and save screenshot |
+| **Element Operations** | `find_element_by_text(driver, text, partial)` | Find element by text |
+| | `find_element_by_id(driver, resource_id)` | Find element by resource-id |
+| | `click_element(driver, text, resource_id, partial)` | Click element by text or resource-id |
+| **Page Analysis** | `get_page_source(driver)` | Get current page XML |
+| | `get_page_source_to_file(driver, save_path)` | Get page XML and save to file |
+| | `get_window_size(driver)` | Get screen dimensions |
+| | `get_device_info(driver)` | Get device detailed info |
+| | `get_device_model(driver)` | Get device model |
+| **App Management** | `is_app_installed(driver, package)` | Check if app is installed |
+| | `get_app_state(driver, package)` | Get app state |
+| | `launch_app(driver, package, wait_seconds)` | Launch app |
+| | `get_current_activity(driver)` | Get current activity |
+| | `get_current_package(driver)` | Get current package |
+| **System Operations** | `open_browser(driver, url, wait_seconds)` | Open URL in browser |
+| | `get_device_logs(driver)` | Get device logcat |
+| | `get_device_logs_to_file(driver, save_path)` | Get logs and save to file |
+| | `execute_shell(driver, command, args)` | Execute ADB shell command |
+| **GPS Location** | `get_location(driver)` | Get current GPS location |
+| | `set_location(driver, latitude, longitude, altitude)` | Set mock GPS location |
+| **Permissions** | `grant_permission(driver, package, permission)` | Grant single permission |
+| | `grant_permissions(driver, package, permissions)` | Grant multiple permissions |
+
+### Usage Example
+
+```python
+from mobile_actions import (
+    click_element, 
+    tap_screen, 
+    take_screenshot,
+    get_page_source,
+    launch_app
+)
+
+# Click element by resource-id
+click_element(driver, resource_id="com.example:id/login_button")
+
+# Click element by text
+click_element(driver, text="Login")
+
+# Click element by partial text match
+click_element(driver, text="Log", partial=True)
+
+# Tap screen coordinates
+tap_screen(driver, 500, 800)
+
+# Take screenshot
+take_screenshot(driver, "output/screenshot.png")
+
+# Get page XML
+page_source = get_page_source(driver)
+
+# Launch app
+launch_app(driver, "com.example.app")
+```
+
+## Unit Tests
+
+The `test_mobile_actions.py` file contains comprehensive unit tests for all functions in `mobile_actions.py`.
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest test_mobile_actions.py -v
+
+# Run specific test class
+python -m pytest test_mobile_actions.py::TestClickElement -v
+
+# Run specific test
+python -m pytest test_mobile_actions.py::TestClickElement::test_click_element_by_id -v
+
+# Run with coverage report
+pip install pytest-cov
+python -m pytest test_mobile_actions.py -v --cov=mobile_actions --cov-report=term-missing
+```
+
+### Test Coverage
+
+| Category | Tests | Status |
+|----------|-------|--------|
+| Screen Operations | 5 | ✅ |
+| Element Operations | 10 | ✅ |
+| Page Analysis | 10 | ✅ |
+| App Management | 11 | ✅ |
+| System Operations | 8 | ✅ |
+| GPS Location | 7 | ✅ |
+| Permissions | 7 | ✅ |
+| **Total** | **58** | **✅** |
 
 ## Output Directory
 
@@ -133,6 +240,7 @@ The example includes configurations for common Android apps. You can customize `
 **quickstart.py:**
 - **WeChat** (`wechat`): Chinese messaging app
 - **应用宝** (`yyb`): Chinese app store
+- **问小白** (`wenxiaobai`): ChatXbai app
 
 **batch.py:**
 - **Meituan** (`meituan`): Chinese lifestyle service app
@@ -173,6 +281,21 @@ set_location(driver, latitude=22.54347, longitude=113.92972)
 get_location(driver)
 ```
 
+### Element Click Operations
+
+```python
+from mobile_actions import click_element
+
+# Click by resource-id (most reliable)
+click_element(driver, resource_id="com.example:id/button")
+
+# Click by exact text
+click_element(driver, text="Submit")
+
+# Click by partial text
+click_element(driver, text="Sub", partial=True)
+```
+
 ## Chunked Upload
 
 For large APK files, the example uses chunked upload strategy:
@@ -193,6 +316,7 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 - Appium-Python-Client >= 3.1.0
 - requests >= 2.28.0
 - python-dotenv >= 1.0.0 (optional)
+- pytest >= 7.0.0 (for testing)
 
 ## Notes
 
