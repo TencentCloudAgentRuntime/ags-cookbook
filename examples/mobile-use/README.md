@@ -21,12 +21,28 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run Android d
 - Supports ws-scrcpy for real-time screen streaming
 - Complete mobile automation capabilities: app installation, GPS mocking, browser control, screen capture, etc.
 
+## Project Structure
+
+```
+mobile-use/
+├── README.md                  # English documentation
+├── README_zh.md               # Chinese documentation
+├── .env.example               # Environment configuration example
+├── requirements.txt           # Python dependencies
+├── quickstart.py              # Quick start example
+├── batch.py                   # Batch operations script (multi-process + async)
+├── sandbox_connect.py         # Single sandbox connection tool (CLI)
+├── apk/                       # APK files directory
+└── output/                    # Screenshots and logs output
+```
+
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
 | `quickstart.py` | Quick start example demonstrating basic mobile automation features |
 | `batch.py` | Batch operations script for high-concurrency sandbox testing (multi-process + async) |
+| `sandbox_connect.py` | Single sandbox connection tool for connecting to existing sandboxes via CLI |
 
 ## Quick Start
 
@@ -65,6 +81,147 @@ python quickstart.py
 python batch.py
 ```
 
+## Sandbox Connect Tool
+
+`sandbox_connect.py` is a CLI tool for connecting to an existing sandbox and executing mobile automation operations on demand.
+
+### Difference from Other Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `quickstart.py` | Creates a new sandbox and runs a complete demo flow |
+| `batch.py` | Batch testing of multiple scenarios |
+| `sandbox_connect.py` | Connects to an existing single sandbox and executes specified operations |
+
+### Basic Usage
+
+```bash
+python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other parameters]
+```
+
+### Supported Actions
+
+**App Operations** (requires `--app-name`):
+
+| Action | Description |
+|--------|-------------|
+| `upload_app` | Upload APK to device |
+| `install_app` | Install uploaded APK |
+| `launch_app` | Launch app |
+| `check_app` | Check if app is installed |
+| `grant_app_permissions` | Grant app permissions |
+| `close_app` | Close app |
+| `uninstall_app` | Uninstall app |
+| `get_app_state` | Get app state (0=not installed, 1=not running, 2=background paused, 3=background running, 4=foreground running) |
+
+**Screen Operations**:
+
+| Action | Description | Required Parameters |
+|--------|-------------|---------------------|
+| `tap_screen` | Tap screen coordinates | `--tap-x`, `--tap-y` |
+| `screenshot` | Take screenshot | None |
+| `set_screen_resolution` | Set screen resolution | `--width`, `--height`, `--dpi`(optional) |
+| `reset_screen_resolution` | Reset screen resolution | None |
+| `get_window_size` | Get screen window size | None |
+
+**UI Operations**:
+
+| Action | Description | Required Parameters |
+|--------|-------------|---------------------|
+| `dump_ui` | Get UI hierarchy (XML) | None |
+| `click_element` | Click element | `--element-text` or `--element-id` |
+| `input_text` | Input text | `--text` |
+
+**Location Operations**:
+
+| Action | Description | Required Parameters |
+|--------|-------------|---------------------|
+| `set_location` | Set GPS location | `--latitude`, `--longitude`, `--altitude`(optional) |
+| `get_location` | Get current GPS location | None |
+
+**Device Info Operations**:
+
+| Action | Description | Required Parameters |
+|--------|-------------|---------------------|
+| `device_info` | Get device details | None |
+| `get_device_model` | Get device model | None |
+| `get_current_activity` | Get current Activity | None |
+| `get_current_package` | Get current package | None |
+
+**System Operations**:
+
+| Action | Description | Required Parameters |
+|--------|-------------|---------------------|
+| `open_browser` | Open browser | `--url` |
+| `disable_gms` | Disable Google Play Services | None |
+| `enable_gms` | Enable Google Play Services | None |
+| `get_device_logs` | Get device logs | None |
+| `shell` | Execute ADB shell command | `--shell-cmd` |
+
+### Usage Examples
+
+**Get device info:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action device_info
+```
+
+**Take screenshot:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action screenshot
+```
+
+**Tap screen:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action tap_screen --tap-x 500 --tap-y 1000
+```
+
+**Click element:**
+```bash
+# By resource-id
+python sandbox_connect.py --sandbox-id abc123 --action click_element --element-id "com.example:id/button"
+
+# By text
+python sandbox_connect.py --sandbox-id abc123 --action click_element --element-text "Login"
+```
+
+**Set GPS location (Shenzhen):**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action set_location --latitude 22.5431 --longitude 113.9298
+```
+
+**Get UI hierarchy:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action dump_ui
+```
+
+**Batch operations (comma-separated):**
+```bash
+python sandbox_connect.py --sandbox-id abc123 \
+    --action upload_app,install_app,grant_app_permissions,launch_app \
+    --app-name yyb
+```
+
+**Execute ADB shell command:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action shell --shell-cmd "pm list packages"
+```
+
+**Uninstall app:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action uninstall_app --app-name yyb
+```
+
+**Get app state:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_app_state --app-name yyb
+```
+
+### Command Line Help
+
+```bash
+python sandbox_connect.py --help
+```
+
 ## Configuration
 
 ### Required Configuration
@@ -91,39 +248,28 @@ python batch.py
 | `THREAD_POOL_SIZE` | 5 | Thread pool size per process |
 | `USE_MOUNTED_APK` | false | Use mounted APK instead of uploading from local |
 
-## Available Features
-
-| Feature | Description |
-|---------|-------------|
-| `upload_app` | Upload APK to device using chunked upload (supports large files) |
-| `install_app` | Install uploaded APK on device |
-| `grant_app_permissions` | Grant all necessary permissions to app |
-| `launch_app` | Launch installed app |
-| `open_browser` | Open URL in device browser |
-| `tap_screen` | Tap screen at specified coordinates |
-| `take_screenshot` | Take device screenshot |
-| `get_location` | Get current GPS location |
-| `set_location` | Set GPS location (mock location) |
-| `install_and_launch_app` | Complete flow: upload → install → grant permissions → launch |
-
 ## Output Directory
 
 Screenshots and logs are saved to the `output/` directory:
 
 ```
 output/
-├── quickstart_output/     # quickstart.py output
+├── quickstart_output/          # quickstart.py output
 │   ├── mobile_screenshot_*.png
 │   └── screenshot_before_exit_*.png
-└── batch_output/          # batch.py output
-    └── {count}_{timestamp}/
-        ├── console.log
-        ├── summary.json
-        ├── details.json
-        └── sandbox_*/
-            ├── screenshot_1.png
-            ├── screenshot_2.png
-            └── ...
+├── batch_output/               # batch.py output
+│   └── {count}_{timestamp}/
+│       ├── console.log
+│       ├── summary.json
+│       ├── details.json
+│       └── sandbox_*/
+│           ├── screenshot_1.png
+│           ├── screenshot_2.png
+│           └── ...
+└── sandbox_connect_output/     # sandbox_connect.py output
+    ├── screenshot_*.png
+    ├── ui_dump.xml
+    └── device_logs_*.txt
 ```
 
 ## Supported Apps
@@ -131,11 +277,13 @@ output/
 The example includes configurations for common Android apps. You can customize `APP_CONFIGS` dictionary to add your own apps.
 
 **quickstart.py:**
-- **WeChat** (`wechat`): Chinese messaging app
-- **应用宝** (`yyb`): Chinese app store
+- **应用宝** (`yyb`): Tencent App Store
 
 **batch.py:**
 - **Meituan** (`meituan`): Chinese lifestyle service app
+
+**sandbox_connect.py:**
+- **应用宝** (`yyb`): Tencent App Store
 
 ## Example Usage
 
@@ -173,6 +321,21 @@ set_location(driver, latitude=22.54347, longitude=113.92972)
 get_location(driver)
 ```
 
+### Element Click Operations
+
+```python
+from mobile_actions import click_element
+
+# Click by resource-id (most reliable)
+click_element(driver, resource_id="com.example:id/button")
+
+# Click by exact text
+click_element(driver, text="Submit")
+
+# Click by partial text
+click_element(driver, text="Sub", partial=True)
+```
+
 ## Chunked Upload
 
 For large APK files, the example uses chunked upload strategy:
@@ -193,6 +356,7 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 - Appium-Python-Client >= 3.1.0
 - requests >= 2.28.0
 - python-dotenv >= 1.0.0 (optional)
+- pytest >= 7.0.0 (for testing)
 
 ## Notes
 
