@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-单沙箱连接操作工具 - 连接到已存在的 E2B 沙箱执行移动端操作
+Single Sandbox Connection Tool - Connect to an existing E2B sandbox for mobile automation
 
-与 quickstart.py（创建新沙箱并运行完整演示）和 batch.py（批量测试）不同，
-本工具用于连接到单个已存在的沙箱，通过命令行参数执行移动端自动化操作。
+Unlike quickstart.py (creates a new sandbox and runs a complete demo) and batch.py (batch testing),
+this tool connects to an existing single sandbox and executes mobile automation operations via CLI.
 
-支持的测试动作:
-1. 应用操作: upload_app, install_app, launch_app, check_app, grant_app_permissions, close_app, uninstall_app, get_app_state
-2. 屏幕操作: tap_screen, screenshot, set_screen_resolution, reset_screen_resolution, get_window_size
-3. UI操作: dump_ui, click_element, input_text
-4. 定位操作: set_location, get_location
-5. 设备信息: device_info, get_device_model, get_current_activity, get_current_package
-6. 系统操作: open_browser, disable_gms, enable_gms, get_device_logs, shell
+Supported actions:
+1. App operations: upload_app, install_app, launch_app, check_app, grant_app_permissions, close_app, uninstall_app, get_app_state
+2. Screen operations: tap_screen, screenshot, set_screen_resolution, reset_screen_resolution, get_window_size
+3. UI operations: dump_ui, click_element, input_text
+4. Location operations: set_location, get_location
+5. Device info: device_info, get_device_model, get_current_activity, get_current_package
+6. System operations: open_browser, disable_gms, enable_gms, get_device_logs, shell
 
-使用示例:
+Usage examples:
     python sandbox_connect.py --sandbox-id <id> --action device_info
     python sandbox_connect.py --sandbox-id <id> --action screenshot
     python sandbox_connect.py --sandbox-id <id> --action tap_screen --tap-x 500 --tap-y 1000
@@ -42,17 +42,17 @@ from appium.webdriver.client_config import AppiumClientConfig
 from appium.webdriver.webdriver import WebDriver
 from appium.webdriver.common.appiumby import AppiumBy
 
-# 脚本目录
+# Script directory
 SCRIPT_DIR = Path(__file__).parent
 OUTPUT_DIR = SCRIPT_DIR / "output" / "sandbox_connect_output"
 
-# 切片上传配置
-CHUNK_SIZE = 20 * 1024 * 1024  # 20MB 每块
+# Chunked upload configuration
+CHUNK_SIZE = 20 * 1024 * 1024  # 20MB per chunk
 
-# 应用配置字典
+# App configuration dictionary
 APP_CONFIGS = {
     'yyb': {
-        'name': '应用宝',
+        'name': 'Tencent App Store',
         'package': 'com.tencent.android.qqdownloader',
         'activity': 'com.tencent.assistantv2.activity.MainActivity',
         'apk_name': '应用宝.apk',
@@ -68,7 +68,7 @@ APP_CONFIGS = {
 
 
 def _load_env_file() -> None:
-    """加载 .env 文件"""
+    """Load .env file"""
     try:
         from dotenv import load_dotenv
         load_dotenv(SCRIPT_DIR / ".env")
@@ -87,15 +87,15 @@ def _load_env_file() -> None:
 
 
 class SandboxClient:
-    """E2B 沙箱客户端"""
+    """E2B Sandbox Client"""
     
     def __init__(self, sandbox_id: str, e2b_domain: str = None, e2b_api_key: str = None):
         """
-        初始化沙箱客户端
+        Initialize sandbox client
         
         Args:
-            sandbox_id: 沙箱 ID
-            e2b_domain: E2B 域名
+            sandbox_id: Sandbox ID
+            e2b_domain: E2B domain
             e2b_api_key: E2B API Key
         """
         self.sandbox_id = sandbox_id
@@ -104,60 +104,60 @@ class SandboxClient:
         self.sandbox = None
         self.driver = None
         
-        # 设置环境变量
+        # Set environment variables
         os.environ["E2B_DOMAIN"] = self.e2b_domain
         os.environ["E2B_API_KEY"] = self.e2b_api_key
     
     def connect(self):
-        """连接到沙箱和 Appium"""
+        """Connect to sandbox and Appium"""
         print("=" * 70)
-        print("E2B 沙箱客户端")
+        print("E2B Sandbox Client")
         print("=" * 70)
-        print(f"沙箱 ID: {self.sandbox_id}")
+        print(f"Sandbox ID: {self.sandbox_id}")
         print(f"E2B Domain: {self.e2b_domain}")
         print("=" * 70)
         print()
         
-        # 连接沙箱
-        print("[连接] 正在连接到沙箱...")
+        # Connect to sandbox
+        print("[Connect] Connecting to sandbox...")
         try:
             self.sandbox = Sandbox.connect(self.sandbox_id)
-            print(f"✓ 沙箱连接成功")
+            print(f"✓ Sandbox connected successfully")
         except Exception as e:
-            print(f"✗ 沙箱连接失败: {e}")
+            print(f"✗ Sandbox connection failed: {e}")
             raise
         
-        # 显示 VNC URL
+        # Display VNC URL
         vnc_url = self._get_vnc_url()
-        print(f"\nVNC URL (在浏览器中打开可实时查看屏幕):")
+        print(f"\nVNC URL (open in browser for real-time screen viewing):")
         print(vnc_url)
         print()
         
-        # 连接 Appium
-        print("[连接] 正在连接到 Appium...")
+        # Connect to Appium
+        print("[Connect] Connecting to Appium...")
         try:
             self.driver = self._create_appium_driver()
-            print(f"✓ Appium 连接成功 (会话ID: {self.driver.session_id})")
+            print(f"✓ Appium connected successfully (Session ID: {self.driver.session_id})")
         except Exception as e:
-            print(f"✗ Appium 连接失败: {e}")
+            print(f"✗ Appium connection failed: {e}")
             raise
         print()
     
     def disconnect(self):
-        """断开连接"""
+        """Disconnect from sandbox"""
         if self.driver:
-            print("[清理] 关闭 Appium 会话...")
+            print("[Cleanup] Closing Appium session...")
             try:
                 self.driver.quit()
             except Exception as e:
-                print(f"[警告] 关闭会话时出错（可忽略）: {e}")
+                print(f"[Warning] Error closing session (can be ignored): {e}")
             finally:
                 self.driver = None
-                print("✓ 会话已关闭")
+                print("✓ Session closed")
                 print()
     
     def _get_vnc_url(self) -> str:
-        """获取 VNC URL"""
+        """Get VNC URL"""
         scrcpy_host = self.sandbox.get_host(8000)
         scrcpy_token = self.sandbox._envd_access_token
         scrcpy_udid = "emulator-5554"
@@ -166,7 +166,7 @@ class SandboxClient:
         return scrcpy_url
     
     def _create_appium_driver(self) -> WebDriver:
-        """创建 Appium Driver"""
+        """Create Appium Driver"""
         options = UiAutomator2Options()
         options.platform_name = 'Android'
         options.automation_name = 'UiAutomator2'
@@ -185,14 +185,14 @@ class SandboxClient:
         return webdriver.Remote(options=options, client_config=client_config)
     
     def _get_app_config(self, app_name: str) -> dict:
-        """获取应用配置"""
+        """Get app configuration"""
         app_name = app_name.lower()
         if app_name not in APP_CONFIGS:
-            raise ValueError(f"不支持的应用: {app_name}，支持的应用: {', '.join(APP_CONFIGS.keys())}")
+            raise ValueError(f"Unsupported app: {app_name}, supported apps: {', '.join(APP_CONFIGS.keys())}")
         return APP_CONFIGS[app_name]
     
     def _is_app_installed(self, package_name: str) -> bool:
-        """检查应用是否已安装"""
+        """Check if app is installed"""
         try:
             state = self.driver.query_app_state(package_name)
             return state != 0
@@ -203,12 +203,12 @@ class SandboxClient:
             })
             return package_name in str(result)
     
-    # ==================== 应用操作 ====================
+    # ==================== App Operations ====================
     
     def upload_app(self, app_name: str, apk_path: str = None) -> bool:
-        """上传 APK 到设备（切片上传）"""
+        """Upload APK to device (chunked upload)"""
         config = self._get_app_config(app_name)
-        print(f"[Action: upload_app] 上传{config['name']}APK到设备...")
+        print(f"[Action: upload_app] Uploading {config['name']} APK to device...")
         
         if apk_path is None:
             apk_path = SCRIPT_DIR / "apk" / config['apk_name']
@@ -216,168 +216,168 @@ class SandboxClient:
             apk_path = Path(apk_path)
         
         if not apk_path.exists():
-            print(f"✗ APK文件不存在: {apk_path}")
+            print(f"✗ APK file not found: {apk_path}")
             return False
         
         file_size = apk_path.stat().st_size
         total_chunks = (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
         
-        print(f"  - 本地APK路径: {apk_path}")
-        print(f"  - 文件大小: {file_size / 1024 / 1024:.2f} MB")
-        print(f"  - 分块数量: {total_chunks}")
+        print(f"  - Local APK path: {apk_path}")
+        print(f"  - File size: {file_size / 1024 / 1024:.2f} MB")
+        print(f"  - Number of chunks: {total_chunks}")
         
         temp_dir = '/data/local/tmp/chunks'
         remote_path = config['remote_path']
         
         try:
-            # 清理并创建临时目录
+            # Clean up and create temp directory
             self.driver.execute_script('mobile: shell', {'command': 'rm', 'args': ['-rf', temp_dir]})
             self.driver.execute_script('mobile: shell', {'command': 'mkdir', 'args': ['-p', temp_dir]})
             self.driver.execute_script('mobile: shell', {'command': 'rm', 'args': ['-f', remote_path]})
             
             start_time = time.time()
             
-            # 上传分块
-            print(f"  [阶段1] 上传分块...")
+            # Upload chunks
+            print(f"  [Phase 1] Uploading chunks...")
             with open(apk_path, 'rb') as f:
                 for i in range(total_chunks):
                     chunk_data = f.read(CHUNK_SIZE)
                     chunk_b64 = base64.b64encode(chunk_data).decode('utf-8')
                     chunk_path = f"{temp_dir}/chunk_{i:04d}"
                     
-                    print(f"    - 分块 {i + 1}/{total_chunks} ({len(chunk_data) / 1024 / 1024:.2f}MB)...", end=' ', flush=True)
+                    print(f"    - Chunk {i + 1}/{total_chunks} ({len(chunk_data) / 1024 / 1024:.2f}MB)...", end=' ', flush=True)
                     chunk_start = time.time()
                     self.driver.push_file(chunk_path, chunk_b64)
-                    print(f"完成 ({time.time() - chunk_start:.1f}s)")
+                    print(f"Done ({time.time() - chunk_start:.1f}s)")
             
-            # 合并分块
-            print(f"  [阶段2] 合并分块...")
+            # Merge chunks
+            print(f"  [Phase 2] Merging chunks...")
             for i in range(total_chunks):
                 chunk_path = f"{temp_dir}/chunk_{i:04d}"
-                print(f"    - 合并分块 {i + 1}/{total_chunks}...", end=' ', flush=True)
+                print(f"    - Merging chunk {i + 1}/{total_chunks}...", end=' ', flush=True)
                 
                 if i == 0:
                     self.driver.execute_script('mobile: shell', {'command': 'cp', 'args': [chunk_path, remote_path]})
                 else:
-                    # 后续分块：追加到目标文件
+                    # Subsequent chunks: append to target file
                     self.driver.execute_script('mobile: shell', {
                         'command': 'cat',
                         'args': [chunk_path, '>>', remote_path]
                     })
                 
                 self.driver.execute_script('mobile: shell', {'command': 'rm', 'args': ['-f', chunk_path]})
-                print(f"完成")
+                print(f"Done")
             
-            # 清理
+            # Cleanup
             self.driver.execute_script('mobile: shell', {'command': 'rm', 'args': ['-rf', temp_dir]})
             
-            # 验证
+            # Verify
             result = self.driver.execute_script('mobile: shell', {'command': 'ls', 'args': ['-la', remote_path]})
             
-            print(f"  - 总耗时: {time.time() - start_time:.1f}s")
+            print(f"  - Total time: {time.time() - start_time:.1f}s")
             
             if result and 'No such file' not in str(result):
-                print(f"✓ APK上传完成")
+                print(f"✓ APK upload completed")
                 print()
                 return True
             else:
-                print(f"✗ 文件验证失败")
+                print(f"✗ File verification failed")
                 print()
                 return False
                 
         except Exception as e:
-            print(f"✗ APK上传失败: {e}")
+            print(f"✗ APK upload failed: {e}")
             print()
             return False
     
     def install_app(self, app_name: str) -> bool:
-        """安装应用"""
+        """Install app"""
         config = self._get_app_config(app_name)
-        print(f"[Action: install_app] 安装{config['name']}应用...")
+        print(f"[Action: install_app] Installing {config['name']}...")
         
         try:
-            # 检查是否已安装
+            # Check if already installed
             if self._is_app_installed(config['package']):
-                print(f"  ⚠ {config['name']}已安装，跳过")
-                print(f"✓ {config['name']}可用")
+                print(f"  ⚠ {config['name']} already installed, skipping")
+                print(f"✓ {config['name']} is available")
                 print()
                 return True
             
-            # 安装
-            print(f"  - 正在安装APK...")
+            # Install
+            print(f"  - Installing APK...")
             result = self.driver.execute_script('mobile: shell', {
                 'command': 'pm',
                 'args': ['install', '-r', '-g', config['remote_path']]
             })
             
             if result and ('Success' in str(result) or 'success' in str(result).lower()):
-                print(f"✓ {config['name']}安装成功")
+                print(f"✓ {config['name']} installed successfully")
                 print()
                 return True
             
-            # 验证
+            # Verify
             time.sleep(2)
             if self._is_app_installed(config['package']):
-                print(f"✓ {config['name']}安装成功 (验证)")
+                print(f"✓ {config['name']} installed successfully (verified)")
                 print()
                 return True
             
-            print(f"✗ {config['name']}安装失败")
+            print(f"✗ {config['name']} installation failed")
             print()
             return False
             
         except Exception as e:
-            print(f"✗ 安装失败: {e}")
+            print(f"✗ Installation failed: {e}")
             print()
             return False
     
     def launch_app(self, app_name: str) -> bool:
-        """启动应用"""
+        """Launch app"""
         config = self._get_app_config(app_name)
-        print(f"[Action: launch_app] 启动{config['name']}应用...")
+        print(f"[Action: launch_app] Launching {config['name']}...")
         
         try:
             self.driver.activate_app(config['package'])
-            print(f"✓ {config['name']}已启动")
+            print(f"✓ {config['name']} launched")
             time.sleep(3)
             
             app_state = self.driver.query_app_state(config['package'])
             if app_state == 4:
-                print(f"✓ 应用在前台运行")
+                print(f"✓ App is running in foreground")
             elif app_state == 3:
-                print(f"⚠ 应用在后台运行")
+                print(f"⚠ App is running in background")
             
             print()
             return True
             
         except Exception as e:
-            print(f"✗ 启动失败: {e}")
+            print(f"✗ Launch failed: {e}")
             print()
             return False
     
     def check_app_installed(self, app_name: str) -> bool:
-        """检查应用是否已安装"""
+        """Check if app is installed"""
         config = self._get_app_config(app_name)
-        print(f"[Action: check_app] 检查{config['name']}是否已安装...")
+        print(f"[Action: check_app] Checking if {config['name']} is installed...")
         
         is_installed = self._is_app_installed(config['package'])
         
         if is_installed:
-            print(f"✓ {config['name']}已安装 (包名: {config['package']})")
+            print(f"✓ {config['name']} is installed (package: {config['package']})")
         else:
-            print(f"✗ {config['name']}未安装")
+            print(f"✗ {config['name']} is not installed")
         
         print()
         return is_installed
     
     def grant_app_permissions(self, app_name: str) -> bool:
-        """授予应用权限"""
+        """Grant app permissions"""
         config = self._get_app_config(app_name)
-        print(f"[Action: grant_app_permissions] 授予{config['name']}应用权限...")
+        print(f"[Action: grant_app_permissions] Granting permissions to {config['name']}...")
         
         permissions = config.get('permissions', [])
         if not permissions:
-            print(f"  - 无需授予权限")
+            print(f"  - No permissions to grant")
             print()
             return True
         
@@ -385,7 +385,7 @@ class SandboxClient:
         for permission in permissions:
             try:
                 perm_name = permission.split('.')[-1]
-                print(f"  - 授予权限: {perm_name}...", end=' ')
+                print(f"  - Granting permission: {perm_name}...", end=' ')
                 
                 self.driver.execute_script('mobile: shell', {
                     'command': 'pm',
@@ -394,105 +394,105 @@ class SandboxClient:
                 print(f"✓")
                 success_count += 1
             except Exception:
-                print(f"⚠ 跳过")
+                print(f"⚠ Skipped")
         
-        print(f"\n权限授予完成: {success_count}/{len(permissions)}")
+        print(f"\nPermissions granted: {success_count}/{len(permissions)}")
         print()
         return success_count > 0
     
     def close_app(self, app_name: str) -> bool:
-        """关闭应用"""
+        """Close app"""
         config = self._get_app_config(app_name)
-        print(f"[Action: close_app] 关闭{config['name']}应用...")
+        print(f"[Action: close_app] Closing {config['name']}...")
         
         try:
             self.driver.terminate_app(config['package'])
-            print(f"✓ {config['name']}已关闭")
+            print(f"✓ {config['name']} closed")
             print()
             return True
         except Exception as e:
-            print(f"✗ 关闭失败: {e}")
+            print(f"✗ Close failed: {e}")
             print()
             return False
     
     def uninstall_app(self, app_name: str) -> bool:
         """
-        卸载应用
+        Uninstall app
         
         Args:
-            app_name: 应用名称 (yyb)
+            app_name: App name (yyb)
             
         Returns:
-            是否卸载成功
+            Whether uninstall was successful
         """
         config = self._get_app_config(app_name)
-        print(f"[Action: uninstall_app] 卸载{config['name']}应用...")
+        print(f"[Action: uninstall_app] Uninstalling {config['name']}...")
         
         try:
-            # 首先检查应用是否已安装
-            print(f"  - 检查{config['name']}是否已安装...")
+            # First check if app is installed
+            print(f"  - Checking if {config['name']} is installed...")
             if not self._is_app_installed(config['package']):
-                print(f"✗ {config['name']}未安装，无需卸载")
+                print(f"✗ {config['name']} is not installed, no need to uninstall")
                 print()
                 return True
             
-            print(f"✓ 检测到{config['name']}已安装")
+            print(f"✓ {config['name']} is installed")
             
-            # 先强制停止应用（确保卸载顺利）
-            print(f"  - 正在停止{config['name']}应用...")
+            # Force stop app first (to ensure smooth uninstall)
+            print(f"  - Stopping {config['name']}...")
             try:
                 self.driver.terminate_app(config['package'])
             except Exception:
                 pass
             time.sleep(1)
-            print(f"✓ {config['name']}已停止")
+            print(f"✓ {config['name']} stopped")
             
-            # 使用 Appium 的 remove_app 卸载应用
-            print(f"  - 正在卸载{config['name']}...")
+            # Uninstall using Appium's remove_app
+            print(f"  - Uninstalling {config['name']}...")
             self.driver.remove_app(config['package'])
             
-            print(f"✓ {config['name']}卸载成功")
+            print(f"✓ {config['name']} uninstalled successfully")
             
-            # 验证应用是否已卸载
-            print(f"  - 验证卸载结果...")
+            # Verify app is uninstalled
+            print(f"  - Verifying uninstall...")
             time.sleep(2)
             
             if not self._is_app_installed(config['package']):
-                print(f"✓ 卸载验证通过：{config['name']}已从设备移除")
+                print(f"✓ Uninstall verified: {config['name']} has been removed from device")
             else:
-                print(f"⚠ 卸载验证异常：{config['name']}仍存在于设备中")
+                print(f"⚠ Verification warning: {config['name']} still exists on device")
             
             print()
             return True
             
         except Exception as e:
-            print(f"✗ {config['name']}卸载失败: {e}")
-            print(f"  - 可能原因：权限不足或应用为系统应用")
+            print(f"✗ {config['name']} uninstall failed: {e}")
+            print(f"  - Possible reason: insufficient permissions or system app")
             print()
             return False
     
-    # ==================== 屏幕操作 ====================
+    # ==================== Screen Operations ====================
     
     def tap_screen(self, x: int, y: int) -> bool:
-        """点击屏幕坐标"""
-        print(f"[Action: tap_screen] 点击屏幕坐标 ({x}, {y})...")
+        """Tap screen at coordinates"""
+        print(f"[Action: tap_screen] Tapping screen at ({x}, {y})...")
         
         try:
             self.driver.execute_script('mobile: shell', {
                 'command': 'input',
                 'args': ['tap', str(x), str(y)]
             })
-            print(f"✓ 点击成功")
+            print(f"✓ Tap successful")
             print()
             return True
         except Exception as e:
-            print(f"✗ 点击失败: {e}")
+            print(f"✗ Tap failed: {e}")
             print()
             return False
     
     def take_screenshot(self, filename: str = None) -> str:
-        """截取屏幕截图"""
-        print("[Action: screenshot] 截取屏幕截图...")
+        """Take screenshot"""
+        print("[Action: screenshot] Taking screenshot...")
         
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         
@@ -504,81 +504,81 @@ class SandboxClient:
         
         try:
             self.driver.save_screenshot(str(screenshot_path))
-            print(f"✓ 截图已保存")
-            print(f"  - 文件名: {filename}")
-            print(f"  - 完整路径: {screenshot_path}")
-            print(f"  - 文件大小: {screenshot_path.stat().st_size / 1024:.2f} KB")
+            print(f"✓ Screenshot saved")
+            print(f"  - Filename: {filename}")
+            print(f"  - Full path: {screenshot_path}")
+            print(f"  - File size: {screenshot_path.stat().st_size / 1024:.2f} KB")
             print()
             return str(screenshot_path)
         except Exception as e:
-            print(f"✗ 截图失败: {e}")
+            print(f"✗ Screenshot failed: {e}")
             print()
             return None
     
     def set_screen_resolution(self, width: int, height: int, dpi: int = None) -> bool:
         """
-        设置屏幕分辨率
+        Set screen resolution
         
-        通过 ADB 的 wm size 命令修改 Android 设备的屏幕分辨率。
-        注意：此修改是临时的，设备重启后会恢复默认分辨率。
+        Uses ADB wm size command to modify Android device screen resolution.
+        Note: This change is temporary and will be reset after device reboot.
         """
-        print(f"[Action: set_screen_resolution] 设置屏幕分辨率...")
-        print(f"  - 目标分辨率: {width}x{height}")
+        print(f"[Action: set_screen_resolution] Setting screen resolution...")
+        print(f"  - Target resolution: {width}x{height}")
         if dpi:
-            print(f"  - 目标DPI: {dpi}")
+            print(f"  - Target DPI: {dpi}")
         
         try:
-            # 步骤1: 获取当前分辨率
-            print(f"  - 步骤1: 获取当前分辨率...")
+            # Step 1: Get current resolution
+            print(f"  - Step 1: Getting current resolution...")
             current_size = self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
                 'args': ['size']
             })
-            print(f"    当前设置: {current_size.strip()}")
+            print(f"    Current setting: {current_size.strip()}")
             
-            # 步骤2: 设置新分辨率
-            print(f"  - 步骤2: 设置新分辨率 {width}x{height}...")
+            # Step 2: Set new resolution
+            print(f"  - Step 2: Setting new resolution {width}x{height}...")
             result = self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
                 'args': ['size', f'{width}x{height}']
             })
             
             if result and 'error' in str(result).lower():
-                print(f"    ✗ 设置失败: {result}")
+                print(f"    ✗ Setting failed: {result}")
                 return False
             
-            print(f"    ✓ 分辨率已设置")
+            print(f"    ✓ Resolution set")
             
-            # 步骤3: 如果指定了DPI，设置DPI
+            # Step 3: Set DPI if specified
             if dpi:
-                print(f"  - 步骤3: 设置DPI为 {dpi}...")
+                print(f"  - Step 3: Setting DPI to {dpi}...")
                 dpi_result = self.driver.execute_script('mobile: shell', {
                     'command': 'wm',
                     'args': ['density', str(dpi)]
                 })
                 
                 if dpi_result and 'error' in str(dpi_result).lower():
-                    print(f"    ⚠ DPI设置失败: {dpi_result}")
+                    print(f"    ⚠ DPI setting failed: {dpi_result}")
                 else:
-                    print(f"    ✓ DPI已设置")
+                    print(f"    ✓ DPI set")
             
-            # 步骤4: 验证分辨率是否生效
-            print(f"  - 步骤4: 验证分辨率...")
+            # Step 4: Verify resolution is applied
+            print(f"  - Step 4: Verifying resolution...")
             time.sleep(1)
             
             new_size = self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
                 'args': ['size']
             })
-            print(f"    新设置: {new_size.strip()}")
+            print(f"    New setting: {new_size.strip()}")
             
-            # 解析验证
+            # Parse and verify
             expected = f"{width}x{height}"
             if expected in str(new_size):
-                print(f"\n✓ 屏幕分辨率设置成功")
-                print(f"  - 分辨率: {width}x{height}")
+                print(f"\n✓ Screen resolution set successfully")
+                print(f"  - Resolution: {width}x{height}")
                 
-                # 显示当前DPI
+                # Display current DPI
                 current_dpi = self.driver.execute_script('mobile: shell', {
                     'command': 'wm',
                     'args': ['density']
@@ -586,48 +586,48 @@ class SandboxClient:
                 if current_dpi:
                     print(f"  - DPI: {current_dpi.strip()}")
                 
-                print(f"\n  提示：")
-                print(f"    - 此修改是临时的，设备重启后会恢复默认分辨率")
-                print(f"    - 使用 reset_screen_resolution 动作可恢复默认分辨率")
+                print(f"\n  Note:")
+                print(f"    - This change is temporary and will be reset after device reboot")
+                print(f"    - Use reset_screen_resolution action to restore default resolution")
             else:
-                print(f"\n⚠ 分辨率验证不一致，可能需要重启应用才能完全生效")
+                print(f"\n⚠ Resolution verification mismatch, may need to restart app for full effect")
             
             print()
             return True
             
         except Exception as e:
-            print(f"✗ 设置屏幕分辨率失败: {e}")
+            print(f"✗ Set screen resolution failed: {e}")
             print()
             return False
     
     def reset_screen_resolution(self) -> bool:
-        """重置屏幕分辨率为默认值"""
-        print(f"[Action: reset_screen_resolution] 重置屏幕分辨率...")
+        """Reset screen resolution to default"""
+        print(f"[Action: reset_screen_resolution] Resetting screen resolution...")
         
         try:
-            # 获取当前分辨率
-            print(f"  - 当前分辨率:")
+            # Get current resolution
+            print(f"  - Current resolution:")
             current_size = self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
                 'args': ['size']
             })
             print(f"    {current_size.strip()}")
             
-            # 重置分辨率
-            print(f"  - 重置分辨率...")
+            # Reset resolution
+            print(f"  - Resetting resolution...")
             self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
                 'args': ['size', 'reset']
             })
             
-            # 重置DPI
-            print(f"  - 重置DPI...")
+            # Reset DPI
+            print(f"  - Resetting DPI...")
             self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
                 'args': ['density', 'reset']
             })
             
-            # 验证重置结果
+            # Verify reset result
             time.sleep(1)
             new_size = self.driver.execute_script('mobile: shell', {
                 'command': 'wm',
@@ -638,44 +638,44 @@ class SandboxClient:
                 'args': ['density']
             })
             
-            print(f"\n✓ 屏幕分辨率已重置")
-            print(f"  - 分辨率: {new_size.strip()}")
+            print(f"\n✓ Screen resolution reset")
+            print(f"  - Resolution: {new_size.strip()}")
             print(f"  - DPI: {new_dpi.strip()}")
             print()
             return True
             
         except Exception as e:
-            print(f"✗ 重置屏幕分辨率失败: {e}")
+            print(f"✗ Reset screen resolution failed: {e}")
             print()
             return False
     
-    # ==================== UI 操作 ====================
+    # ==================== UI Operations ====================
     
     def dump_ui(self, save_path: str = None) -> str:
         """
-        获取当前界面的 UI 层次结构（XML格式）
+        Get current screen UI hierarchy (XML format)
         
-        使用 Appium 的 page_source 获取当前界面的完整 UI 树，
-        可用于分析界面元素、定位控件等。
+        Uses Appium's page_source to get the complete UI tree of current screen,
+        useful for analyzing UI elements and locating controls.
         
         Args:
-            save_path: 保存 XML 文件的本地路径（可选）
+            save_path: Local path to save XML file (optional)
             
         Returns:
-            UI XML 字符串
+            UI XML string
         """
-        print("[Action: dump_ui] 获取界面 UI 结构...")
+        print("[Action: dump_ui] Getting UI hierarchy...")
         
         try:
-            # 使用 Appium 的 page_source 获取 UI 结构
+            # Get UI structure using Appium's page_source
             xml_content = self.driver.page_source
             
             if not xml_content:
-                print(f"✗ 获取 UI 结构失败: 返回为空")
+                print(f"✗ Failed to get UI structure: empty response")
                 print()
                 return None
             
-            # 默认保存到输出目录
+            # Save to output directory by default
             if save_path is None:
                 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
                 save_path = OUTPUT_DIR / 'ui_dump.xml'
@@ -683,35 +683,35 @@ class SandboxClient:
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(xml_content)
             
-            print(f"✓ UI 结构已保存到: {save_path}")
+            print(f"✓ UI structure saved to: {save_path}")
             
-            # 解析并打印关键元素信息
+            # Parse and print key element info
             self._print_ui_summary(xml_content)
             
             print()
             return xml_content
             
         except Exception as e:
-            print(f"✗ 获取 UI 结构失败: {e}")
+            print(f"✗ Failed to get UI structure: {e}")
             print()
             return None
     
     def _print_ui_summary(self, xml_content: str):
-        """解析并打印 UI 结构摘要"""
+        """Parse and print UI structure summary"""
         
-        # 提取所有可点击元素
+        # Extract all clickable elements
         node_pattern = r'<[^>]*clickable="true"[^>]*>'
         clickable_nodes = re.findall(node_pattern, xml_content)
         
         if clickable_nodes:
-            print(f"\n  可点击元素 ({len(clickable_nodes)} 个):")
+            print(f"\n  Clickable elements ({len(clickable_nodes)} total):")
             count = 0
             for node in clickable_nodes:
-                if count >= 15:  # 最多显示15个
-                    print(f"    ... 还有 {len(clickable_nodes) - 15} 个元素")
+                if count >= 15:  # Show at most 15
+                    print(f"    ... {len(clickable_nodes) - 15} more elements")
                     break
                 
-                # 提取属性
+                # Extract attributes
                 text_match = re.search(r'text="([^"]*)"', node)
                 res_id_match = re.search(r'resource-id="([^"]*)"', node)
                 bounds_match = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
@@ -721,12 +721,12 @@ class SandboxClient:
                 res_id = res_id_match.group(1) if res_id_match else ""
                 content_desc = content_desc_match.group(1) if content_desc_match else ""
                 
-                # 跳过没有任何标识的元素
+                # Skip elements without any identifier
                 if not text and not res_id and not content_desc:
                     continue
                 
-                display_text = text[:20] if text else (content_desc[:20] if content_desc else "(无文本)")
-                display_id = res_id.split('/')[-1] if res_id else "(无ID)"
+                display_text = text[:20] if text else (content_desc[:20] if content_desc else "(no text)")
+                display_id = res_id.split('/')[-1] if res_id else "(no ID)"
                 
                 if bounds_match:
                     x1, y1, x2, y2 = bounds_match.groups()
@@ -738,34 +738,34 @@ class SandboxClient:
                 
                 count += 1
         
-        # 提取所有输入框元素
+        # Extract all input field elements
         input_pattern = r'<[^>]*class="[^"]*EditText[^"]*"[^>]*>'
         input_nodes = re.findall(input_pattern, xml_content)
         
         if input_nodes:
-            print(f"\n  输入框元素 ({len(input_nodes)} 个):")
-            for i, node in enumerate(input_nodes[:5]):  # 最多显示5个
+            print(f"\n  Input fields ({len(input_nodes)} total):")
+            for i, node in enumerate(input_nodes[:5]):  # Show at most 5
                 res_id_match = re.search(r'resource-id="([^"]*)"', node)
                 hint_match = re.search(r'text="([^"]*)"', node)
                 
                 res_id = res_id_match.group(1) if res_id_match else ""
                 hint = hint_match.group(1) if hint_match else ""
                 
-                display_id = res_id.split('/')[-1] if res_id else "(无ID)"
-                display_hint = hint[:20] if hint else "(无提示文字)"
+                display_id = res_id.split('/')[-1] if res_id else "(no ID)"
+                display_hint = hint[:20] if hint else "(no hint text)"
                 
                 print(f"    [{display_id}] {display_hint}")
     
     def click_element(self, text: str = None, resource_id: str = None, partial: bool = False) -> bool:
-        """点击元素"""
-        print(f"[Action: click_element] 查找并点击元素...")
+        """Click element"""
+        print(f"[Action: click_element] Finding and clicking element...")
         
         element = None
         
         try:
             if resource_id:
-                print(f"  - 查找方式: resource-id")
-                print(f"  - 目标ID: {resource_id}")
+                print(f"  - Search method: resource-id")
+                print(f"  - Target ID: {resource_id}")
                 try:
                     element = self.driver.find_element(AppiumBy.ID, resource_id)
                 except Exception:
@@ -775,15 +775,15 @@ class SandboxClient:
                         xpath = f'//*[contains(@resource-id, ":id/{resource_id}")]'
                     element = self.driver.find_element(AppiumBy.XPATH, xpath)
             elif text:
-                print(f"  - 查找方式: 文本匹配")
-                print(f"  - 目标文本: {text}")
+                print(f"  - Search method: text matching")
+                print(f"  - Target text: {text}")
                 if partial:
                     xpath = f'//*[contains(@text, "{text}")]'
                 else:
                     xpath = f'//*[@text="{text}"]'
                 element = self.driver.find_element(AppiumBy.XPATH, xpath)
             else:
-                print(f"✗ 需要提供 text 或 resource_id 参数")
+                print(f"✗ Either text or resource_id parameter is required")
                 print()
                 return False
             
@@ -792,35 +792,35 @@ class SandboxClient:
                 size = element.size
                 center_x = location['x'] + size['width'] // 2
                 center_y = location['y'] + size['height'] // 2
-                print(f"  - 找到元素，中心坐标: ({center_x}, {center_y})")
+                print(f"  - Element found, center coordinates: ({center_x}, {center_y})")
                 
                 element.click()
-                print(f"✓ 点击成功")
+                print(f"✓ Click successful")
                 print()
                 return True
             
         except Exception as e:
-            print(f"✗ 未找到元素或点击失败: {e}")
+            print(f"✗ Element not found or click failed: {e}")
             print()
             return False
     
     def input_text(self, text: str) -> bool:
-        """输入文本"""
-        print(f"[Action: input_text] 输入文本: {text}")
+        """Input text"""
+        print(f"[Action: input_text] Inputting text: {text}")
         
         try:
-            # 尝试获取焦点元素
+            # Try to get focused element
             try:
                 active_element = self.driver.switch_to.active_element
                 if active_element:
                     active_element.send_keys(text)
-                    print(f"✓ 文本输入成功 (Appium)")
+                    print(f"✓ Text input successful (Appium)")
                     print()
                     return True
             except Exception:
                 pass
             
-            # 检查是否包含中文
+            # Check if text contains Chinese characters
             has_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
             
             if has_chinese:
@@ -828,43 +828,43 @@ class SandboxClient:
                     'command': 'am',
                     'args': ['broadcast', '-a', 'ADB_INPUT_TEXT', '--es', 'msg', text]
                 })
-                print(f"✓ 文本输入成功 (ADB Broadcast)")
+                print(f"✓ Text input successful (ADB Broadcast)")
             else:
                 escaped_text = text.replace(' ', '%s')
                 self.driver.execute_script('mobile: shell', {
                     'command': 'input',
                     'args': ['text', escaped_text]
                 })
-                print(f"✓ 文本输入成功 (adb input)")
+                print(f"✓ Text input successful (adb input)")
             
             print()
             return True
             
         except Exception as e:
-            print(f"✗ 文本输入失败: {e}")
+            print(f"✗ Text input failed: {e}")
             print()
             return False
     
-    # ==================== 定位操作 ====================
+    # ==================== Location Operations ====================
     
     def set_location(self, latitude: float, longitude: float, altitude: float = 0.0) -> bool:
-        """设置 GPS 定位"""
-        print(f"[Action: set_location] 设置GPS定位...")
-        print(f"  - 纬度: {latitude}")
-        print(f"  - 经度: {longitude}")
+        """Set GPS location"""
+        print(f"[Action: set_location] Setting GPS location...")
+        print(f"  - Latitude: {latitude}")
+        print(f"  - Longitude: {longitude}")
         
         if not (-90 <= latitude <= 90):
-            print(f"✗ 纬度超出范围")
+            print(f"✗ Latitude out of range")
             return False
         
         if not (-180 <= longitude <= 180):
-            print(f"✗ 经度超出范围")
+            print(f"✗ Longitude out of range")
             return False
         
         try:
             appium_settings_pkg = "io.appium.settings"
             
-            # 授予权限
+            # Grant permissions
             for perm in ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION']:
                 try:
                     self.driver.execute_script('mobile: shell', {
@@ -879,7 +879,7 @@ class SandboxClient:
                 'args': ['set', appium_settings_pkg, 'android:mock_location', 'allow']
             })
             
-            # 启动 LocationService
+            # Start LocationService
             self.driver.execute_script('mobile: shell', {
                 'command': 'am',
                 'args': [
@@ -893,31 +893,31 @@ class SandboxClient:
             })
             
             time.sleep(3)
-            print(f"✓ GPS定位设置完成: ({latitude}, {longitude})")
+            print(f"✓ GPS location set: ({latitude}, {longitude})")
             print()
             return True
             
         except Exception as e:
-            print(f"✗ GPS定位设置失败: {e}")
+            print(f"✗ GPS location setting failed: {e}")
             print()
             return False
     
     def get_location(self) -> Dict[str, Any]:
-        """获取当前 GPS 定位"""
-        print("[Action: get_location] 获取当前GPS定位...")
+        """Get current GPS location"""
+        print("[Action: get_location] Getting current GPS location...")
         
         try:
-            # 尝试 Appium API
+            # Try Appium API
             try:
                 location = self.driver.location
                 if location and location.get('latitude') and location.get('longitude'):
-                    print(f"✓ GPS定位: ({location['latitude']}, {location['longitude']})")
+                    print(f"✓ GPS location: ({location['latitude']}, {location['longitude']})")
                     print()
                     return location
             except Exception:
                 pass
             
-            # 尝试 dumpsys
+            # Try dumpsys
             result = self.driver.execute_script('mobile: shell', {
                 'command': 'dumpsys',
                 'args': ['location']
@@ -934,24 +934,24 @@ class SandboxClient:
                         'altitude': float(match.group(3)),
                         'provider': provider
                     }
-                    print(f"✓ GPS定位 ({provider}): ({location['latitude']}, {location['longitude']})")
+                    print(f"✓ GPS location ({provider}): ({location['latitude']}, {location['longitude']})")
                     print()
                     return location
             
-            print(f"✗ 无法获取GPS定位")
+            print(f"✗ Unable to get GPS location")
             print()
             return None
             
         except Exception as e:
-            print(f"✗ 获取GPS定位失败: {e}")
+            print(f"✗ Failed to get GPS location: {e}")
             print()
             return None
     
-    # ==================== 其他操作 ====================
+    # ==================== Other Operations ====================
     
     def get_device_info(self) -> Dict[str, Any]:
-        """获取设备信息"""
-        print("[Action: device_info] 获取设备信息...")
+        """Get device information"""
+        print("[Action: device_info] Getting device information...")
         
         capabilities = self.driver.capabilities
         window_size = self.driver.get_window_size()
@@ -972,19 +972,19 @@ class SandboxClient:
             'wmDensity': wm_density.strip() if isinstance(wm_density, str) else wm_density,
         }
         
-        print(f"  - 设备名称: {info['deviceName']}")
-        print(f"  - 平台版本: Android {info['platformVersion']}")
-        print(f"  - 屏幕分辨率: {info['wmSize']}")
-        print(f"  - 屏幕DPI: {info['wmDensity']}")
-        print(f"  - 窗口大小: {info['windowSize']}")
-        print(f"✓ 设备信息获取完成")
+        print(f"  - Device name: {info['deviceName']}")
+        print(f"  - Platform version: Android {info['platformVersion']}")
+        print(f"  - Screen resolution: {info['wmSize']}")
+        print(f"  - Screen DPI: {info['wmDensity']}")
+        print(f"  - Window size: {info['windowSize']}")
+        print(f"✓ Device info retrieved")
         print()
         
         return info
     
     def open_browser(self, url: str) -> bool:
-        """打开浏览器"""
-        print(f"[Action: open_browser] 打开浏览器...")
+        """Open browser"""
+        print(f"[Action: open_browser] Opening browser...")
         print(f"  - URL: {url}")
         
         try:
@@ -994,23 +994,23 @@ class SandboxClient:
             })
             
             time.sleep(5)
-            print(f"✓ 浏览器已打开")
+            print(f"✓ Browser opened")
             print()
             return True
         except Exception as e:
-            print(f"✗ 打开失败: {e}")
+            print(f"✗ Open failed: {e}")
             print()
             return False
     
     def disable_gms(self) -> bool:
-        """禁用 Google Play Services"""
-        print("[Action: disable_gms] 禁用 Google Play Services...")
+        """Disable Google Play Services"""
+        print("[Action: disable_gms] Disabling Google Play Services...")
         
         gms_package = "com.google.android.gms"
         
         try:
             if not self._is_app_installed(gms_package):
-                print(f"⚠ GMS 未安装，无需禁用")
+                print(f"⚠ GMS not installed, no need to disable")
                 print()
                 return True
             
@@ -1019,17 +1019,17 @@ class SandboxClient:
                 'args': ['disable-user', '--user', '0', gms_package]
             })
             
-            print(f"✓ GMS 已禁用")
+            print(f"✓ GMS disabled")
             print()
             return True
         except Exception as e:
-            print(f"✗ 禁用失败: {e}")
+            print(f"✗ Disable failed: {e}")
             print()
             return False
     
     def enable_gms(self) -> bool:
-        """启用 Google Play Services"""
-        print("[Action: enable_gms] 启用 Google Play Services...")
+        """Enable Google Play Services"""
+        print("[Action: enable_gms] Enabling Google Play Services...")
         
         gms_package = "com.google.android.gms"
         
@@ -1039,111 +1039,111 @@ class SandboxClient:
                 'args': ['enable', gms_package]
             })
             
-            print(f"✓ GMS 已启用")
+            print(f"✓ GMS enabled")
             print()
             return True
         except Exception as e:
-            print(f"✗ 启用失败: {e}")
+            print(f"✗ Enable failed: {e}")
             print()
             return False
     
     def get_window_size(self) -> Dict[str, int]:
-        """获取屏幕窗口尺寸"""
-        print("[Action: get_window_size] 获取屏幕窗口尺寸...")
+        """Get screen window size"""
+        print("[Action: get_window_size] Getting screen window size...")
         
         try:
             size = self.driver.get_window_size()
-            print(f"✓ 窗口尺寸: {size['width']}x{size['height']}")
+            print(f"✓ Window size: {size['width']}x{size['height']}")
             print()
             return size
         except Exception as e:
-            print(f"✗ 获取失败: {e}")
+            print(f"✗ Failed to get: {e}")
             print()
             return None
     
     def get_device_model(self) -> str:
-        """获取设备型号"""
-        print("[Action: get_device_model] 获取设备型号...")
+        """Get device model"""
+        print("[Action: get_device_model] Getting device model...")
         
         try:
             result = self.execute_shell('getprop', ['ro.product.model'])
             model = result.strip() if result else 'N/A'
-            print(f"✓ 设备型号: {model}")
+            print(f"✓ Device model: {model}")
             print()
             return model
         except Exception as e:
-            print(f"✗ 获取失败: {e}")
+            print(f"✗ Failed to get: {e}")
             print()
             return 'N/A'
     
     def get_app_state(self, app_name: str) -> int:
         """
-        获取应用状态
+        Get app state
         
-        状态码:
-            0 = 未安装
-            1 = 未运行
-            2 = 后台暂停
-            3 = 后台运行
-            4 = 前台运行
+        State codes:
+            0 = Not installed
+            1 = Not running
+            2 = Running in background (suspended)
+            3 = Running in background
+            4 = Running in foreground
         """
         config = self._get_app_config(app_name)
-        print(f"[Action: get_app_state] 获取{config['name']}应用状态...")
+        print(f"[Action: get_app_state] Getting {config['name']} app state...")
         
         try:
             state = self.driver.query_app_state(config['package'])
             state_names = {
-                0: '未安装',
-                1: '未运行',
-                2: '后台暂停',
-                3: '后台运行',
-                4: '前台运行'
+                0: 'Not installed',
+                1: 'Not running',
+                2: 'Background (suspended)',
+                3: 'Background (running)',
+                4: 'Foreground (running)'
             }
-            state_name = state_names.get(state, '未知')
-            print(f"✓ 应用状态: {state} ({state_name})")
+            state_name = state_names.get(state, 'Unknown')
+            print(f"✓ App state: {state} ({state_name})")
             print()
             return state
         except Exception as e:
-            print(f"✗ 获取失败: {e}")
+            print(f"✗ Failed to get: {e}")
             print()
             return -1
     
     def get_current_activity(self) -> str:
-        """获取当前 Activity"""
-        print("[Action: get_current_activity] 获取当前 Activity...")
+        """Get current Activity"""
+        print("[Action: get_current_activity] Getting current Activity...")
         
         try:
             activity = self.driver.current_activity
-            print(f"✓ 当前 Activity: {activity}")
+            print(f"✓ Current Activity: {activity}")
             print()
             return activity
         except Exception as e:
-            print(f"✗ 获取失败: {e}")
+            print(f"✗ Failed to get: {e}")
             print()
             return None
     
     def get_current_package(self) -> str:
-        """获取当前包名"""
-        print("[Action: get_current_package] 获取当前包名...")
+        """Get current package name"""
+        print("[Action: get_current_package] Getting current package name...")
         
         try:
             package = self.driver.current_package
-            print(f"✓ 当前包名: {package}")
+            print(f"✓ Current package: {package}")
             print()
             return package
         except Exception as e:
-            print(f"✗ 获取失败: {e}")
+            print(f"✗ Failed to get: {e}")
             print()
             return None
     
     def get_device_logs(self, save_to_file: bool = True) -> str:
         """
-        获取设备日志 (logcat)
+        Get device logs (logcat)
         
         Args:
-            save_to_file: 是否保存到文件
+            save_to_file: Whether to save to file
         """
-        print("[Action: get_device_logs] 获取设备日志...")
+        print("[Action: get_device_logs] Getting device logs...")
         
         try:
             logs = self.execute_shell('logcat', ['-d'])
@@ -1153,28 +1153,28 @@ class SandboxClient:
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 log_path = OUTPUT_DIR / f'device_logs_{timestamp}.txt'
                 log_path.write_text(logs, encoding='utf-8')
-                print(f"✓ 日志已保存到: {log_path}")
-                print(f"  - 日志大小: {len(logs) / 1024:.2f} KB")
+                print(f"✓ Logs saved to: {log_path}")
+                print(f"  - Log size: {len(logs) / 1024:.2f} KB")
             else:
-                print(f"✓ 日志获取成功 ({len(logs) if logs else 0} 字节)")
+                print(f"✓ Logs retrieved successfully ({len(logs) if logs else 0} bytes)")
             
             print()
             return logs
         except Exception as e:
-            print(f"✗ 获取失败: {e}")
+            print(f"✗ Failed to get: {e}")
             print()
             return None
     
     def execute_shell(self, command: str, args: List[str] = None) -> str:
         """
-        执行 ADB shell 命令
+        Execute ADB shell command
         
         Args:
-            command: 命令
-            args: 参数列表
+            command: Command
+            args: Argument list
             
         Returns:
-            命令输出字符串
+            Command output string
         """
         try:
             result = self.driver.execute_script('mobile: shell', {
@@ -1187,76 +1187,76 @@ class SandboxClient:
     
     def shell(self, command: str, args: List[str] = None) -> str:
         """
-        执行 ADB shell 命令（对外接口，带打印输出）
+        Execute ADB shell command (public interface with print output)
         
         Args:
-            command: 命令
-            args: 参数列表
+            command: Command
+            args: Argument list
         """
-        print(f"[Action: shell] 执行命令: {command} {' '.join(args or [])}")
+        print(f"[Action: shell] Executing command: {command} {' '.join(args or [])}")
         
         try:
             result = self.execute_shell(command, args)
             if result:
-                # 限制输出长度
+                # Limit output length
                 display_result = result[:500] + '...' if len(result) > 500 else result
-                print(f"✓ 命令输出:\n{display_result}")
+                print(f"✓ Command output:\n{display_result}")
             else:
-                print(f"✓ 命令执行成功（无输出）")
+                print(f"✓ Command executed successfully (no output)")
             print()
             return result
         except Exception as e:
-            print(f"✗ 执行失败: {e}")
+            print(f"✗ Execution failed: {e}")
             print()
             return None
 
 
 def parse_arguments():
-    """解析命令行参数"""
+    """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description="E2B 沙箱客户端 - 连接到已存在的沙箱执行移动端操作",
+        description="E2B Sandbox Client - Connect to an existing sandbox for mobile automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-支持的测试动作:
+Supported actions:
 
-  应用操作 (需配合 --app-name yyb):
-    upload_app              - 上传应用APK到设备
-    install_app             - 安装已上传的应用APK
-    launch_app              - 启动应用
-    check_app               - 检查应用是否已安装
-    grant_app_permissions   - 授予应用权限
-    close_app               - 关闭应用
-    uninstall_app           - 卸载应用
+  App operations (requires --app-name yyb):
+    upload_app              - Upload APK to device
+    install_app             - Install uploaded APK
+    launch_app              - Launch app
+    check_app               - Check if app is installed
+    grant_app_permissions   - Grant app permissions
+    close_app               - Close app
+    uninstall_app           - Uninstall app
 
-  屏幕操作:
-    tap_screen              - 点击屏幕坐标（需 --tap-x 和 --tap-y）
-    screenshot              - 截取屏幕截图
-    set_screen_resolution   - 设置屏幕分辨率（需 --width 和 --height）
-    reset_screen_resolution - 重置屏幕分辨率
+  Screen operations:
+    tap_screen              - Tap screen coordinates (requires --tap-x and --tap-y)
+    screenshot              - Take screenshot
+    set_screen_resolution   - Set screen resolution (requires --width and --height)
+    reset_screen_resolution - Reset screen resolution
 
-  UI 操作:
-    dump_ui                 - 获取当前界面 UI 结构
-    click_element           - 点击元素（需 --element-text 或 --element-id）
-    input_text              - 输入文本（需 --text）
+  UI operations:
+    dump_ui                 - Get current UI hierarchy
+    click_element           - Click element (requires --element-text or --element-id)
+    input_text              - Input text (requires --text)
 
-  定位操作:
-    set_location            - 设置GPS定位（需 --latitude 和 --longitude）
-    get_location            - 获取当前GPS定位
+  Location operations:
+    set_location            - Set GPS location (requires --latitude and --longitude)
+    get_location            - Get current GPS location
 
-  其他操作:
-    device_info             - 获取设备信息
-    get_window_size         - 获取屏幕窗口尺寸
-    get_device_model        - 获取设备型号
-    get_app_state           - 获取应用状态（需 --app-name）
-    get_current_activity    - 获取当前 Activity
-    get_current_package     - 获取当前包名
-    get_device_logs         - 获取设备日志
-    open_browser            - 打开浏览器（需 --url）
-    disable_gms             - 禁用 Google Play Services
-    enable_gms              - 启用 Google Play Services
-    shell                   - 执行 ADB shell 命令（需 --shell-cmd）
+  Other operations:
+    device_info             - Get device information
+    get_window_size         - Get screen window size
+    get_device_model        - Get device model
+    get_app_state           - Get app state (requires --app-name)
+    get_current_activity    - Get current Activity
+    get_current_package     - Get current package name
+    get_device_logs         - Get device logs
+    open_browser            - Open browser (requires --url)
+    disable_gms             - Disable Google Play Services
+    enable_gms              - Enable Google Play Services
+    shell                   - Execute ADB shell command (requires --shell-cmd)
 
-使用示例:
+Usage examples:
     %(prog)s --sandbox-id <id> --action device_info
     %(prog)s --sandbox-id <id> --action screenshot
     %(prog)s --sandbox-id <id> --action tap_screen --tap-x 500 --tap-y 1000
@@ -1269,91 +1269,91 @@ def parse_arguments():
         """
     )
     
-    parser.add_argument('--sandbox-id', type=str, required=True, help='沙箱 ID')
-    parser.add_argument('--action', type=str, required=True, help='要执行的动作，多个动作用逗号分隔')
-    parser.add_argument('--app-name', type=str, default=None, help='应用名称 (yyb)')
-    parser.add_argument('--apk-path', type=str, default=None, help='APK 文件路径')
-    parser.add_argument('--tap-x', type=int, default=None, help='点击 X 坐标')
-    parser.add_argument('--tap-y', type=int, default=None, help='点击 Y 坐标')
-    parser.add_argument('--text', type=str, default=None, help='输入文本')
-    parser.add_argument('--element-text', type=str, default=None, help='元素文本')
-    parser.add_argument('--element-id', type=str, default=None, help='元素 resource-id')
-    parser.add_argument('--latitude', type=float, default=None, help='GPS 纬度')
-    parser.add_argument('--longitude', type=float, default=None, help='GPS 经度')
-    parser.add_argument('--altitude', type=float, default=0.0, help='GPS 海拔')
-    parser.add_argument('--width', type=int, default=None, help='屏幕宽度')
-    parser.add_argument('--height', type=int, default=None, help='屏幕高度')
-    parser.add_argument('--dpi', type=int, default=None, help='屏幕 DPI')
-    parser.add_argument('--url', type=str, default=None, help='浏览器 URL')
-    parser.add_argument('--shell-cmd', type=str, default=None, help='ADB shell 命令')
-    parser.add_argument('--list-actions', action='store_true', help='列出所有可用动作')
+    parser.add_argument('--sandbox-id', type=str, required=True, help='Sandbox ID')
+    parser.add_argument('--action', type=str, required=True, help='Action to execute, multiple actions separated by comma')
+    parser.add_argument('--app-name', type=str, default=None, help='App name (yyb)')
+    parser.add_argument('--apk-path', type=str, default=None, help='APK file path')
+    parser.add_argument('--tap-x', type=int, default=None, help='Tap X coordinate')
+    parser.add_argument('--tap-y', type=int, default=None, help='Tap Y coordinate')
+    parser.add_argument('--text', type=str, default=None, help='Input text')
+    parser.add_argument('--element-text', type=str, default=None, help='Element text')
+    parser.add_argument('--element-id', type=str, default=None, help='Element resource-id')
+    parser.add_argument('--latitude', type=float, default=None, help='GPS latitude')
+    parser.add_argument('--longitude', type=float, default=None, help='GPS longitude')
+    parser.add_argument('--altitude', type=float, default=0.0, help='GPS altitude')
+    parser.add_argument('--width', type=int, default=None, help='Screen width')
+    parser.add_argument('--height', type=int, default=None, help='Screen height')
+    parser.add_argument('--dpi', type=int, default=None, help='Screen DPI')
+    parser.add_argument('--url', type=str, default=None, help='Browser URL')
+    parser.add_argument('--shell-cmd', type=str, default=None, help='ADB shell command')
+    parser.add_argument('--list-actions', action='store_true', help='List all available actions')
     
     return parser.parse_args()
 
 
 def execute_actions(client: SandboxClient, actions: List[str], args):
-    """执行测试动作"""
+    """Execute actions"""
     results = {}
     
     for i, action in enumerate(actions, 1):
-        print(f"[{i}/{len(actions)}] 执行动作: {action}")
+        print(f"[{i}/{len(actions)}] Executing action: {action}")
         print("-" * 70)
         
         try:
-            # 应用操作
+            # App operations
             if action == 'upload_app':
                 if args.app_name is None:
-                    print(f"✗ upload_app 需要 --app-name 参数")
+                    print(f"✗ upload_app requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.upload_app(args.app_name, args.apk_path)
             
             elif action == 'install_app':
                 if args.app_name is None:
-                    print(f"✗ install_app 需要 --app-name 参数")
+                    print(f"✗ install_app requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.install_app(args.app_name)
             
             elif action == 'launch_app':
                 if args.app_name is None:
-                    print(f"✗ launch_app 需要 --app-name 参数")
+                    print(f"✗ launch_app requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.launch_app(args.app_name)
             
             elif action == 'check_app':
                 if args.app_name is None:
-                    print(f"✗ check_app 需要 --app-name 参数")
+                    print(f"✗ check_app requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.check_app_installed(args.app_name)
             
             elif action == 'grant_app_permissions':
                 if args.app_name is None:
-                    print(f"✗ grant_app_permissions 需要 --app-name 参数")
+                    print(f"✗ grant_app_permissions requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.grant_app_permissions(args.app_name)
             
             elif action == 'close_app':
                 if args.app_name is None:
-                    print(f"✗ close_app 需要 --app-name 参数")
+                    print(f"✗ close_app requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.close_app(args.app_name)
             
             elif action == 'uninstall_app':
                 if args.app_name is None:
-                    print(f"✗ uninstall_app 需要 --app-name 参数")
+                    print(f"✗ uninstall_app requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.uninstall_app(args.app_name)
             
-            # 屏幕操作
+            # Screen operations
             elif action == 'tap_screen':
                 if args.tap_x is None or args.tap_y is None:
-                    print(f"✗ tap_screen 需要 --tap-x 和 --tap-y 参数")
+                    print(f"✗ tap_screen requires --tap-x and --tap-y parameters")
                     results[action] = False
                 else:
                     results[action] = client.tap_screen(args.tap_x, args.tap_y)
@@ -1363,7 +1363,7 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
             
             elif action == 'set_screen_resolution':
                 if args.width is None or args.height is None:
-                    print(f"✗ set_screen_resolution 需要 --width 和 --height 参数")
+                    print(f"✗ set_screen_resolution requires --width and --height parameters")
                     results[action] = False
                 else:
                     results[action] = client.set_screen_resolution(args.width, args.height, args.dpi)
@@ -1371,13 +1371,13 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
             elif action == 'reset_screen_resolution':
                 results[action] = client.reset_screen_resolution()
             
-            # UI 操作
+            # UI operations
             elif action == 'dump_ui':
                 results[action] = client.dump_ui() is not None
             
             elif action == 'click_element':
                 if args.element_text is None and args.element_id is None:
-                    print(f"✗ click_element 需要 --element-text 或 --element-id 参数")
+                    print(f"✗ click_element requires --element-text or --element-id parameter")
                     results[action] = False
                 else:
                     results[action] = client.click_element(
@@ -1387,15 +1387,15 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
             
             elif action == 'input_text':
                 if args.text is None:
-                    print(f"✗ input_text 需要 --text 参数")
+                    print(f"✗ input_text requires --text parameter")
                     results[action] = False
                 else:
                     results[action] = client.input_text(args.text)
             
-            # 定位操作
+            # Location operations
             elif action == 'set_location':
                 if args.latitude is None or args.longitude is None:
-                    print(f"✗ set_location 需要 --latitude 和 --longitude 参数")
+                    print(f"✗ set_location requires --latitude and --longitude parameters")
                     results[action] = False
                 else:
                     results[action] = client.set_location(args.latitude, args.longitude, args.altitude)
@@ -1403,13 +1403,13 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
             elif action == 'get_location':
                 results[action] = client.get_location() is not None
             
-            # 其他操作
+            # Other operations
             elif action == 'device_info':
                 results[action] = client.get_device_info() is not None
             
             elif action == 'open_browser':
                 if args.url is None:
-                    print(f"✗ open_browser 需要 --url 参数")
+                    print(f"✗ open_browser requires --url parameter")
                     results[action] = False
                 else:
                     results[action] = client.open_browser(args.url)
@@ -1428,7 +1428,7 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
             
             elif action == 'get_app_state':
                 if args.app_name is None:
-                    print(f"✗ get_app_state 需要 --app-name 参数")
+                    print(f"✗ get_app_state requires --app-name parameter")
                     results[action] = False
                 else:
                     results[action] = client.get_app_state(args.app_name) >= 0
@@ -1444,80 +1444,80 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
             
             elif action == 'shell':
                 if args.shell_cmd is None:
-                    print(f"✗ shell 需要 --shell-cmd 参数")
+                    print(f"✗ shell requires --shell-cmd parameter")
                     results[action] = False
                 else:
-                    # 解析命令和参数
+                    # Parse command and arguments
                     parts = args.shell_cmd.split()
                     cmd = parts[0] if parts else ''
                     cmd_args = parts[1:] if len(parts) > 1 else []
                     results[action] = client.shell(cmd, cmd_args) is not None
             
             else:
-                print(f"✗ 未知的动作: {action}")
+                print(f"✗ Unknown action: {action}")
                 results[action] = False
         
         except Exception as e:
-            print(f"✗ 动作执行失败: {e}")
+            print(f"✗ Action execution failed: {e}")
             results[action] = False
         
         print()
     
-    # 打印执行摘要
+    # Print execution summary
     print("=" * 70)
-    print("执行摘要")
+    print("Execution Summary")
     print("=" * 70)
     
     success_count = sum(1 for v in results.values() if v)
     total_count = len(results)
     
     for action, result in results.items():
-        status = "✓ 成功" if result else "✗ 失败"
+        status = "✓ Success" if result else "✗ Failed"
         print(f"{action:<25} : {status}")
     
     print("-" * 70)
-    print(f"总计: {success_count}/{total_count} 成功")
+    print(f"Total: {success_count}/{total_count} succeeded")
     print("=" * 70)
 
 
 def main():
-    """主函数"""
-    # 加载环境变量
+    """Main function"""
+    # Load environment variables
     _load_env_file()
     
     args = parse_arguments()
     
-    # 检查 API Key
+    # Check API Key
     if not os.getenv("E2B_API_KEY"):
-        print("错误: E2B_API_KEY 未设置")
-        print("请在 .env 文件中设置或导出环境变量")
+        print("Error: E2B_API_KEY is not set")
+        print("Please set it in .env file or export as environment variable")
         sys.exit(1)
     
-    # 解析动作列表
+    # Parse action list
     actions = [a.strip() for a in args.action.split(',')]
     
-    # 创建客户端
+    # Create client
     client = SandboxClient(sandbox_id=args.sandbox_id)
     
     try:
-        # 连接
+        # Connect
         client.connect()
         
-        # 执行动作
+        # Execute actions
         execute_actions(client, actions, args)
         
     except Exception as e:
-        print(f"✗ 发生错误: {e}")
+        print(f"✗ Error occurred: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
     
     finally:
-        # 断开连接
+        # Disconnect
         client.disconnect()
         
         print("=" * 70)
-        print("测试完成！")
+        print("Test completed!")
         print("=" * 70)
 
 
