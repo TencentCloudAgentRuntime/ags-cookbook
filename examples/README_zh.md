@@ -25,7 +25,9 @@ examples/
 │   └── pyproject.toml     # 依赖配置
 ├── mobile-use/            # 移动端自动化示例
 │   ├── README.md          # 详细使用说明
-│   ├── main.py            # 移动设备自动化演示
+│   ├── quickstart.py      # 快速入门示例
+│   ├── batch.py           # 批量操作脚本（多进程 + 异步）
+│   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
 │   └── requirements.txt   # 依赖包
 └── shop-assistant/        # 购物车自动化示例
     ├── README.md          # 详细使用说明
@@ -99,20 +101,21 @@ examples/
 
 ### mobile-use - 移动端自动化示例
 
-展示如何使用 AgentSandbox 实现移动设备自动化交互：
+展示如何使用 AgentSandbox 云端沙箱运行 Android 设备，结合 Appium 实现移动端自动化：
 
-- **Android 模拟器**：云端沙箱运行 Android 设备
-- **屏幕控制**：自动化点击、滑动、文本输入等操作
-- **可视化验证**：基于截图的验证
-- **应用自动化**：完整的移动应用交互流程
+- **云端 Android 设备**：Android 运行在沙箱，本地通过 Appium 远程控制
+- **屏幕流**：通过 ws-scrcpy 实时查看屏幕
+- **元素操作**：通过文本或 resource-id 查找并点击元素
+- **CLI 工具**：`sandbox_connect.py` 用于连接已存在的沙箱
+- **批量测试**：高并发沙箱测试（多进程 + 异步）
 
 **适用场景**：
 - 移动应用自动化测试
 - 移动端 UI/UX 测试
-- 移动应用流程演示
-- 跨设备兼容性测试
+- 高并发移动测试
+- GPS 定位模拟
 
-**技术栈**：playwright, Android
+**技术栈**：Appium, Android, pytest
 
 ### shop-assistant - 购物车自动化示例
 

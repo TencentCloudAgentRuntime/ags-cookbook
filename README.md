@@ -53,7 +53,9 @@ ags-cookbook/
     │   └── pyproject.toml               
     ├── mobile-use/                        # Mobile automation example
     │   ├── README.md                      
-    │   ├── main.py          
+    │   ├── quickstart.py                  # Quick start example
+    │   ├── batch.py                       # Batch operations (multi-process + async)
+    │   ├── sandbox_connect.py             # Single sandbox connection tool (CLI)
     │   └── requirements.txt               
     └── shop-assistant/                    # Shopping cart automation example
         ├── README.md                      
