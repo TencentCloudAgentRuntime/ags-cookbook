@@ -1,0 +1,28 @@
+[cmd.precache]
+# 预热模式: precache (使用 PreCacheImageTask API) 或 sandboxtool (创建 SandboxTool)
+mode = "precache"
+# CAM 角色 ARN，用于访问 TCR 镜像（仅在 mode = "sandboxtool" 时需要）
+# role_arn = "qcs::cam::uin/your-uin:roleName/your-role-name"
+# TCR 实例 ID
+tcr_registry_id = "tcr-xxxxxxxx"
+# TCR 命名空间
+tcr_namespace = "your-namespace"
+# 镜像名过滤正则表达式（可选，留空表示不过滤）
+tcr_image_regex = ""
+# 并发数
+concurrency = 10
+# 失败任务最大重试次数
+max_retries = 3
+# 日志文件路径
+log_file = "precache.log"
+
+[tencent_cloud]
+# 腾讯云地域
+region = "ap-shanghai"
+# 腾讯云 API 密钥
+secret_id = "your-secret-id"
+secret_key = "your-secret-key"
+
+[tencent_cloud.ags]
+# AGS 接入模式: 留空使用公网, "pre" 使用预发环境, "internal" 使用内网
+mode = ""
