@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-distributed-config
+  annotations:
+    config.kubernetes.io/local-config: "true"  # 标记为本地配置，不会被 apply 到集群
+data:
+  # Pod 并行数
+  parallelism: "100"
+  # k6 镜像
+  image: "ccr.ccs.tencentyun.com/finofliu/xk6-ags:latest"
+  # Prometheus Remote Write URL
+  prometheusUrl: "http://prometheus:9090/api/v1/write"
+  # Trend 统计项
+  trendStats: "p(50),p(75),p(90),p(95),p(99),min,max,avg"
+  # Runner 资源配置
+  cpuLimit: "1"
+  cpuRequest: "1"
+  memoryLimit: "2Gi"
+  memoryRequest: "2Gi"

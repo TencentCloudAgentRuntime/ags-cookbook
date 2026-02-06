@@ -1,0 +1,133 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - manifest.yaml
+  - config.yaml
+
+configurations:
+  - nameref.yaml
+
+configMapGenerator:
+  - name: k6-ags-data-plane-load-test
+    files:
+      - script.js
+      - config.js
+secretGenerator:
+  - name: k6-ags-secrets
+    envs:
+      - .env
+
+replacements:
+  # parallelism
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.parallelism
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.parallelism
+        options:
+          create: true
+
+  # image
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.image
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.initializer.image
+          - spec.runner.image
+        options:
+          create: true
+
+  # cpu limit
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.cpuLimit
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.runner.resources.limits.cpu
+        options:
+          create: true
+
+  # cpu request
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.cpuRequest
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.runner.resources.requests.cpu
+        options:
+          create: true
+
+  # memory limit
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.memoryLimit
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.runner.resources.limits.memory
+        options:
+          create: true
+
+  # memory request
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.memoryRequest
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.runner.resources.requests.memory
+        options:
+          create: true
+
+  # prometheus url
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.prometheusUrl
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.runner.env.[name=K6_PROMETHEUS_RW_SERVER_URL].value
+        options:
+          create: true
+
+  # trend stats
+  - source:
+      kind: ConfigMap
+      name: k6-distributed-config
+      fieldPath: data.trendStats
+    targets:
+      - select:
+          kind: TestRun
+          name: k6-ags-data-plane-load-test
+        fieldPaths:
+          - spec.runner.env.[name=K6_PROMETHEUS_RW_TREND_STATS].value
+        options:
+          create: true
