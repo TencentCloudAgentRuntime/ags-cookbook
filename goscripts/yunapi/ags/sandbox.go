@@ -7,6 +7,7 @@ import (
 
 	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
+	"golang.org/x/time/rate"
 )
 
 // ============== 重新导出 SDK 类型（方便使用） ==============
@@ -46,6 +47,7 @@ func Int64(v int64) *int64 {
 type Client struct {
 	*ags.Client
 	commonClient *common.Client // 用于调用 SDK 未封装的接口
+	limiter      *rate.Limiter
 }
 
 // CreateSandboxTool 创建沙箱工具

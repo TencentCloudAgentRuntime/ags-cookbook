@@ -1,14 +1,16 @@
 package ags
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
+	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
 	tcerrors "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 	tchttp "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/http"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
-	ags "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ags/v20250920"
+	"golang.org/x/time/rate"
 
 	"goscripts/config"
 )
@@ -52,11 +54,17 @@ func NewClient() (*Client, error) {
 	return &Client{
 		Client:       sdkClient,
 		commonClient: &commonClient,
+		limiter:      rate.NewLimiter(rate.Limit(5), 5),
 	}, nil
 }
 
 // CallWithResponse 调用 AGS 接口并解析响应（用于调用 SDK 未封装的接口）
 func (c *Client) CallWithResponse(action string, params map[string]any, result any) error {
+	err := c.limiter.Wait(context.Background())
+	if err != nil {
+		return err
+	}
+
 	request := tchttp.NewCommonRequest(ServiceName, APIVersion, action)
 
 	paramsBytes, err := json.Marshal(params)
