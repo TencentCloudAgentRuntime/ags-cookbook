@@ -29,11 +29,14 @@ examples/
 │   ├── batch.py           # 批量操作脚本（多进程 + 异步）
 │   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
 │   └── requirements.txt   # 依赖包
-└── shop-assistant/        # 购物车自动化示例
+│── shop-assistant/        # 购物车自动化示例
+│   ├── README.md          # 详细使用说明
+│   ├── automation_cart_demo.py  # 购物流程自动化演示
+│   └── requirements.txt   # 依赖包
+└── swe-agent/             # SWE-agent与AGS集成示例
     ├── README.md          # 详细使用说明
-    ├── automation_cart_demo.py  # 购物流程自动化演示
-    └── requirements.txt   # 依赖包
-```
+    ├── README_zh.md       # 中文文档
+    └── SWE-ReX/           # 用于AGS集成的修改版SWE-ReX
 
 ## 示例列表
 
@@ -131,7 +134,21 @@ examples/
 - 远程自动化演示
 
 **技术栈**：playwright
+### swe-agent - SWE-agent与AGS集成示例
 
+展示如何在SWE-agent任务中集成AgentSandbox沙箱：
+
+- **完整工作流**：读取SWE instances → 远程启动代码沙箱环境 → 模型在沙箱中推演 → 生成轨迹
+- **沙箱隔离**：安全可靠、快速部署
+- **高度定制**：沙箱环境可高度定制，自动化资源管理与清理
+- **快速集成**：快速集成至现有SWE-agent流程
+
+**适用场景**：
+- 自动化软件工程和代码修复
+- SWE基准测试评估
+- AI驱动的代码生成和分析
+
+**技术栈**：SWE-agent, Tencent AGS, Python
 ## 运行要求
 
 1. 安装依赖：`pip install -r ../requirements.txt`
