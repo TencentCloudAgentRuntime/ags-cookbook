@@ -7,7 +7,7 @@ X-Access-Token header for authentication instead of X-API-Key.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
 from typing_extensions import Self
@@ -15,10 +15,11 @@ from typing_extensions import Self
 from swerex.runtime.remote import RemoteRuntime
 from swerex.utils.log import get_logger
 
-if TYPE_CHECKING:
-    from swerex.deployment.ags import TencentAGSDeployment
-
 __all__ = ["AGSRuntime"]
+
+# Type alias for the token refresher callback.
+# The callback takes no arguments and returns a coroutine that resolves to a token string.
+TokenRefresher = Callable[[], Awaitable[str]]
 
 
 class AGSRuntime(RemoteRuntime):
@@ -34,14 +35,15 @@ class AGSRuntime(RemoteRuntime):
         self,
         *,
         logger: logging.Logger | None = None,
-        token_refresher: "TencentAGSDeployment | None" = None,
+        token_refresher: TokenRefresher | None = None,
         **kwargs: Any,
     ):
         """Initialize AGS Runtime.
 
         Args:
             logger: Logger instance
-            token_refresher: Optional deployment instance that can refresh tokens
+            token_refresher: Optional async callable that returns a valid token string.
+                             Called before each request to ensure the token is fresh.
             **kwargs: Arguments passed to RemoteRuntime (see AGSRuntimeConfig)
         """
         from swerex.runtime.config import AGSRuntimeConfig
@@ -73,7 +75,7 @@ class AGSRuntime(RemoteRuntime):
     async def _ensure_valid_token(self) -> None:
         """Ensure the AGS token is valid, refresh if needed."""
         if self._token_refresher is not None:
-            new_token = await self._token_refresher._ensure_valid_token()
+            new_token = await self._token_refresher()
             self._config.ags_token = new_token
 
     async def _request(self, endpoint: str, payload: BaseModel | None, output_class: Any, num_retries: int = 0):

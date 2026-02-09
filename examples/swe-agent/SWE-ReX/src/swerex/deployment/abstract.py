@@ -45,11 +45,11 @@ class AbstractDeployment(ABC):
         """Stops the runtime when the object is deleted."""
         # Need to be check whether we are in an async event loop or not
         # https://stackoverflow.com/questions/54770360/
-        msg = "Ensuring deployment is stopped because object is deleted"
-        try:
-            self.logger.debug(msg)
-        except Exception:
-            print(msg)
+        # NOTE: Do NOT perform any I/O (logging, print, etc.) in __del__.
+        # Rich replaces sys.stdout with a FileProxy that routes through
+        # console.print(). If GC triggers __del__ during a console.print()
+        # call, any I/O here will re-enter the Rich rendering pipeline
+        # and deadlock with the Live refresh thread.
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():

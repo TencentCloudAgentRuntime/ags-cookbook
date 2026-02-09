@@ -78,7 +78,6 @@ class TencentAGSDeployment(AbstractDeployment):
         self._instance_id: str | None = None
         self._token_info: TokenInfo | None = None
         self._server_token: str | None = None  # Token for SWE-ReX server authentication
-        self._token_lock = asyncio.Lock()
         self.logger = logger or get_logger("rex-deploy")
         self._hooks = CombinedDeploymentHook()
 
@@ -153,15 +152,8 @@ class TencentAGSDeployment(AbstractDeployment):
         if not self._token_info.is_expired():
             return self._token_info.token
 
-        async with self._token_lock:
-            if not self._token_info.is_expired():
-                return self._token_info.token
-
-            self.logger.info("Token expired, refreshing...")
-            self._token_info = await asyncio.to_thread(self._acquire_ags_token, self._token_info.instance_id)
-
-            if self._runtime is not None:
-                self._runtime._config.ags_token = self._token_info.token
+        self.logger.info("Token expired, refreshing...")
+        self._token_info = await asyncio.to_thread(self._acquire_ags_token, self._token_info.instance_id)
 
         return self._token_info.token
 
@@ -446,7 +438,7 @@ class TencentAGSDeployment(AbstractDeployment):
             auth_token=self._server_token,          # SWE-ReX server authentication
             timeout=self._config.runtime_timeout,
             logger=self.logger,
-            token_refresher=self,
+            token_refresher=self._ensure_valid_token,
         )
 
         # Step 5: Wait for runtime to be ready
@@ -455,6 +447,18 @@ class TencentAGSDeployment(AbstractDeployment):
         await self._wait_until_alive(timeout=remaining_timeout)
         self.logger.info(f"Runtime started in {time.time() - t1:.2f}s")
 
+    def _safe_log(self, level: str, msg: str) -> None:
+        """Log a message safely, falling back to print if logger fails.
+
+        This is used in stop() because it may be called from __del__ via
+        the GC, and using the logger during GC can trigger Rich's rendering
+        pipeline, causing a deadlock with the Live refresh thread.
+        """
+        try:
+            getattr(self.logger, level)(msg)
+        except Exception:
+            print(f"[{level.upper()}] {msg}")
+
     async def stop(self):
         """Stops the runtime and the AGS sandbox instance."""
         if self._runtime is not None:
@@ -462,7 +466,6 @@ class TencentAGSDeployment(AbstractDeployment):
             self._runtime = None
 
         if self._instance_id is not None:
-            self.logger.info(f"Stopping sandbox instance {self._instance_id}...")
             try:
                 from tencentcloud.ags.v20250920 import models
 
@@ -470,9 +473,9 @@ class TencentAGSDeployment(AbstractDeployment):
                 stop_req = models.StopSandboxInstanceRequest()
                 stop_req.InstanceId = self._instance_id
                 await asyncio.to_thread(client.StopSandboxInstance, stop_req)
-                self.logger.info("Sandbox instance stopped successfully")
             except Exception as e:
-                self.logger.warning(f"Failed to stop sandbox instance: {e}")
+                # self._safe_log("warning", f"Failed to stop sandbox instance: {e}")
+                pass
 
         self._instance_id = None
         self._token_info = None
