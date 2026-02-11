@@ -1,0 +1,33 @@
+# 自动下载的 ttyd 二进制文件
+ttyd.i686
+
+# 环境变量配置（包含 API Key 等敏感信息）
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# uv / venv
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志和临时文件
+*.log
+*.tmp
+*.temp
