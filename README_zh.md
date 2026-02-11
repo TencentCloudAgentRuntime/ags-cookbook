@@ -48,19 +48,25 @@ ags-cookbook/
     │   ├── html_collaboration_demo.py     
     │   └── requirements.txt               
     ├── mini-rl/                           # 迷你强化学习示例
-    │   ├── README.md                      
-    │   ├── main.py          
-    │   └── pyproject.toml               
+    │   ├── README.md
+    │   ├── main.py
+    │   └── pyproject.toml
     ├── mobile-use/                        # 移动端自动化示例
-    │   ├── README.md                      
+    │   ├── README.md
     │   ├── quickstart.py                  # 快速入门示例
     │   ├── batch.py                       # 批量操作脚本（多进程 + 异步）
     │   ├── sandbox_connect.py             # 单沙箱连接工具（CLI）
-    │   └── requirements.txt               
-    └── shop-assistant/                    # 购物车自动化示例
-        ├── README.md                      
-        ├── automation_cart_demo.py        
-        └── requirements.txt               
+    │   └── requirements.txt
+    ├── shop-assistant/                    # 购物车自动化示例
+    │   ├── README.md
+    │   ├── automation_cart_demo.py
+    │   └── requirements.txt
+    └── swe-bench/                         # SWE-Bench 沙箱示例
+        ├── README.md
+        ├── inference/                     # LLM 推理
+        │   └── swe-bench-ags-python.ipynb
+        └── rl-training/                   # 分布式 PPO 训练
+            └── rllm_with_ags.ipynb               
 ```
 
 ## 主要特性

@@ -29,10 +29,16 @@ examples/
 │   ├── batch.py           # 批量操作脚本（多进程 + 异步）
 │   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
 │   └── requirements.txt   # 依赖包
-└── shop-assistant/        # 购物车自动化示例
-    ├── README.md          # 详细使用说明
-    ├── automation_cart_demo.py  # 购物流程自动化演示
-    └── requirements.txt   # 依赖包
+├── shop-assistant/        # 购物车自动化示例
+│   ├── README.md          # 详细使用说明
+│   ├── automation_cart_demo.py  # 购物流程自动化演示
+│   └── requirements.txt   # 依赖包
+└── swe-bench/             # SWE-Bench 沙箱示例
+    ├── README.md          # 总览
+    ├── inference/         # LLM 推理完成 SWE-Bench 任务
+    │   └── swe-bench-ags-python.ipynb
+    └── rl-training/       # 分布式 PPO 训练
+        └── rllm_with_ags.ipynb
 ```
 
 ## 示例列表
@@ -131,6 +137,20 @@ examples/
 - 远程自动化演示
 
 **技术栈**：playwright
+
+### swe-bench - SWE-Bench 沙箱示例
+
+展示如何使用 AgentSandbox 云端沙箱完成 SWE-Bench 代码修复任务，包含两个子示例：
+
+- **inference/**：单任务推理 — 使用 LLM API + R2E-Gym EditAgent 在 AGS 沙箱中执行代码编辑和测试
+- **rl-training/**：分布式 PPO 训练 — 基于 rLLM + verl 框架，以 AGS 沙箱作为执行后端
+
+**适用场景**：
+- SWE-Bench 代码修复任务的推理和评估
+- 大规模 Agent RL 训练与沙箱环境结合
+- 基于云端沙箱的分布式 PPO 训练
+
+**技术栈**：R2E-Gym, ags_tool, rLLM, verl, vLLM, AgentSandbox
 
 ## 运行要求
 

@@ -48,19 +48,25 @@ ags-cookbook/
     │   ├── html_collaboration_demo.py     
     │   └── requirements.txt               
     ├── mini-rl/                           # Mini reinforcement learning example
-    │   ├── README.md                      
-    │   ├── main.py          
-    │   └── pyproject.toml               
+    │   ├── README.md
+    │   ├── main.py
+    │   └── pyproject.toml
     ├── mobile-use/                        # Mobile automation example
-    │   ├── README.md                      
+    │   ├── README.md
     │   ├── quickstart.py                  # Quick start example
     │   ├── batch.py                       # Batch operations (multi-process + async)
     │   ├── sandbox_connect.py             # Single sandbox connection tool (CLI)
-    │   └── requirements.txt               
-    └── shop-assistant/                    # Shopping cart automation example
-        ├── README.md                      
-        ├── automation_cart_demo.py        
-        └── requirements.txt               
+    │   └── requirements.txt
+    ├── shop-assistant/                    # Shopping cart automation example
+    │   ├── README.md
+    │   ├── automation_cart_demo.py
+    │   └── requirements.txt
+    └── swe-bench/                         # SWE-Bench with AgentSandbox
+        ├── README.md
+        ├── inference/                     # LLM inference
+        │   └── swe-bench-ags-python.ipynb
+        └── rl-training/                   # Distributed PPO training
+            └── rllm_with_ags.ipynb               
 ```
 
 ## Key Features
