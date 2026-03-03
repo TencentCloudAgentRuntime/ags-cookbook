@@ -1138,20 +1138,35 @@ class AsyncSandboxTester:
         try:
             import base64
 
+            upload_total_start = time.perf_counter()
+
             # Clean and prepare directory
+            t0 = time.perf_counter()
             self._execute_shell('rm', ['-rf', temp_dir])
             self._execute_shell('mkdir', ['-p', temp_dir])
             self._execute_shell('rm', ['-f', remote_path])
+            prep_ms = (time.perf_counter() - t0) * 1000
+            self._log(f"  [upload] Prepare dirs: {prep_ms:.0f}ms")
 
             # Chunked upload
+            t0 = time.perf_counter()
             with open(apk_path, 'rb') as f:
                 for i in range(total_chunks):
+                    chunk_start = time.perf_counter()
                     chunk_data = f.read(CHUNK_SIZE)
                     chunk_b64 = base64.b64encode(chunk_data).decode('utf-8')
                     chunk_path = f"{temp_dir}/chunk_{i:04d}"
+                    encode_ms = (time.perf_counter() - chunk_start) * 1000
+                    push_start = time.perf_counter()
                     self.driver.push_file(chunk_path, chunk_b64)
+                    push_ms = (time.perf_counter() - push_start) * 1000
+                    chunk_size_mb = len(chunk_data) / (1024 * 1024)
+                    self._log(f"  [upload] Chunk {i+1}/{total_chunks} ({chunk_size_mb:.1f}MB): encode={encode_ms:.0f}ms, push={push_ms:.0f}ms")
+            upload_ms = (time.perf_counter() - t0) * 1000
+            self._log(f"  [upload] All chunks uploaded: {upload_ms:.0f}ms")
 
             # Merge chunks
+            t0 = time.perf_counter()
             for i in range(total_chunks):
                 chunk_path = f"{temp_dir}/chunk_{i:04d}"
                 if i == 0:
@@ -1159,14 +1174,25 @@ class AsyncSandboxTester:
                 else:
                     self._execute_shell('cat', [chunk_path, '>>', remote_path])
                 self._execute_shell('rm', ['-f', chunk_path])
+            merge_ms = (time.perf_counter() - t0) * 1000
+            self._log(f"  [upload] Merge chunks: {merge_ms:.0f}ms")
 
             # Clean temp directory
+            t0 = time.perf_counter()
             self._execute_shell('rm', ['-rf', temp_dir])
+            clean_ms = (time.perf_counter() - t0) * 1000
+            self._log(f"  [upload] Clean temp: {clean_ms:.0f}ms")
 
             # Verify MD5
+            t0 = time.perf_counter()
             local_md5 = hashlib.md5(apk_path.read_bytes()).hexdigest()
             md5_result = self._execute_shell('md5sum', [remote_path], return_result=True)
             remote_md5 = md5_result.strip().split()[0] if md5_result else ''
+            md5_ms = (time.perf_counter() - t0) * 1000
+            self._log(f"  [upload] MD5 verify: {md5_ms:.0f}ms (match={remote_md5.lower() == local_md5.lower()})")
+
+            total_ms = (time.perf_counter() - upload_total_start) * 1000
+            self._log(f"  [upload] Total: {total_ms:.0f}ms (prep={prep_ms:.0f}, upload={upload_ms:.0f}, merge={merge_ms:.0f}, clean={clean_ms:.0f}, md5={md5_ms:.0f})")
 
             return remote_md5.lower() == local_md5.lower()
 

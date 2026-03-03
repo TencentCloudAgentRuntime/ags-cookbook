@@ -8,6 +8,7 @@ It provides a complete example of:
 - Installing and launching apps (with chunked APK upload)
 - Screen interactions (tap, screenshot)
 - GPS location mocking
+- Dumping full logcat logs before sandbox cleanup
 
 Usage:
     1. Set E2B_API_KEY environment variable or create .env file
@@ -100,8 +101,53 @@ def _load_config() -> Dict[str, Any]:
     return config
 
 
+def dump_logcat(driver: WebDriver) -> Optional[str]:
+    """
+    Dump full logcat logs from Android device and save to local output directory.
+
+    Uses 'logcat -d' to dump all buffered logs. This should be called before
+    closing the Appium driver and terminating the sandbox.
+
+    Args:
+        driver: Appium driver
+
+    Returns:
+        Path to the saved logcat file, None if failed
+    """
+    print("[Action: dump_logcat] Dumping full logcat from Android device...")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    logcat_filename = f"logcat_{timestamp}.txt"
+    logcat_path = OUTPUT_DIR / logcat_filename
+
+    try:
+        # 'logcat -d' dumps all buffered log messages and exits
+        result = driver.execute_script('mobile: shell', {
+            'command': 'logcat',
+            'args': ['-d']
+        })
+
+        if result:
+            with open(logcat_path, 'w', encoding='utf-8') as f:
+                f.write(result)
+            file_size = logcat_path.stat().st_size
+            line_count = result.count('\n')
+            print(f"  - Logcat saved: {logcat_path}")
+            print(f"  - File size: {file_size / 1024:.2f} KB")
+            print(f"  - Line count: {line_count}")
+            return str(logcat_path)
+        else:
+            print("  - Logcat returned empty result")
+            return None
+
+    except Exception as e:
+        print(f"  - Failed to dump logcat: {e}")
+        return None
+
+
 def cleanup() -> None:
-    """Cleanup resources: close driver and sandbox"""
+    """Cleanup resources: dump logcat, close driver, and terminate sandbox"""
     global _driver, _sandbox, _cleaned_up
     
     if _cleaned_up:
@@ -121,6 +167,14 @@ def cleanup() -> None:
             print(f"  - Screenshot saved: {screenshot_path}")
     except Exception as e:
         print(f"  - Failed to take screenshot: {e}")
+    
+    # Dump full logcat logs before closing driver
+    try:
+        if _driver is not None:
+            print("  - Dumping logcat logs before exit...")
+            dump_logcat(_driver)
+    except Exception as e:
+        print(f"  - Failed to dump logcat: {e}")
     
     try:
         if _driver is not None:
@@ -168,7 +222,7 @@ APP_CONFIGS = {
         'name': 'WeChat',
         'package': 'com.tencent.mm',
         'activity': '.ui.LauncherUI',
-        'apk_name': 'weixin8067android3000_0x28004333_arm64.apk',
+        'apk_name': 'weixin8069android3040_0x28004530_arm64_1.apk',
         'remote_path': '/data/local/tmp/wechat.apk',
         'permissions': [
             'android.permission.ACCESS_FINE_LOCATION',
@@ -183,7 +237,7 @@ APP_CONFIGS = {
         'name': 'App Store',
         'package': 'com.tencent.android.qqdownloader',
         'activity': 'com.tencent.assistantv2.activity.MainActivity',
-        'apk_name': '应用宝.apk',
+        'apk_name': '应用宝_0302.apk',
         'remote_path': '/data/local/tmp/yyb.apk',
         'permissions': [
             'android.permission.ACCESS_FINE_LOCATION',
@@ -507,7 +561,13 @@ def grant_app_permissions(driver: WebDriver, app_name: str) -> bool:
 
 
 def launch_app(driver: WebDriver, app_name: str) -> bool:
-    """Launch app"""
+    """
+    Launch app.
+
+    Tries activate_app first, then falls back to 'am start -n' with explicit
+    activity if the app doesn't reach foreground. State 3 (background running)
+    and state 4 (foreground running) are both treated as successful launch.
+    """
     config = APP_CONFIGS.get(app_name.lower())
     if not config:
         print(f"Unsupported app: {app_name}")
@@ -516,27 +576,37 @@ def launch_app(driver: WebDriver, app_name: str) -> bool:
     print(f"[Action: launch_app] Launching {config['name']}...")
     
     try:
+        # Step 1: Try activate_app
         driver.activate_app(config['package'])
-        print(f"  - Launch command sent, waiting for app to start...")
-        time.sleep(5)
+        print(f"  - Launch command sent (activate_app), waiting for app to start...")
+        time.sleep(3)
         
-        # Verify app state
         app_state = driver.query_app_state(config['package'])
         if app_state == 4:
             print(f"  {config['name']} running in foreground")
             print(f"[ok] {config['name']} launched successfully")
             return True
         elif app_state == 3:
-            print(f"  [!] {config['name']} running in background, trying to reactivate...")
-            driver.activate_app(config['package'])
-            time.sleep(3)
-            app_state = driver.query_app_state(config['package'])
-            if app_state == 4:
-                print(f"[ok] {config['name']} launched successfully")
-                return True
-            else:
-                print(f"[x] {config['name']} failed to switch to foreground, state: {app_state}")
-                return False
+            print(f"  {config['name']} running in background (state=3), treating as success")
+            print(f"[ok] {config['name']} launched successfully")
+            return True
+        
+        # Step 2: activate_app didn't work (state={app_state}), fallback to am start -n
+        print(f"  [!] App state is {app_state} after activate_app, trying am start -n...")
+        component = f"{config['package']}/{config['activity']}"
+        driver.execute_script('mobile: shell', {
+            'command': 'am',
+            'args': ['start', '-n', component]
+        })
+        print(f"  - Launch command sent (am start -n {component}), waiting...")
+        time.sleep(5)
+        
+        app_state = driver.query_app_state(config['package'])
+        if app_state >= 3:
+            state_desc = "foreground" if app_state == 4 else "background"
+            print(f"  {config['name']} running in {state_desc} (state={app_state})")
+            print(f"[ok] {config['name']} launched successfully")
+            return True
         else:
             print(f"[x] {config['name']} launch failed, state: {app_state}")
             print(f"  State codes: 0=not installed, 1=not running, 2=background suspended, 3=background running, 4=foreground running")
@@ -1077,6 +1147,8 @@ def main(
     print(f"Screen Resolution: {device_info['wmSize']}")
     print(f"Screen DPI: {device_info['wmDensity']}")
     print(f"=======================\n")
+
+    time.sleep(3)
 
     # Install and launch App Store
     install_and_launch_app(driver, 'yyb')
