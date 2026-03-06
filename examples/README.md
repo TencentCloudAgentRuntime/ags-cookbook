@@ -29,11 +29,14 @@ examples/
 │   ├── batch.py           # Batch operations (multi-process + async)
 │   ├── sandbox_connect.py # Single sandbox connection tool (CLI)
 │   └── requirements.txt   # Dependencies
-└── shop-assistant/        # Shopping cart automation example
+├── shop-assistant/        # Shopping cart automation example
+│   ├── README.md          # Detailed usage instructions
+│   ├── automation_cart_demo.py  # Shopping flow automation demo
+│   └── requirements.txt   # Dependencies
+└── swe-agent/             # SWE-agent with AGS integration example
     ├── README.md          # Detailed usage instructions
-    ├── automation_cart_demo.py  # Shopping flow automation demo
-    └── requirements.txt   # Dependencies
-```
+    ├── README_zh.md       # Chinese documentation
+    └── SWE-ReX/           # Modified SWE-ReX for AGS integration
 
 ## Example List
 
@@ -131,6 +134,22 @@ Demonstrates using Browser sandbox with Playwright to complete "Search → Add t
 - Remote automation demo
 
 **Tech Stack**: playwright
+
+### swe-agent - SWE-Agent with AGS Integration Example
+
+Demonstrates how to integrate AgentSandbox sandbox into SWE-agent tasks:
+
+- **Complete Workflow**: Reading SWE instances → remotely starting code sandbox environment → model reasoning in sandbox → generating trajectories
+- **Sandbox Isolation**: Safe, reliable, and fast deployment of SWE environments
+- **Customizable Environment**: Highly customizable sandbox environment with automated resource management
+- **SWE-agent Integration**: Seamless integration with existing SWE-agent workflow
+
+**Use Cases**:
+- Automated software engineering and code fixing
+- SWE benchmark evaluation
+- AI-driven code generation and analysis
+
+**Tech Stack**: SWE-agent, Tencent AGS, Python
 
 ## Requirements
 
