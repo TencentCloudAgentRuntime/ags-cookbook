@@ -1,0 +1,1038 @@
+diff --git a/.gitignore b/.gitignore
+index 61215c6..a8057fb 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -204,3 +204,5 @@ cython_debug/
+ #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+ #.idea/
+ # src/r2e_edits/agenthub/train/results_traj_verifier-14B-v2.csv
++.DS_Store
++scripts/
+diff --git a/src/r2egym/agenthub/environment/env.py b/src/r2egym/agenthub/environment/env.py
+index 554c55b..e925da9 100644
+--- a/src/r2egym/agenthub/environment/env.py
++++ b/src/r2egym/agenthub/environment/env.py
+@@ -4,18 +4,34 @@ import time
+ from dataclasses import dataclass, field
+ from typing import Dict, Tuple, Any, Optional
+ 
+-import gym
+ import logging
+ 
+ from r2egym.agenthub.action import Action
+ from r2egym.agenthub.utils.log import get_logger
+ from r2egym.agenthub.observation import Observation
+-from r2egym.agenthub.runtime.docker import DockerRuntime
++from r2egym.agenthub.runtime.factory import RuntimeFactory
+ from r2egym.agenthub.agent.commands import ParseCommandBash
+ 
+ cmd_parser = ParseCommandBash()
+ 
+ 
++# Minimal gym.Env compatible base class to avoid gym dependency
++class GymEnv:
++    """Minimal gym.Env compatible base class."""
++
++    def reset(self):
++        raise NotImplementedError
++
++    def step(self, action):
++        raise NotImplementedError
++
++    def close(self):
++        pass
++
++    def render(self):
++        pass
++
++
+ @dataclass(frozen=True)
+ class EnvArgs:
+     """Configure data sources and setup instructions for the environment in which we solve the tasks."""
+@@ -25,7 +41,7 @@ class EnvArgs:
+     docker_image: Optional[str] = None
+ 
+ 
+-class RepoEnv(gym.Env):
++class RepoEnv(GymEnv):
+     def __init__(self,
+                  args: EnvArgs,
+                  logger=None,
+@@ -44,8 +60,11 @@ class RepoEnv(gym.Env):
+             #logging.getLogger().setLevel(logging.CRITICAL)  # Disable root logger
+             #logging.disable(logging.CRITICAL)  # Disable all logging
+ 
+-        self.runtime = DockerRuntime(
+-            ds=args.ds, command=["/bin/bash", "-l"], logger=self.logger, backend=backend
++        self.runtime = RuntimeFactory.create(
++            backend=backend,
++            ds=args.ds,
++            command=["/bin/bash", "-l"],
++            logger=self.logger,
+         )
+ 
+         self.args = args
+@@ -71,8 +90,11 @@ class RepoEnv(gym.Env):
+         self.state = None
+         self.done = False
+         # also just recreate env again with the same args
+-        self.runtime = DockerRuntime(
+-            ds=self.args.ds, command=["/bin/bash", "-l"], logger=self.logger, backend=self.backend
++        self.runtime = RuntimeFactory.create(
++            backend=self.backend,
++            ds=self.args.ds,
++            command=["/bin/bash", "-l"],
++            logger=self.logger,
+         )
+         return self.observation  # self.get_observation()
+ 
+diff --git a/src/r2egym/agenthub/runtime/__init__.py b/src/r2egym/agenthub/runtime/__init__.py
+index 8b13789..e81f717 100644
+--- a/src/r2egym/agenthub/runtime/__init__.py
++++ b/src/r2egym/agenthub/runtime/__init__.py
+@@ -1 +1,22 @@
++from r2egym.agenthub.runtime.base import ExecutionEnvironment
++from r2egym.agenthub.runtime.docker import DockerRuntime
++from r2egym.agenthub.runtime.factory import RuntimeFactory
+ 
++
++def get_ags_runtime():
++    from r2egym.agenthub.runtime.ags import AGSRuntime
++    return AGSRuntime
++
++
++def get_ags_config():
++    from r2egym.agenthub.runtime.ags import AGSConfig
++    return AGSConfig
++
++
++__all__ = [
++    "ExecutionEnvironment",
++    "DockerRuntime",
++    "RuntimeFactory",
++    "get_ags_runtime",
++    "get_ags_config",
++]
+diff --git a/src/r2egym/agenthub/runtime/ags.py b/src/r2egym/agenthub/runtime/ags.py
+new file mode 100644
+index 0000000..f125bd5
+--- /dev/null
++++ b/src/r2egym/agenthub/runtime/ags.py
+@@ -0,0 +1,833 @@
++"""AGS (Agent Sandbox) runtime using E2B SDK + ags_tool helpers."""
++
++import json
++import os
++import re
++import sys
++import tempfile
++import uuid
++from dataclasses import dataclass
++from pathlib import Path
++
++from r2egym.agenthub.runtime.base import ExecutionEnvironment
++from r2egym.agenthub.utils.log import get_logger
++from r2egym.repo_analysis.execution_log_parser import parse_log_fn, decolor_dict_keys
++from r2egym.commit_models.diff_classes import ParsedCommit
++from r2egym.swesmith.utils import get_test_command
++
++try:
++    from ags_tool import AGSRuntime as AGSToolRuntime
++except ImportError as exc:
++    raise ImportError(
++        "ags_tool is required for AGS runtime. Please install it or keep the ags-tool "
++    ) from exc
++
++
++# SWE-Bench imports for grading
++try:
++    from r2egym.agenthub.trajectory.swebench_utils import make_test_spec
++    from swebench.harness.constants import (
++        APPLY_PATCH_FAIL,
++        FAIL_TO_PASS,
++        KEY_INSTANCE_ID,
++        MAP_REPO_VERSION_TO_SPECS,
++        PASS_TO_PASS,
++        RESET_FAILED,
++        TESTS_ERROR,
++        TESTS_TIMEOUT,
++    )
++    from swebench.harness.test_spec.test_spec import TestSpec
++    from swebench.harness.log_parsers import MAP_REPO_TO_PARSER, get_eval_type
++    from swebench.harness.grading import get_eval_tests_report, get_resolution_status
++    from swebench.harness.constants import ResolvedStatus
++    HAS_SWEBENCH = True
++except ImportError:
++    HAS_SWEBENCH = False
++
++
++@dataclass
++class AGSConfig:
++    """Configuration for AGS runtime using E2B SDK.
++
++    Attributes:
++        e2b_api_key: E2B API key for authentication
++        e2b_domain: E2B domain endpoint (e.g., "ap-guangzhou.tencentags.com")
++        timeout: Default sandbox timeout in seconds
++        image_namespace: TCR namespace for image storage
++        tencentcloud_secret_id: Tencent Cloud secret ID (for SandboxTool creation)
++        tencentcloud_secret_key: Tencent Cloud secret key (for SandboxTool creation)
++        tencentcloud_region: Tencent Cloud region (e.g., "ap-guangzhou")
++        tencentcloud_role_arn: Tencent Cloud role ARN for TCR access
++        image_registry_type: Image registry type ("enterprise" or "personal")
++    """
++
++    # E2B SDK configuration
++    e2b_api_key: str = ""
++    e2b_domain: str = ""
++    # Sandbox configuration
++    timeout: int = 3600  # Default 1 hour
++
++    # Cloud API configuration (for creating SandboxTool)
++    tencentcloud_secret_id: str = ""
++    tencentcloud_secret_key: str = ""
++    tencentcloud_region: str = "ap-guangzhou"
++    tencentcloud_role_arn: str = ""
++
++    # TCR configuration (for image sync and tool resolution)
++    image_namespace: str = "swe-sandbox"
++    image_registry_type: str = ""
++    tcr_registry: str = ""
++
++    @classmethod
++    def from_env(cls) -> "AGSConfig":
++        # AGS_REGION accepts both region ("ap-guangzhou") and domain
++        # ("ap-guangzhou.tencentags.com") formats for compatibility with
++        # ags_tool_sync.py which uses region strings.
++        ags_region = os.getenv("AGS_REGION", "ap-guangzhou")
++        if "." not in ags_region:
++            e2b_domain = f"{ags_region}.tencentags.com"
++        else:
++            e2b_domain = ags_region
++
++        return cls(
++            e2b_api_key=os.getenv("E2B_API_KEY", ""),
++            e2b_domain=e2b_domain,
++            timeout=int(os.getenv("AGS_TIMEOUT", "3600")),
++            tencentcloud_secret_id=os.getenv("TENCENTCLOUD_SECRET_ID", ""),
++            tencentcloud_secret_key=os.getenv("TENCENTCLOUD_SECRET_KEY", ""),
++            tencentcloud_region=os.getenv("TENCENTCLOUD_REGION", os.getenv("AGS_REGION", "ap-guangzhou")),
++            tencentcloud_role_arn=os.getenv("SANDBOX_ROLE_ARN", "qcs::cam::uin/3321337994:roleName/tcr-full-ags"),
++            image_registry_type=os.getenv("SANDBOX_IMAGE_REGISTRY_TYPE", ""),
++            image_namespace=os.getenv("AGS_TCR_NAMESPACE", "swe-sandbox"),
++            tcr_registry=os.getenv("TCR_REGISTRY", "ccr.ccs.tencentyun.com"),
++        )
++
++    def validate(self) -> bool:
++        """Validate required configuration fields."""
++        if not self.e2b_api_key:
++            raise ValueError("E2B_API_KEY is required for AGS runtime")
++        if not self.e2b_domain:
++            raise ValueError("AGS_REGION/E2B_DOMAIN is required for AGS runtime")
++        return True
++
++
++class AGSRuntime(ExecutionEnvironment):
++    """AGS-based runtime using E2B SDK.
++
++    This runtime provides the same interface as DockerRuntime but uses
++    AGS (Agent Sandbox) via the E2B SDK for execution.
++    """
++
++    def __init__(
++        self,
++        ds: dict,
++        repo_path: str = "/testbed",
++        alt_path: str = "/root",
++        docker_image: str = None,
++        command: str = "/bin/bash",
++        config: AGSConfig = None,
++        logger=None,
++        **kwargs,
++    ):
++        """Initialize AGS runtime.
++
++        Args:
++            ds: Dataset entry containing task information
++            repo_path: Main repository path inside sandbox
++            alt_path: Alternative path for scripts
++            docker_image: Docker image name (used to derive tool name)
++            command: Command to run (not used in AGS)
++            config: AGS configuration (uses env vars if not provided)
++            logger: Logger instance
++            **kwargs: Additional arguments (ignored for compatibility)
++        """
++        assert ds, f"Dataset not provided for AGS runtime"
++
++        self.ds = ds
++        self.config = config or AGSConfig.from_env()
++        self.config.validate()
++
++        self.ags_runtime = AGSToolRuntime(
++            secret_id=self.config.tencentcloud_secret_id,
++            secret_key=self.config.tencentcloud_secret_key,
++            region=self.config.tencentcloud_region,
++            domain=self.config.e2b_domain,
++            role_arn=self.config.tencentcloud_role_arn,
++            image_registry_type=self.config.image_registry_type or "enterprise",
++        )
++
++        # Extract docker image from dataset
++        ds_image = None
++        if "docker_image" in self.ds:
++            ds_image = self.ds["docker_image"]
++        elif "image_name" in self.ds:
++            ds_image = self.ds["image_name"]
++        else:
++            raise ValueError(f"No docker image found in ds: {self.ds}")
++
++        self.docker_image = ds_image if not docker_image else docker_image
++
++        # Determine dataset type
++        self.swebench_verified = "swebench" in self.docker_image
++        self.swesmith = "swesmith" in self.docker_image
++
++        if self.swesmith:
++            image_name = self.ds['image_name'].replace('__', '_1776_')
++            self.swebench_verified = False
++            self.docker_image = f'jyangballin/{image_name}:latest'
++
++        if self.swebench_verified and HAS_SWEBENCH:
++            self.test_spec = make_test_spec(self.ds)
++
++        # Use image name directly as tool name (pre-created by ags_tool_sync)
++        self.tool_name = self.docker_image
++
++        # Runtime paths
++        self.repo_path = repo_path
++        self.alt_path = alt_path
++        self.command = command
++
++        # Repository info
++        self.repo_name = (
++            self.ds["repo"] if self.swebench_verified or self.swesmith else self.ds["repo_name"]
++        )
++
++        # Parse commit info
++        if not self.swesmith:
++            self.commit_json = (
++                self.ds["parsed_commit"]
++                if self.swebench_verified
++                else self.ds["parsed_commit_content"]
++            )
++            self.commit = ParsedCommit(**json.loads(self.commit_json))
++
++        # Setup logger
++        if logger is None:
++            self.logger = get_logger("AGSRuntime")
++        else:
++            self.logger = logger
++
++        # Sandbox instance (created on start_container)
++        self.sandbox = None
++        self.container_name = self._get_container_name(self.docker_image)
++
++        # Set E2B environment variables
++        os.environ["E2B_DOMAIN"] = self.config.e2b_domain
++        os.environ["E2B_API_KEY"] = self.config.e2b_api_key
++
++        # Resolve tool by name or tag before starting the sandbox
++        self._resolve_tool()
++        self.start_container()
++
++        # Initialize the environment
++        self.setup_env()
++        self.logger.info("AGS environment initialized")
++        self.logger.info("repo name: %s", self.repo_name)
++        self.logger.info("Docker image: %s", self.docker_image)
++        self.logger.info("Tool name: %s", self.tool_name)
++        if self.sandbox:
++            self.logger.info("Sandbox ID: %s", self.sandbox.sandbox_id)
++
++    def _image_to_tool_name(self, image: str) -> str:
++        """Return tool name for image (identity)."""
++        return image
++
++    @staticmethod
++    def _get_container_name(image_name: str) -> str:
++        """Generate unique container/sandbox name."""
++        import datetime
++        import hashlib
++
++        process_id = str(os.getpid())
++        current_time = str(datetime.datetime.now())
++        unique_string = current_time + process_id
++        hash_object = hashlib.sha256(unique_string.encode())
++        image_name_sanitized = image_name.replace("/", "-").replace(":", "-")
++        return f"{image_name_sanitized}-{hash_object.hexdigest()[:10]}"
++
++    def _to_tcr_image(self, image: str) -> str:
++        """Convert docker_image to TCR image reference.
++
++        Examples:
++            namanjain12/aiohttp_final:abc123
++              -> ccr.ccs.tencentyun.com/namanjain12/aiohttp_final:abc123
++            slimshetty/swebench-lite:sweb.eval.x86_64.astropy__astropy-12907
++              -> ccr.ccs.tencentyun.com/slimshetty/swebench-lite:sweb.eval.x86_64.astropy__astropy-12907
++        """
++        image = image.replace("docker.io/", "")
++        parts = image.split("/")
++        # If already has a registry prefix (dot or colon in first segment), strip it
++        if len(parts) >= 3 and ("." in parts[0] or ":" in parts[0]):
++            parts = parts[1:]
++        return f"{self.config.tcr_registry}/" + "/".join(parts)
++
++    def _resolve_tool(self) -> None:
++        """Resolve AGS tool by TCR image tag; raise if missing."""
++        tcr_image = self._to_tcr_image(self.docker_image)
++        # Primary: search by tcr_image tag (most reliable)
++        tool = self.ags_runtime.get_tool(tag_key="tcr_image", tag_value=tcr_image)
++        if tool is None:
++            # Fallback: search by original image tag
++            tool = self.ags_runtime.get_tool(tag_key="image", tag_value=self.docker_image)
++        if tool is None:
++            raise RuntimeError(
++                f"Sandbox tool not found for image {self.docker_image} "
++                f"(tcr: {tcr_image}). "
++                "Run scripts/ags_tool_sync.py to create tools first."
++            )
++        self.tool_id = tool.ToolId
++        self.tool_name = tool.ToolName
++
++    def start_container(self, **kwargs):
++        """Start AGS sandbox instance using ags_tool helper."""
++        try:
++            self.sandbox = self.ags_runtime.create_e2b_sandbox(
++                tool_name=self.tool_name,
++                timeout=self.config.timeout,
++                api_key=self.config.e2b_api_key,
++            )
++            self.logger.info(f"AGS sandbox started: {self.sandbox.sandbox_id}")
++        except Exception as e:
++            self.logger.error(f"Failed to start AGS sandbox: {e}")
++            raise
++
++    def stop_container(self):
++        """Stop AGS sandbox instance."""
++        if self.sandbox:
++            try:
++                self.sandbox.kill()
++                self.logger.info("AGS sandbox stopped")
++            except Exception as e:
++                self.logger.warning(f"Failed to kill sandbox: {e}")
++            finally:
++                self.sandbox = None
++
++    def run(
++        self,
++        code: str,
++        timeout: int = 90,
++        args: str = "",
++        workdir=None,
++        type: str = None,
++    ) -> tuple[str, str]:
++        """Execute command in sandbox.
++
++        Args:
++            code: Command to execute
++            timeout: Timeout in seconds
++            args: Additional arguments
++            workdir: Working directory (defaults to repo_path)
++            type: Command type (unused, for compatibility)
++
++        Returns:
++            Tuple of (output, exit_code_or_error)
++        """
++        exec_workdir = self.repo_path if workdir is None else workdir
++
++        # Build full command with cd and timeout
++        full_cmd = f"cd {exec_workdir} && timeout {timeout} {code}"
++        if args:
++            full_cmd = f"{full_cmd} {args}"
++
++        try:
++            result = self.sandbox.commands.run(
++                user="root",
++                cmd=full_cmd,
++                timeout=timeout + 10  # Buffer for E2B overhead
++            )
++
++            # Combine stdout and stderr
++            stdout = result.stdout or ""
++            stderr = result.stderr or ""
++            output = stdout + stderr
++
++            # Remove ANSI escape codes and \r characters
++            output = re.sub(r"\x1b\[[0-9;]*m|\r", "", output)
++
++            exit_code = result.exit_code if hasattr(result, 'exit_code') else 0
++
++            if exit_code == 124:
++                self.logger.error(f"Command timeout: {timeout}s")
++                return f"The command took too long to execute (>{timeout}s)", "-1"
++
++            if exit_code != 0:
++                self.logger.error(
++                    f"Error: Exit code {exit_code}\nError Message: {output}"
++                )
++                return output, f"Error: Exit code {exit_code}"
++
++            return output, str(exit_code)
++
++        except Exception as e:
++            self.logger.error(f"Error executing command: {e}")
++            return f"Error: {repr(e)}", "-1"
++
++    def demux_run(
++        self, code: str, timeout: int = 90, args: str = "", workdir=None
++    ) -> tuple[str, str, str]:
++        """Execute command with separate stdout/stderr.
++
++        Args:
++            code: Command to execute
++            timeout: Timeout in seconds
++            args: Additional arguments
++            workdir: Working directory
++
++        Returns:
++            Tuple of (stdout, stderr, exit_code_or_error)
++        """
++        exec_workdir = self.repo_path if workdir is None else workdir
++        full_cmd = f"cd {exec_workdir} && timeout {timeout} {code}"
++        if args:
++            full_cmd = f"{full_cmd} {args}"
++
++        try:
++            result = self.sandbox.commands.run(
++                user="root",
++                cmd=full_cmd,
++                timeout=timeout + 10
++            )
++
++            stdout = result.stdout or ""
++            stderr = result.stderr or ""
++            exit_code = result.exit_code if hasattr(result, 'exit_code') else 0
++
++            # Remove ANSI escape codes
++            stdout = re.sub(r"\x1b\[[0-9;]*m|\r", "", stdout)
++            stderr = re.sub(r"\x1b\[[0-9;]*m|\r", "", stderr)
++
++            if exit_code != 0:
++                return stdout, stderr, f"Error: Exit code {exit_code}"
++
++            return stdout, stderr, str(exit_code)
++
++        except Exception as e:
++            error_msg = f"Error: {repr(e)}"
++            return error_msg, error_msg, "-1"
++
++    def copy_to_container(self, src_path: str, dest_path: str):
++        """Copy file from host to sandbox.
++
++        Args:
++            src_path: Source path on host
++            dest_path: Destination path in sandbox
++        """
++        try:
++            with open(src_path, "rb") as f:
++                content = f.read()
++            self.sandbox.files.write(dest_path, content, user="root")
++        except Exception as e:
++            self.logger.error(f"Failed to copy {src_path} to {dest_path}: {e}")
++            raise
++
++    def setup_env_swesmith(self):
++        """Setup environment for SWE-Smith dataset."""
++        try:
++            commit_id = self.ds['base_commit']
++            self.run("git fetch")
++            self.run(f"git checkout {commit_id}")
++
++            # Setup run_test.sh script
++            test_command, _ = get_test_command(self.ds)
++            eval_script_content = "\n".join([
++                "#!/bin/bash",
++                "set -uxo pipefail",
++                "source /opt/miniconda3/bin/activate",
++                "conda activate testbed",
++                "cd testbed/",
++                ": '>>>>> Start Test Output'",
++                test_command,
++                ": '>>>>> End Test Output'",
++            ]) + "\n"
++
++            self.sandbox.files.write("/run_tests.sh", eval_script_content, user="root")
++            self.run("chmod +x /run_tests.sh")
++
++            # Setup Python environment
++            self.run("ln -s /opt/miniconda3/envs/testbed /root/.venv")
++            self.run('echo \'export PATH="/usr/local/bin:$PATH"\' >> ~/.bashrc')
++            self.run("python -m pip install chardet")
++        except Exception as e:
++            self.logger.error(f"Error setting up SWE-Smith environment: {repr(e)}")
++
++    def setup_env_swebench(self):
++        """Setup environment for SWE-Bench dataset."""
++        try:
++            self.run("chmod +x /run_tests.sh")
++            self.alt_path = "/"
++            self.run("ln -s /opt/miniconda3/envs/testbed /root/.venv")
++            self.run("python -m pip install chardet")
++        except Exception as e:
++            self.logger.error(
++                f"Error setting up SWE-Bench environment: {repr(e)} @ {self.docker_image}"
++            )
++
++    def setup_env(self):
++        """Setup environment based on dataset type."""
++        if self.swebench_verified:
++            return self.setup_env_swebench()
++        elif self.swesmith:
++            return self.setup_env_swesmith()
++
++        # R2E-Edit setup
++        try:
++            self.run(f"ln -s {self.repo_path}/.venv {self.alt_path}/.venv")
++            self.run(
++                f"ln -s {self.repo_path}/.venv/bin/python {self.alt_path}/.local/bin/python"
++            )
++            self.run(
++                f"ln -s {self.repo_path}/.venv/bin/python {self.alt_path}/.local/bin/python3"
++            )
++            self.run(
++                f"find {self.repo_path}/.venv/bin -type f -executable -exec ln -sf {{}} {self.alt_path}/.local/bin/ \\;"
++            )
++            self.run("uv pip install chardet")
++            self.run("find . -name '*.pyc' -delete")
++            self.run("find . -name '__pycache__' -exec rm -rf {} +")
++            self.run("find /r2e_tests -name '*.pyc' -delete")
++            self.run("find /r2e_tests -name '__pycache__' -exec rm -rf {} +")
++
++            from r2egym.agenthub import SKIP_FILES_NEW
++            for skip_file in SKIP_FILES_NEW:
++                self.run(f"mv {self.repo_path}/{skip_file} {self.alt_path}/{skip_file}")
++
++            self.run(f"mv /r2e_tests {self.alt_path}/r2e_tests")
++            self.run(f"ln -s {self.alt_path}/r2e_tests {self.repo_path}/r2e_tests")
++        except Exception as e:
++            self.logger.error(f"Error setting up environment: {repr(e)}")
++
++    def get_task_instruction(self) -> str:
++        """Get task description from dataset.
++
++        Returns:
++            Task instruction/problem statement
++        """
++        try:
++            content = self.ds["problem_statement"]
++            match = re.search(r"\[ISSUE\](.*)\[/ISSUE\]", content, re.DOTALL)
++            return match.group(1) if match else content
++        except Exception:
++            return self.ds.get("problem_statement", "")
++
++    def run_tests(self, timeout: int = 300) -> tuple[str, str]:
++        """Run test script.
++
++        Args:
++            timeout: Test timeout in seconds
++
++        Returns:
++            Tuple of (output, exit_code)
++        """
++        output, error_code = self.run(
++            f"bash {self.alt_path}/run_tests.sh",
++            timeout=timeout
++        )
++        output = re.sub(r"\x1b\[[0-9;]*m|\r", "", output)
++        return output, error_code
++
++    def demux_run_tests(self) -> tuple[str, str, str]:
++        """Run tests with separate stdout/stderr."""
++        stdout, stderr, error_code = self.demux_run(
++            f"bash {self.alt_path}/run_tests.sh"
++        )
++        stdout = re.sub(r"\x1b\[[0-9;]*m|\r", "", stdout)
++        stderr = re.sub(r"\x1b\[[0-9;]*m|\r", "", stderr)
++        return stdout, stderr, error_code
++
++    def checkout(self, commit_hash: str) -> tuple[str, str]:
++        """Git checkout to specific commit."""
++        return self.run(f"git checkout {commit_hash}")
++
++    def get_patch(self) -> str:
++        """Get git diff of current changes.
++
++        Returns:
++            Git diff output
++        """
++        output, _ = self.run("git add -A && git diff --cached")
++        return output
++
++    def create_file(self, file_path: str, content: str) -> tuple[str, str]:
++        """Create file in sandbox.
++
++        Args:
++            file_path: Path for new file
++            content: File content
++        """
++        self.sandbox.files.write(file_path, content, user="root")
++        return "", "0"
++
++    def apply_patch(self, patch: str) -> tuple[str, str]:
++        """Apply git patch.
++
++        Args:
++            patch: Patch content
++
++        Returns:
++            Tuple of (output, exit_code)
++        """
++        patch_name = f"/tmp/patch_{uuid.uuid4().hex[:8]}.patch"
++        self.sandbox.files.write(patch_name, patch, user="root")
++        return self.run(f"git apply --whitespace=fix {patch_name}")
++
++    def reverse_patch(self, patch: str) -> tuple[str, str]:
++        """Reverse apply git patch."""
++        patch_name = f"/tmp/patch_{uuid.uuid4().hex[:8]}.patch"
++        self.sandbox.files.write(patch_name, patch, user="root")
++        return self.run(f"git apply -R {patch_name}")
++
++    def read_file(self, rel_file_path: str) -> str:
++        """Read file from sandbox."""
++        output, _ = self.run(f"cat /{self.alt_path}/{rel_file_path}")
++        return output
++
++    def get_logs_eval(
++        self, test_spec, content: str
++    ) -> tuple[dict[str, str], bool]:
++        """Retrieve evaluation results from log content.
++
++        Args:
++            test_spec: Test specification
++            content: Log content
++
++        Returns:
++            Tuple of (status_map, success)
++        """
++        if not HAS_SWEBENCH:
++            return {}, False
++
++        repo = test_spec.repo
++        version = test_spec.version
++        log_parser = MAP_REPO_TO_PARSER[repo]
++        test_cmd = MAP_REPO_VERSION_TO_SPECS[repo][version]["test_cmd"]
++        if isinstance(test_cmd, list):
++            test_cmd = test_cmd[-1]
++
++        bad_codes = list(
++            filter(
++                lambda x: x in content,
++                [APPLY_PATCH_FAIL, RESET_FAILED, TESTS_ERROR, TESTS_TIMEOUT],
++            )
++        )
++        if bad_codes:
++            self.logger.error(f"Bad code found in log: {bad_codes}")
++            return {}, False
++
++        content = content.split(test_cmd)[-1]
++        self.logger.info(f"using swebench log_parser for repo: {repo}")
++        return log_parser(content, test_spec), True
++
++    def parse_logs(self, log_output: str) -> dict:
++        """Parse test logs."""
++        if self.swebench_verified and HAS_SWEBENCH:
++            parsed_output, _ = self.get_logs_eval(self.test_spec, log_output)
++            return parsed_output
++        else:
++            return parse_log_fn(f"{self.repo_name}")(log_output)
++
++    def reset_swesmith_tests(self):
++        """Reset SWE-Smith test files to base commit."""
++        f2p_files = list(set([x.split("::", 1)[0] for x in self.ds[FAIL_TO_PASS]]))
++        p2p_files = list(set([x.split("::", 1)[0] for x in self.ds[PASS_TO_PASS]]))
++        all_files = list(set(f2p_files + p2p_files))
++        all_files = [f for f in all_files if
++            os.path.basename(f).startswith('test_') and os.path.basename(f).endswith('.py') or
++            os.path.basename(f).endswith('_test.py')]
++        commit_id = self.ds['base_commit']
++        reset_command = (
++            f'printf "%s\\n" {" ".join(all_files)} | '
++            f'xargs -n1 -I{{}} git checkout {commit_id} -- "{{}}" 2>/dev/null'
++        )
++        self.run(reset_command)
++
++    def _calculate_reward_swesmith(self, get_test_output=False, timeout: int = 300) -> float:
++        """Calculate reward for SWE-Smith dataset."""
++        self.reset_swesmith_tests()
++        output, error_msg = self.run("/run_tests.sh", timeout=timeout)
++        parse = self.parse_logs(output)
++
++        fail2pass = [".".join(line.split("::")[1:]) for line in self.ds['FAIL_TO_PASS']]
++        pass2pass = [".".join(line.split("::")[1:]) for line in self.ds['PASS_TO_PASS']]
++
++        self.logger.warning(f"[swesmith] FAIL_TO_PASS tests ({len(fail2pass)}): {fail2pass}")
++        self.logger.warning(f"[swesmith] PASS_TO_PASS tests ({len(pass2pass)}): {pass2pass}")
++
++        if not parse:
++            self.logger.warning("[swesmith] parse is empty, returning 0.0")
++            return 0.0
++
++        # Check fail2pass
++        for test_name in fail2pass:
++            if test_name not in parse:
++                matching_key = next((k for k in parse.keys() if test_name in k), None)
++                if matching_key is None:
++                    self.logger.warning(f"[swesmith] FAIL_TO_PASS '{test_name}' not found in parse results, returning 0.0")
++                    return 0.0
++                if parse[matching_key] != 'PASSED':
++                    self.logger.warning(f"[swesmith] FAIL_TO_PASS '{matching_key}' status: {parse[matching_key]} (expected PASSED), returning 0.0")
++                    return 0.0
++                test_name = matching_key
++            if parse[test_name] != 'PASSED':
++                self.logger.warning(f"[swesmith] FAIL_TO_PASS '{test_name}' status: {parse[test_name]} (expected PASSED), returning 0.0")
++                return 0.0
++
++        # Check pass2pass
++        for test_name in pass2pass:
++            if test_name not in parse:
++                matching_key = next((k for k in parse.keys() if test_name in k), None)
++                if matching_key is None:
++                    self.logger.warning(f"[swesmith] PASS_TO_PASS '{test_name}' not found in parse results, returning 0.0")
++                    return 0.0
++                test_name = matching_key
++            if parse[test_name] != 'PASSED':
++                self.logger.warning(f"[swesmith] PASS_TO_PASS '{test_name}' status: {parse[test_name]} (regression), returning 0.0")
++                return 0.0
++
++        self.logger.warning("[swesmith] all tests passed, returning 1.0")
++        return 1.0
++
++    def _calculate_reward_swebench(self, get_test_output=False, timeout: int = 300) -> float:
++        """Calculate reward for SWE-Bench dataset."""
++        if not HAS_SWEBENCH:
++            self.logger.warning("SWE-Bench not installed, cannot calculate reward")
++            return 0.0
++
++        out, _ = self.run("/run_tests.sh", timeout=timeout)
++        eval_status_map, found = self.get_logs_eval(self.test_spec, out)
++        eval_ref = {
++            KEY_INSTANCE_ID: self.test_spec.instance_id,
++            FAIL_TO_PASS: self.test_spec.FAIL_TO_PASS,
++            PASS_TO_PASS: self.test_spec.PASS_TO_PASS,
++        }
++        report = get_eval_tests_report(
++            eval_status_map, eval_ref, eval_type=get_eval_type(self.test_spec)
++        )
++        success = get_resolution_status(report) == ResolvedStatus.FULL.value
++
++        # Debug: log per-test status for FAIL_TO_PASS and PASS_TO_PASS
++        f2p = self.test_spec.FAIL_TO_PASS
++        p2p = self.test_spec.PASS_TO_PASS
++        self.logger.warning(f"FAIL_TO_PASS tests ({len(f2p)}): {f2p}")
++        self.logger.warning(f"PASS_TO_PASS tests ({len(p2p)}): {p2p}")
++        for test_id, status in eval_status_map.items():
++            self.logger.warning(f"  {test_id}: {status}")
++        self.logger.warning(f"resolution_status: {get_resolution_status(report)}, success: {success}")
++
++        if get_test_output:
++            return success, out
++        return int(success)
++
++    def _calculate_reward_r2e(self, get_test_output=False, timeout: int = 300) -> float:
++        """Calculate reward for R2E-Edit dataset."""
++        output, error_code = self.run_tests(timeout=timeout)
++        parse = self.parse_logs(output)
++        parse = decolor_dict_keys(parse)
++
++        try:
++            expected_json = self.ds["expected_output_json"]
++        except Exception:
++            expected_json = self.read_file("expected_test_output.json")
++
++        expected: dict = json.loads(expected_json)
++        expected = decolor_dict_keys(expected)
++        parse = {k.split(" - ")[0]: parse[k] for k in sorted(parse.keys())}
++        expected = {k.split(" - ")[0]: expected[k] for k in sorted(expected.keys())}
++
++        if len(parse) != len(expected):
++            self.logger.warning(f"[r2e] test count mismatch: parsed={len(parse)}, expected={len(expected)}, returning 0.0")
++            reward = 0.0
++        else:
++            match = True
++            for k in parse.keys():
++                if not k:
++                    continue
++                if k not in expected:
++                    self.logger.warning(f"[r2e] test '{k}' not found in expected results")
++                    match = False
++                    break
++                if parse[k] != expected[k]:
++                    self.logger.warning(f"[r2e] test '{k}' mismatch: got={parse[k]}, expected={expected[k]}")
++                    match = False
++                    break
++            reward = 1.0 if match else 0.0
++
++        self.logger.warning(f"[r2e] reward: {reward}")
++        if get_test_output:
++            return reward, output
++        return reward
++
++    def _calculate_reward(self, get_test_output=False, timeout: int = 300) -> float:
++        """Calculate reward based on dataset type.
++
++        Args:
++            get_test_output: Whether to return test output
++            timeout: Test timeout in seconds
++
++        Returns:
++            Reward value (0.0 or 1.0) or tuple if get_test_output
++        """
++        if self.swebench_verified:
++            return self._calculate_reward_swebench(get_test_output=get_test_output, timeout=timeout)
++        elif self.swesmith:
++            return self._calculate_reward_swesmith(get_test_output=get_test_output, timeout=timeout)
++        else:
++            return self._calculate_reward_r2e(get_test_output=get_test_output, timeout=timeout)
++
++    def reset(self):
++        """Reset sandbox by stopping and restarting."""
++        self.stop_container()
++        self.start_container()
++        self.setup_env()
++
++    def close(self):
++        """Close sandbox and cleanup."""
++        self.stop_container()
++
++    # Git helper methods (for compatibility with DockerRuntime)
++    def start_new_branch(self, branch_name: str = "exp") -> tuple[str, str]:
++        """Start new git branch."""
++        self.run("git config --global user.email 'you@example.com'")
++        self.run("git config --global user.name 'Your Name'")
++        output, error_code = self.run("git rev-parse HEAD")
++        self.current_commit = output.strip()
++        return output, error_code
++
++    def commit_after_step(self, step_idx: int) -> tuple[str, str]:
++        """Create git commit after step."""
++        self.run("git add .")
++        return self.run(f"git commit -m '{step_idx}'")
++
++    def undo_last_commit(self) -> tuple[str, str]:
++        """Undo last git commit."""
++        return self.run("git reset --hard HEAD~1")
++
++    def get_current_commit_hash(self) -> str:
++        """Get current git commit hash."""
++        output, _ = self.run("git rev-parse HEAD")
++        return output.strip()
++
++    def soft_git_reset(self) -> tuple[str, str]:
++        """Soft reset to saved commit."""
++        return self.run(f"git reset --soft {self.current_commit}")
++
++    def run_swebv_regression(
++        self, run_tests_regression: str | None = None, timeout: int = 300
++    ) -> str:
++        """Run SWE-Bench verified regression tests.
++
++        Args:
++            run_tests_regression: Test script content (reads from ds if None)
++            timeout: Test timeout in seconds
++
++        Returns:
++            Test output string
++        """
++        if run_tests_regression is None:
++            run_tests_regression = self.ds["run_tests_regression"]
++
++        self.sandbox.files.write(
++            "/run_tests_regression.sh", run_tests_regression, user="root"
++        )
++        self.run("chmod +x /run_tests_regression.sh")
++        output, error_code = self.run("/run_tests_regression.sh", timeout=timeout)
++        return output
+diff --git a/src/r2egym/agenthub/runtime/factory.py b/src/r2egym/agenthub/runtime/factory.py
+new file mode 100644
+index 0000000..58fb71e
+--- /dev/null
++++ b/src/r2egym/agenthub/runtime/factory.py
+@@ -0,0 +1,65 @@
++"""Factory for creating runtime instances."""
++
++from r2egym.agenthub.runtime.base import ExecutionEnvironment
++
++
++class RuntimeFactory:
++    """Factory class for creating runtime instances.
++
++    Supports multiple backends:
++    - docker: Local Docker runtime
++    - kubernetes: Kubernetes-based runtime
++    - ags: AGS (Agent Sandbox) via E2B SDK
++    """
++
++    @staticmethod
++    def create(
++        backend: str,
++        ds: dict,
++        logger=None,
++        **kwargs
++    ) -> ExecutionEnvironment:
++        """Create a runtime instance based on the specified backend.
++
++        Args:
++            backend: Runtime backend ("docker", "kubernetes", or "ags")
++            ds: Dataset entry containing task information
++            logger: Logger instance
++            **kwargs: Additional arguments passed to runtime constructor
++                      (e.g., command). AGS config is always loaded from
++                      environment variables automatically.
++
++        Returns:
++            ExecutionEnvironment instance
++
++        Raises:
++            ValueError: If unknown backend is specified
++        """
++        if backend in ["docker", "kubernetes"]:
++            from r2egym.agenthub.runtime.docker import DockerRuntime
++            return DockerRuntime(
++                ds=ds,
++                backend=backend,
++                logger=logger,
++                **kwargs
++            )
++        elif backend == "ags":
++            from r2egym.agenthub.runtime.ags import AGSRuntime, AGSConfig
++
++            # AGS config is always resolved from environment variables.
++            # Callers do not need to pass ags_config -- this keeps the
++            # RepoEnv interface clean and avoids leaking AGS-specific
++            # details to upstream consumers (e.g., rllm).
++            ags_config = AGSConfig.from_env()
++
++            return AGSRuntime(
++                ds=ds,
++                config=ags_config,
++                logger=logger,
++                **kwargs
++            )
++        else:
++            raise ValueError(
++                f"Unknown backend: {backend}. "
++                f"Supported backends: docker, kubernetes, ags"
++            )
+diff --git a/src/r2egym/agenthub/utils/utils.py b/src/r2egym/agenthub/utils/utils.py
+index f136edd..d03daad 100644
+--- a/src/r2egym/agenthub/utils/utils.py
++++ b/src/r2egym/agenthub/utils/utils.py
+@@ -11,7 +11,7 @@ from datetime import datetime
+ from fire import Fire
+ from r2egym.commit_models.diff_classes import ParsedCommit
+ import numpy as np
+-from huggingface_hub import create_repo, upload_folder, HfFolder
++from huggingface_hub import create_repo, upload_folder
+ import os
+ from transformers import AutoModelForCausalLM, AutoTokenizer
+ import subprocess

@@ -29,10 +29,16 @@ examples/
 │   ├── batch.py           # Batch operations (multi-process + async)
 │   ├── sandbox_connect.py # Single sandbox connection tool (CLI)
 │   └── requirements.txt   # Dependencies
-└── shop-assistant/        # Shopping cart automation example
-    ├── README.md          # Detailed usage instructions
-    ├── automation_cart_demo.py  # Shopping flow automation demo
-    └── requirements.txt   # Dependencies
+├── shop-assistant/        # Shopping cart automation example
+│   ├── README.md          # Detailed usage instructions
+│   ├── automation_cart_demo.py  # Shopping flow automation demo
+│   └── requirements.txt   # Dependencies
+└── swe-bench-rl/          # SWE-Bench RL with AgentSandbox
+    ├── README.md          # Overview
+    ├── patches/           # Patch files for upstream repos
+    ├── ags_tool/          # AGS sandbox tool
+    ├── inference/         # LLM inference on SWE-Bench tasks
+    └── rl-training/       # SWE-Bench for RL training
 ```
 
 ## Example List
@@ -131,6 +137,20 @@ Demonstrates using Browser sandbox with Playwright to complete "Search → Add t
 - Remote automation demo
 
 **Tech Stack**: playwright
+
+### swe-bench-rl - SWE-Bench RL with AgentSandbox
+
+Demonstrates using AgentSandbox cloud sandbox to complete SWE-Bench code repair tasks, with two sub-examples:
+
+- **inference/**: Single-task inference — LLM API + R2E-Gym EditAgent executes code edits and runs tests in AGS sandbox
+- **rl-training/**: Distributed PPO training — rLLM + verl framework with AGS sandbox as execution backend
+
+**Use Cases**:
+- SWE-Bench code repair task inference and evaluation
+- Large-scale Agent RL training with sandbox environments
+- Distributed PPO training with cloud sandbox backend
+
+**Tech Stack**: R2E-Gym, ags_tool, rLLM, verl, vLLM, AgentSandbox
 
 ## Requirements
 
