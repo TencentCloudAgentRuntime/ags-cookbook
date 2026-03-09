@@ -33,34 +33,40 @@ ags-cookbook/
 │   └── yunapi/
 │       └── python/
 │           └── custom.ipynb              # Custom API tutorial
-└── examples/                               # Example code
-    ├── README.md                          
-    ├── browser-agent/                     # Browser automation agent example
-    │   ├── README.md                      
-    │   ├── main.py          
-    │   └── pyproject.toml               
-    ├── data-analysis/                     # Data analysis example
-    │   ├── README.md                      
-    │   ├── multi_context_demo.py          
-    │   └── requirements.txt               
-    ├── html-processing/                   # HTML collaboration example
-    │   ├── README.md                      
-    │   ├── html_collaboration_demo.py     
-    │   └── requirements.txt               
-    ├── mini-rl/                           # Mini reinforcement learning example
-    │   ├── README.md                      
-    │   ├── main.py          
-    │   └── pyproject.toml               
-    ├── mobile-use/                        # Mobile automation example
-    │   ├── README.md                      
-    │   ├── quickstart.py                  # Quick start example
-    │   ├── batch.py                       # Batch operations (multi-process + async)
-    │   ├── sandbox_connect.py             # Single sandbox connection tool (CLI)
-    │   └── requirements.txt               
-    └── shop-assistant/                    # Shopping cart automation example
-        ├── README.md                      
-        ├── automation_cart_demo.py        
-        └── requirements.txt               
+├── examples/                               # Example code
+│   ├── README.md                          
+│   ├── browser-agent/                     # Browser automation agent example
+│   │   ├── README.md                      
+│   │   ├── main.py          
+│   │   └── pyproject.toml               
+│   ├── data-analysis/                     # Data analysis example
+│   │   ├── README.md                      
+│   │   ├── multi_context_demo.py          
+│   │   └── requirements.txt               
+│   ├── html-processing/                   # HTML collaboration example
+│   │   ├── README.md                      
+│   │   ├── html_collaboration_demo.py     
+│   │   └── requirements.txt               
+│   ├── mini-rl/                           # Mini reinforcement learning example
+│   │   ├── README.md                      
+│   │   ├── main.py          
+│   │   └── pyproject.toml               
+│   ├── mobile-use/                        # Mobile automation example
+│   │   ├── README.md                      
+│   │   ├── quickstart.py                  # Quick start example
+│   │   ├── batch.py                       # Batch operations (multi-process + async)
+│   │   ├── sandbox_connect.py             # Single sandbox connection tool (CLI)
+│   │   └── requirements.txt               
+│   └── shop-assistant/                    # Shopping cart automation example
+│       ├── README.md                      
+│       ├── automation_cart_demo.py        
+│       └── requirements.txt               
+└── utils/                                  # Utility tools
+    └── use-ttyd-to-debug/                 # Debug sandbox via ttyd Web terminal
+        ├── README.md
+        ├── main.py
+        ├── pyproject.toml
+        └── .env.example
 ```
 
 ## Key Features
@@ -133,6 +139,13 @@ Each example has independent dependency management. Please refer to the document
 - E-commerce add-to-cart flow with login state
 - Cookie import for login-free access
 - Remote browser control and debugging
+
+### 3. Utility Tools
+
+**ttyd Web Terminal Debugging** - `utils/use-ttyd-to-debug/`
+- Deploy ttyd Web terminal inside the sandbox
+- Debug the sandbox environment in real time via browser
+- Auto-downloads ttyd, smart detection of process and port status
 
 ## Technical Architecture
 

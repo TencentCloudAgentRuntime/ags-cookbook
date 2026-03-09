@@ -33,34 +33,40 @@ ags-cookbook/
 │   └── yunapi/
 │       └── python/
 │           └── custom.ipynb              # 自定义API教程
-└── examples/                               # 示例代码
-    ├── README.md                          
-    ├── browser-agent/                     # 浏览器自动化代理示例
-    │   ├── README.md                      
-    │   ├── main.py          
-    │   └── pyproject.toml               
-    ├── data-analysis/                     # 数据分析示例
-    │   ├── README.md                      
-    │   ├── multi_context_demo.py          
-    │   └── requirements.txt               
-    ├── html-processing/                   # HTML协作处理示例
-    │   ├── README.md                      
-    │   ├── html_collaboration_demo.py     
-    │   └── requirements.txt               
-    ├── mini-rl/                           # 迷你强化学习示例
-    │   ├── README.md                      
-    │   ├── main.py          
-    │   └── pyproject.toml               
-    ├── mobile-use/                        # 移动端自动化示例
-    │   ├── README.md                      
-    │   ├── quickstart.py                  # 快速入门示例
-    │   ├── batch.py                       # 批量操作脚本（多进程 + 异步）
-    │   ├── sandbox_connect.py             # 单沙箱连接工具（CLI）
-    │   └── requirements.txt               
-    └── shop-assistant/                    # 购物车自动化示例
-        ├── README.md                      
-        ├── automation_cart_demo.py        
-        └── requirements.txt               
+├── examples/                               # 示例代码
+│   ├── README.md                          
+│   ├── browser-agent/                     # 浏览器自动化代理示例
+│   │   ├── README.md                      
+│   │   ├── main.py          
+│   │   └── pyproject.toml               
+│   ├── data-analysis/                     # 数据分析示例
+│   │   ├── README.md                      
+│   │   ├── multi_context_demo.py          
+│   │   └── requirements.txt               
+│   ├── html-processing/                   # HTML协作处理示例
+│   │   ├── README.md                      
+│   │   ├── html_collaboration_demo.py     
+│   │   └── requirements.txt               
+│   ├── mini-rl/                           # 迷你强化学习示例
+│   │   ├── README.md                      
+│   │   ├── main.py          
+│   │   └── pyproject.toml               
+│   ├── mobile-use/                        # 移动端自动化示例
+│   │   ├── README.md                      
+│   │   ├── quickstart.py                  # 快速入门示例
+│   │   ├── batch.py                       # 批量操作脚本（多进程 + 异步）
+│   │   ├── sandbox_connect.py             # 单沙箱连接工具（CLI）
+│   │   └── requirements.txt               
+│   └── shop-assistant/                    # 购物车自动化示例
+│       ├── README.md                      
+│       ├── automation_cart_demo.py        
+│       └── requirements.txt               
+└── utils/                                  # 实用工具集
+    └── use-ttyd-to-debug/                 # 使用 ttyd 进行沙箱 Web 终端调试
+        ├── README.md
+        ├── main.py
+        ├── pyproject.toml
+        └── .env.example
 ```
 
 ## 主要特性
@@ -133,6 +139,13 @@ export E2B_DOMAIN="tencentags.com"  # 可选，默认使用此域名
 - 登录态下的电商加购流程
 - Cookie 导入免登录
 - 远程浏览器控制与调试
+
+### 3. 实用工具
+
+**ttyd Web 终端调试** - `utils/use-ttyd-to-debug/`
+- 在沙箱中部署 ttyd Web 终端
+- 通过浏览器实时调试沙箱环境
+- 自动下载 ttyd、智能检测进程和端口状态
 
 ## 技术架构
 
