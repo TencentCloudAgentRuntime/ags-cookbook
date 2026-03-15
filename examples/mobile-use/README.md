@@ -28,7 +28,7 @@ mobile-use/
 ├── README.md                  # English documentation
 ├── README_zh.md               # Chinese documentation
 ├── .env.example               # Environment configuration example
-├── requirements.txt           # Python dependencies
+├── pyproject.toml             # Python dependencies
 ├── quickstart.py              # Quick start example
 ├── batch.py                   # Batch operations script (multi-process + async)
 ├── sandbox_connect.py         # Single sandbox connection tool (CLI)
@@ -49,7 +49,7 @@ mobile-use/
 ### 1. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. Configure API Keys

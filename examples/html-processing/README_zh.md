@@ -61,7 +61,7 @@ export E2B_DOMAIN='tencentags.com'
 export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
 
 # 安装依赖
-pip install -r requirements.txt
+uv sync
 
 # 运行演示
 python html_collaboration_demo.py

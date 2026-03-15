@@ -32,7 +32,7 @@ export E2B_DOMAIN='tencentags.com'
 export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
 
 # 安装依赖
-pip install -r requirements.txt
+uv sync
 
 # 准备 Cookie（免登录）
 # 将你的 Amazon Cookie 导出为 cookie.json 放在当前目录（参考 cookie.json.example 的结构）

@@ -156,18 +156,8 @@ make run
 
 ## 贡献新示例
 
-欢迎贡献新的示例！请遵循以下结构：
+欢迎贡献新的示例！每个示例应包含：
 
-```
-examples/your-example-name/
-├── README.md              # 示例说明
-├── main_script.py         # 主要演示脚本
-└── requirements.txt       # 额外依赖（如需要）
-```
-
-每个示例的README应包含：
-- 功能描述
-- 使用场景
-- 运行步骤
-- 预期输出
-- 技术栈说明
+- `README.md`：功能描述、使用场景、运行步骤、预期输出
+- `Makefile`：提供 `run` target 作为统一入口
+- `.env.example`：列出所需的环境变量

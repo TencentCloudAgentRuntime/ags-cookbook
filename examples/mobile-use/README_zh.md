@@ -28,7 +28,7 @@ mobile-use/
 ├── README.md                  # 英文文档
 ├── README_zh.md               # 中文文档
 ├── .env.example               # 环境配置示例
-├── requirements.txt           # Python 依赖
+├── pyproject.toml             # Python 依赖
 ├── quickstart.py              # 快速入门示例
 ├── batch.py                   # 批量操作脚本（多进程 + 异步）
 ├── sandbox_connect.py         # 单沙箱连接工具（CLI）
@@ -49,7 +49,7 @@ mobile-use/
 ### 1. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 2. 配置 API Key

@@ -32,7 +32,7 @@ export E2B_DOMAIN='tencentags.com'
 export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 
 # Install dependencies
-pip install -r requirements.txt
+uv sync
 
 # Prepare cookies (login-free)
 # Export your Amazon cookies to cookie.json in current directory (refer to cookie.json.example structure)

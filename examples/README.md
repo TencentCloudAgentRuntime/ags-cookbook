@@ -156,18 +156,8 @@ make run
 
 ## Contributing New Examples
 
-We welcome new example contributions! Please follow this structure:
+We welcome new example contributions! Each example should include:
 
-```
-examples/your-example-name/
-├── README.md              # Example documentation
-├── main_script.py         # Main demo script
-└── requirements.txt       # Additional dependencies (if needed)
-```
-
-Each example's README should include:
-- Feature description
-- Use cases
-- Running steps
-- Expected output
-- Tech stack description
+- `README.md` with feature description, use cases, running steps, expected output
+- `Makefile` with a `run` target as the unified entry point
+- `.env.example` listing required environment variables

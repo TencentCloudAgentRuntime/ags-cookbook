@@ -1,4 +1,4 @@
 .PHONY: run
 
 run:
-	python3 automation_cart_demo.py
+	uv run automation_cart_demo.py

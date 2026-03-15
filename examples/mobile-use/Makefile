@@ -1,4 +1,4 @@
 .PHONY: run
 
 run:
-	python3 quickstart.py
+	uv run quickstart.py
