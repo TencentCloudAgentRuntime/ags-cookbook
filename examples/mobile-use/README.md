@@ -64,7 +64,7 @@ cp .env.example .env
 
 **Option 2: Environment variables (recommended for CI/CD)**
 ```bash
-export E2B_API_KEY="your_api_key"
+export E2B_API_KEY="your_api_key"  # provided by Tencent Cloud Agent Sandbox product
 export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 export SANDBOX_TEMPLATE="mobile-v1"
 ```
@@ -228,7 +228,7 @@ python sandbox_connect.py --help
 
 | Variable | Description |
 |----------|-------------|
-| `E2B_API_KEY` | Your AgentSandbox API Key |
+| `E2B_API_KEY` | Your AgentSandbox API Key (provided by Tencent Cloud Agent Sandbox product) |
 | `E2B_DOMAIN` | Service domain (e.g., `ap-guangzhou.tencentags.com`) |
 | `SANDBOX_TEMPLATE` | Sandbox template name (e.g., `mobile-v1`) |
 
@@ -365,3 +365,10 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 - Appium connection uses authentication token from sandbox
 - GPS mocking works with LocationService in containerized Android environments
 - Use Ctrl+C to gracefully stop the script - resources will be automatically cleaned up
+
+## Quick Start
+
+```bash
+make run
+```
+

@@ -34,7 +34,7 @@ uv sync
 运行前设置环境变量：
 
 ```bash
-export E2B_API_KEY="your_e2b_api_key"           # AgentSandbox API Key
+export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
 export LLM_API_KEY="your_llm_api_key"           # LLM API Key
 export LLM_API_URL="https://your-llm-api/v1/chat/completions"
 export LLM_MODEL="glm4.7"                       # 可选，默认为 glm4.7
@@ -76,3 +76,10 @@ uv run main.py
 - e2b >= 2.9.0
 - playwright >= 1.57.0
 - requests >= 2.32.5
+
+## 快速开始
+
+```bash
+make run
+```
+

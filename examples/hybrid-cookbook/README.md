@@ -26,3 +26,10 @@ go run .
 2. Connect and run code (data plane)
 3. List sbx (control plane)
 4. Stop sbx (defer cleanup)
+
+## Quick Start
+
+```bash
+make run
+```
+

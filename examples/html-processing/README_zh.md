@@ -58,7 +58,7 @@
 ```bash
 # 设置环境变量
 export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_api_key_here'
+export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
 
 # 安装依赖
 pip install -r requirements.txt
@@ -122,3 +122,10 @@ Browser沙箱 → 截图2 (编辑效果)
 - **内容管理**：批量处理HTML模板
 - **设计验证**：设计稿与实际效果对比
 - **文档生成**：动态生成HTML报告
+
+## 快速开始
+
+```bash
+make run
+```
+

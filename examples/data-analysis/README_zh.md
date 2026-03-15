@@ -57,7 +57,7 @@
 ```bash
 # 设置环境变量
 export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_api_key_here'
+export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
 
 # 运行演示
 python multi_context_demo.py
@@ -103,3 +103,10 @@ ls enhanced_demo_output/
 - 添加更多可视化图表
 - 集成外部数据源
 - 实现实时数据处理
+
+## 快速开始
+
+```bash
+make run
+```
+

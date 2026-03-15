@@ -64,7 +64,7 @@ cp .env.example .env
 
 **方式2：环境变量（推荐用于 CI/CD）**
 ```bash
-export E2B_API_KEY="your_api_key"
+export E2B_API_KEY="your_api_key"  # 由腾讯云 Agent Sandbox 产品提供
 export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 export SANDBOX_TEMPLATE="mobile-v1"
 ```
@@ -223,7 +223,7 @@ python sandbox_connect.py --help
 
 | 变量 | 说明 |
 |------|------|
-| `E2B_API_KEY` | 你的 AgentSandbox API Key |
+| `E2B_API_KEY` | 你的 AgentSandbox API Key（由腾讯云 Agent Sandbox 产品提供） |
 | `E2B_DOMAIN` | 服务域名（如：`ap-guangzhou.tencentags.com`） |
 | `SANDBOX_TEMPLATE` | 沙箱模板名称（如：`mobile-v1`） |
 
@@ -360,3 +360,10 @@ click_element(driver, text="提", partial=True)
 - Appium 连接使用沙箱的认证令牌
 - GPS 模拟在容器化 Android 环境中通过 LocationService 工作
 - 使用 Ctrl+C 可以优雅地停止脚本 - 资源将被自动清理
+
+## 快速开始
+
+```bash
+make run
+```
+

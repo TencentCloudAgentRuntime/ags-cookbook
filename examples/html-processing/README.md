@@ -58,7 +58,7 @@ Simulates common collaboration scenarios in web development:
 ```bash
 # Set environment variables
 export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_api_key_here'
+export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 
 # Install dependencies
 pip install -r requirements.txt
@@ -122,3 +122,10 @@ Based on this example, you can extend:
 - **Content Management**: Batch processing of HTML templates
 - **Design Verification**: Comparison of design mockups with actual effects
 - **Document Generation**: Dynamic HTML report generation
+
+## Quick Start
+
+```bash
+make run
+```
+

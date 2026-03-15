@@ -28,7 +28,7 @@ This example demonstrates how to integrate AgentSandbox sandbox in reinforcement
 Set environment variables before running:
 
 ```bash
-export E2B_API_KEY="your_api_key_here"
+export E2B_API_KEY="your_ags_api_key"  # provided by Tencent Cloud Agent Sandbox product
 export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # Optional
 ```
 
@@ -71,3 +71,10 @@ Reward: 1.0
 
 - Python >= 3.12
 - e2b-code-interpreter >= 2.4.1
+
+## Quick Start
+
+```bash
+make run
+```
+

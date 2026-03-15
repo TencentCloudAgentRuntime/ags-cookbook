@@ -11,7 +11,7 @@ It provides a complete example of:
 - Dumping full logcat logs before sandbox cleanup
 
 Usage:
-    1. Set E2B_API_KEY environment variable or create .env file
+    1. Set E2B_API_KEY (provided by Tencent Cloud Agent Sandbox product) or create .env file
     2. Run: python quickstart.py
 
 Requirements:
@@ -93,6 +93,7 @@ def _load_config() -> Dict[str, Any]:
     
     config = {
         'E2B_DOMAIN': os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com"),
+        # E2B_API_KEY is provided by Tencent Cloud Agent Sandbox product
         'E2B_API_KEY': os.getenv("E2B_API_KEY", ""),
         'SANDBOX_TEMPLATE': os.getenv("SANDBOX_TEMPLATE", "mobile-v1"),
         'SANDBOX_TIMEOUT': int(os.getenv("SANDBOX_TIMEOUT", "3600")),  # 1 hour default
@@ -1094,7 +1095,7 @@ def main(
 
     Args:
         e2b_domain: E2B service domain
-        e2b_api_key: E2B API Key
+        e2b_api_key: E2B API Key (provided by Tencent Cloud Agent Sandbox product)
         sandbox_template: Sandbox template name
         sandbox_timeout: Sandbox timeout in seconds
     """
@@ -1103,14 +1104,14 @@ def main(
     # Validate API Key
     if not e2b_api_key:
         print("=" * 70)
-        print("Error: E2B_API_KEY not set!")
+        print("Error: E2B_API_KEY not set! (This key is provided by Tencent Cloud Agent Sandbox product)")
         print("=" * 70)
         print("\nPlease set API Key using one of the following methods:")
         print("\n   Method 1: Environment variable (recommended for CI/CD):")
-        print("      export E2B_API_KEY='your_api_key'")
+        print("      export E2B_API_KEY='your_api_key'  # provided by Tencent Cloud Agent Sandbox product")
         print("\n   Method 2: Create .env file (recommended for local development):")
         print("      Create .env file in examples/mobile-use/ directory with content:")
-        print("      E2B_API_KEY=your_api_key")
+        print("      E2B_API_KEY=your_api_key  # provided by Tencent Cloud Agent Sandbox product")
         print("\n   Method 3: Modify config in if __name__ == '__main__' directly")
         print("=" * 70)
         sys.exit(1)
@@ -1233,7 +1234,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------------
     # To override configuration manually, uncomment and modify the following:
     # --------------------------------------------------------------------------
-    # config['E2B_API_KEY'] = "your_api_key_here"
+    # config['E2B_API_KEY'] = "your_ags_api_key"  # provided by Tencent Cloud Agent Sandbox product
     # config['E2B_DOMAIN'] = "ap-guangzhou.tencentags.com"
     # config['SANDBOX_TEMPLATE'] = "mobile-v1"
     # config['SANDBOX_TIMEOUT'] = 3600  # 1 hour

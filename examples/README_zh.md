@@ -6,34 +6,17 @@
 
 ```
 examples/
-├── README.md              # 示例总览
-├── browser-agent/         # 浏览器自动化Agent示例
-│   ├── README.md          # 详细使用说明
-│   ├── main.py            # LLM驱动的浏览器Agent
-│   └── pyproject.toml     # 依赖配置
-├── data-analysis/         # 数据分析示例
-│   ├── README.md          # 详细使用说明
-│   ├── multi_context_demo.py  # 多Context协作演示
-│   └── requirements.txt   # 依赖包
-├── html-processing/       # HTML协作处理示例
-│   ├── README.md          # 详细使用说明
-│   ├── html_collaboration_demo.py  # Code+Browser协作演示
-│   └── requirements.txt   # 依赖包
-├── mini-rl/               # 强化学习沙箱示例
-│   ├── README.md          # 详细使用说明
-│   ├── main.py            # RL + 沙箱最小示例
-│   └── pyproject.toml     # 依赖配置
-├── mobile-use/            # 移动端自动化示例
-│   ├── README.md          # 详细使用说明
-│   ├── quickstart.py      # 快速入门示例
-│   ├── batch.py           # 批量操作脚本（多进程 + 异步）
-│   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
-│   └── requirements.txt   # 依赖包
-└── shop-assistant/        # 购物车自动化示例
-    ├── README.md          # 详细使用说明
-    ├── automation_cart_demo.py  # 购物流程自动化演示
-    └── requirements.txt   # 依赖包
+├── browser-agent/         # 浏览器自动化 Agent
+├── custom-image-go-sdk/   # Go SDK 自定义镜像启动
+├── data-analysis/         # 数据分析
+├── html-processing/       # HTML 协作处理
+├── hybrid-cookbook/        # Go SDK 混合流程
+├── mini-rl/               # 强化学习沙箱
+├── mobile-use/            # 移动端自动化
+└── shop-assistant/        # 购物车自动化
 ```
+
+每个示例目录包含各自的 `README.md`、`Makefile` 及源代码，详见各示例 README。
 
 ## 示例列表
 
@@ -99,6 +82,35 @@ examples/
 
 **技术栈**：AgentSandbox
 
+### custom-image-go-sdk - Go SDK 自定义镜像示例
+
+展示如何使用 Go SDK 启动自定义镜像沙箱，包括：
+
+- **控制面启动**：通过 AGS 控制面 API 启动实例
+- **启动参数覆盖**：通过环境变量覆盖镜像/命令/端口/探针
+- **数据面执行**：连接实例并执行代码
+
+**适用场景**：
+- 企业镜像启动配置验证
+- 启动命令与健康探针联调
+- 基于模板环境的自动化启动流程
+
+**技术栈**：Go, 腾讯云 AGS SDK
+
+### hybrid-cookbook - Go SDK 混合流程示例
+
+展示最小“控制面 + 数据面”混合工作流：
+
+- **启动沙箱**：基于工具模板创建实例
+- **执行代码**：连接实例后执行代码
+- **自动清理**：退出时停止实例，避免资源泄漏
+
+**适用场景**：
+- Go SDK 集成快速验证
+- 新成员混合流程上手
+
+**技术栈**：Go, 腾讯云 AGS SDK
+
 ### mobile-use - 移动端自动化示例
 
 展示如何使用 AgentSandbox 云端沙箱运行 Android 设备，结合 Appium 实现移动端自动化：
@@ -132,15 +144,15 @@ examples/
 
 **技术栈**：playwright
 
-## 运行要求
+## 统一命令接口
 
-1. 安装依赖：`pip install -r ../requirements.txt`
-2. 设置环境变量：
-   ```bash
-   export E2B_API_KEY="your-api-key"
-   export E2B_DOMAIN="api.e2b.dev"  # 可选
-   ```
-3. 进入具体示例目录运行相应脚本
+所有示例都提供统一命令：
+
+```bash
+make run
+```
+
+- `make run`：执行主流程
 
 ## 贡献新示例
 

@@ -9,7 +9,7 @@ Features:
 4. Aggregates data from all sandboxes at the end
 
 Configuration (.env file):
-    E2B_API_KEY=xxx                # Required, API key
+    E2B_API_KEY=xxx                # Required, API key provided by Tencent Cloud Agent Sandbox product
     E2B_DOMAIN=xxx                 # Required, service domain (e.g., ap-guangzhou.tencentags.com)
     SANDBOX_TEMPLATE=mobile-v1     # Required, sandbox template
     SANDBOX_TIMEOUT=300            # Optional, sandbox timeout in seconds, default 300
@@ -107,7 +107,7 @@ APK_DOWNLOAD_BASE_URL = "https://agentsandbox-1251707795.cos.ap-guangzhou.myqclo
 
 DEFAULT_CONFIG = {
     'E2B_DOMAIN': '',              # Required
-    'E2B_API_KEY': '',             # Required
+    'E2B_API_KEY': '',             # Required (provided by Tencent Cloud Agent Sandbox product)
     'SANDBOX_TEMPLATE': '',        # Required
     'SANDBOX_TIMEOUT': 300,
     'SANDBOX_COUNT': 2,
@@ -231,7 +231,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
     # Required fields validation
     if not config['E2B_API_KEY']:
-        errors.append("E2B_API_KEY not set, please configure in .env file")
+        errors.append("E2B_API_KEY not set (provided by Tencent Cloud Agent Sandbox product), please configure in .env file")
 
     if not config['E2B_DOMAIN']:
         errors.append("E2B_DOMAIN not set, please configure in .env file (e.g., ap-guangzhou.tencentags.com)")

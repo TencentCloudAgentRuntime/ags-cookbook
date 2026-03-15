@@ -6,34 +6,17 @@ This directory contains various usage examples for Agent Sandbox, each with its 
 
 ```
 examples/
-├── README.md              # Examples overview
-├── browser-agent/         # Browser automation agent example
-│   ├── README.md          # Detailed usage instructions
-│   ├── main.py            # LLM-driven browser agent
-│   └── pyproject.toml     # Dependency configuration
-├── data-analysis/         # Data analysis example
-│   ├── README.md          # Detailed usage instructions
-│   ├── multi_context_demo.py  # Multi-Context collaboration demo
-│   └── requirements.txt   # Dependencies
-├── html-processing/       # HTML collaboration example
-│   ├── README.md          # Detailed usage instructions
-│   ├── html_collaboration_demo.py  # Code+Browser collaboration demo
-│   └── requirements.txt   # Dependencies
-├── mini-rl/               # Reinforcement learning sandbox example
-│   ├── README.md          # Detailed usage instructions
-│   ├── main.py            # RL + sandbox minimal example
-│   └── pyproject.toml     # Dependency configuration
-├── mobile-use/            # Mobile automation example
-│   ├── README.md          # Detailed usage instructions
-│   ├── quickstart.py      # Quick start example
-│   ├── batch.py           # Batch operations (multi-process + async)
-│   ├── sandbox_connect.py # Single sandbox connection tool (CLI)
-│   └── requirements.txt   # Dependencies
-└── shop-assistant/        # Shopping cart automation example
-    ├── README.md          # Detailed usage instructions
-    ├── automation_cart_demo.py  # Shopping flow automation demo
-    └── requirements.txt   # Dependencies
+├── browser-agent/         # Browser automation agent
+├── custom-image-go-sdk/   # Go SDK custom image startup
+├── data-analysis/         # Data analysis
+├── html-processing/       # HTML collaboration
+├── hybrid-cookbook/        # Go SDK hybrid flow
+├── mini-rl/               # Reinforcement learning sandbox
+├── mobile-use/            # Mobile automation
+└── shop-assistant/        # Shopping cart automation
 ```
+
+Each example contains its own `README.md`, `Makefile`, and source code. See per-example README for details.
 
 ## Example List
 
@@ -99,6 +82,35 @@ Demonstrates how to integrate AgentSandbox sandbox in reinforcement learning sce
 
 **Tech Stack**: AgentSandbox
 
+### custom-image-go-sdk - Go SDK Custom Image Example
+
+Demonstrates how to start a custom-image sandbox with Go SDK, including:
+
+- **Control Plane Start**: Start sandbox instance via AGS control-plane API
+- **Custom Configuration**: Override runtime image/command/ports/probe via env
+- **Data Plane Execution**: Connect and run code through AGS data-plane
+
+**Use Cases**:
+- Validate enterprise image startup configuration
+- Verify custom command and health probe setup
+- Build robust startup automation with environment templates
+
+**Tech Stack**: Go, Tencent Cloud AGS SDK
+
+### hybrid-cookbook - Go SDK Hybrid Flow Example
+
+Demonstrates the minimal “Control Plane + Data Plane” hybrid workflow:
+
+- **Start Sandbox**: Create sandbox with tool template
+- **Run Code**: Connect to sandbox and execute code directly
+- **Auto Cleanup**: Stop instance on exit to avoid resource leakage
+
+**Use Cases**:
+- Quick proof-of-concept for AGS Go SDK integration
+- Hybrid workflow onboarding for new contributors
+
+**Tech Stack**: Go, Tencent Cloud AGS SDK
+
 ### mobile-use - Mobile Automation Example
 
 Demonstrates how to use AgentSandbox cloud sandbox to run Android devices with Appium for mobile automation:
@@ -132,15 +144,15 @@ Demonstrates using Browser sandbox with Playwright to complete "Search → Add t
 
 **Tech Stack**: playwright
 
-## Requirements
+## Unified Command Interface
 
-1. Install dependencies: `pip install -r ../requirements.txt`
-2. Set environment variables:
-   ```bash
-   export E2B_API_KEY="your-api-key"
-   export E2B_DOMAIN="api.e2b.dev"  # Optional
-   ```
-3. Navigate to specific example directory and run the corresponding script
+All examples provide the same command surface:
+
+```bash
+make run
+```
+
+- `make run`: executes the main workflow
 
 ## Contributing New Examples
 

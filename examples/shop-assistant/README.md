@@ -29,7 +29,7 @@ Suitable for automation verification and demonstration in e-commerce scenarios:
 ```bash
 # Set environment variables
 export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_api_key_here'
+export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 
 # Install dependencies
 pip install -r requirements.txt
@@ -47,6 +47,13 @@ python automation_cart_demo.py
   - Confirm cookie.json exists and is in array format, containing name, value, domain, path and other fields
   - If cookies expired, please re-login and export
 - E2B_API_KEY not set
-  - Please set environment variable first: export E2B_API_KEY='your_api_key_here'
+  - Please set environment variable first: export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 - Want to watch execution process (VNC)
   - Console will provide instructions; debug output can be enabled in local secure environment (avoid printing token links directly in shared environments)
+
+## Quick Start
+
+```bash
+make run
+```
+

@@ -24,6 +24,7 @@ if not os.getenv("E2B_DOMAIN"):
     os.environ["E2B_DOMAIN"] = "ap-guangzhou.tencentags.com"
 # API Key（可通过环境变量预先设置）
 if not os.getenv("E2B_API_KEY"):
+    # E2B_API_KEY should be obtained from Tencent Cloud Agent Sandbox product
     os.environ["E2B_API_KEY"] = ""
 
 

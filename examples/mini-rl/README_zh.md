@@ -28,7 +28,7 @@
 运行前设置环境变量：
 
 ```bash
-export E2B_API_KEY="your_api_key_here"
+export E2B_API_KEY="your_ags_api_key"  # 由腾讯云 Agent Sandbox 产品提供
 export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # 可选
 ```
 
@@ -71,3 +71,10 @@ Reward: 1.0
 
 - Python >= 3.12
 - e2b-code-interpreter >= 2.4.1
+
+## 快速开始
+
+```bash
+make run
+```
+

@@ -57,7 +57,7 @@ Simulates product portfolio optimization for a multinational e-commerce platform
 ```bash
 # Set environment variables
 export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_api_key_here'
+export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 
 # Run demo
 python multi_context_demo.py
@@ -103,3 +103,10 @@ Based on this example, you can extend:
 - Add more visualization charts
 - Integrate external data sources
 - Implement real-time data processing
+
+## Quick Start
+
+```bash
+make run
+```
+

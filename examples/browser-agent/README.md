@@ -34,7 +34,7 @@ uv sync
 Set environment variables before running:
 
 ```bash
-export E2B_API_KEY="your_e2b_api_key"           # AgentSandbox API Key
+export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
 export LLM_API_KEY="your_llm_api_key"           # LLM API Key
 export LLM_API_URL="https://your-llm-api/v1/chat/completions"
 export LLM_MODEL="glm4.7"                       # Optional, defaults to glm4.7
@@ -76,3 +76,10 @@ After running, a VNC link will be output, allowing you to watch the automation p
 - e2b >= 2.9.0
 - playwright >= 1.57.0
 - requests >= 2.32.5
+
+## Quick Start
+
+```bash
+make run
+```
+

@@ -96,10 +96,11 @@ class SandboxClient:
         Args:
             sandbox_id: Sandbox ID
             e2b_domain: E2B domain
-            e2b_api_key: E2B API Key
+            e2b_api_key: E2B API Key (provided by Tencent Cloud Agent Sandbox product)
         """
         self.sandbox_id = sandbox_id
         self.e2b_domain = e2b_domain or os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com")
+        # E2B_API_KEY is provided by Tencent Cloud Agent Sandbox product
         self.e2b_api_key = e2b_api_key or os.getenv("E2B_API_KEY", "")
         self.sandbox = None
         self.driver = None
@@ -1489,7 +1490,7 @@ def main():
     
     # Check API Key
     if not os.getenv("E2B_API_KEY"):
-        print("Error: E2B_API_KEY is not set")
+        print("Error: E2B_API_KEY is not set (This key is provided by Tencent Cloud Agent Sandbox product)")
         print("Please set it in .env file or export as environment variable")
         sys.exit(1)
     

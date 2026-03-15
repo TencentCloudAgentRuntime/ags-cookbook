@@ -29,7 +29,7 @@
 ```bash
 # 设置环境变量
 export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_api_key_here'
+export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
 
 # 安装依赖
 pip install -r requirements.txt
@@ -47,6 +47,13 @@ python automation_cart_demo.py
   - 确认 cookie.json 存在且为数组格式，包含 name、value、domain、path 等字段
   - 若 Cookie 过期，请重新登录导出
 - 未设置 E2B_API_KEY
-  - 请先设置环境变量：export E2B_API_KEY='your_api_key_here'
+  - 请先设置环境变量：export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
 - 想查看执行过程（VNC）
   - 控制台会给出说明；在本机安全环境下可开启调试输出（避免在共享环境直接打印带令牌链接）
+
+## 快速开始
+
+```bash
+make run
+```
+

@@ -47,3 +47,10 @@ CustomConfiguration 扩展配置（`AGS_RUNTIME_IMAGE` 非空时生效）：
 go mod tidy
 go run .
 ```
+
+## Quick Start
+
+```bash
+make run
+```
+
