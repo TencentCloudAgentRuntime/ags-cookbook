@@ -13,6 +13,7 @@ examples/
 ├── hybrid-cookbook/        # Go SDK 混合流程
 ├── mini-rl/               # 强化学习沙箱
 ├── mobile-use/            # 移动端自动化
+├── osworld-ags/           # 公开 OSWorld AGS overlay
 └── shop-assistant/        # 购物车自动化
 ```
 
@@ -129,6 +130,19 @@ examples/
 
 **技术栈**：Appium, Android, pytest
 
+### osworld-ags - 在 AGS 上运行 OSWorld
+
+展示如何通过一组小型兼容 overlay，让公开的 OSWorld 项目运行在 Agent Sandbox 上：
+
+- **AGS Provider**：为 OSWorld 增加 `provider_name=ags`
+- **远程桌面观察**：支持通过 noVNC 查看 AGS 沙箱桌面
+- **安装简单**：克隆 OSWorld、应用 overlay、安装依赖后即可运行
+
+**适用场景**：
+- 通过 cookbook 提供的 overlay，在 AGS 上运行 OSWorld 评测
+
+**技术栈**：Python, aiohttp, e2b-code-interpreter, OSWorld
+
 ### shop-assistant - 购物车自动化示例
 
 展示使用Browser沙箱与Playwright在登录态下完成“搜索→加购→查看购物车”的自动化演示。
@@ -159,5 +173,5 @@ make run
 欢迎贡献新的示例！每个示例应包含：
 
 - `README.md`：功能描述、使用场景、运行步骤、预期输出
-- `Makefile`：提供 `run` target 作为统一入口
+- 必要时提供统一入口脚本或安装脚本
 - `.env.example`：列出所需的环境变量

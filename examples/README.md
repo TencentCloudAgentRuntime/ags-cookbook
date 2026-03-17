@@ -13,6 +13,7 @@ examples/
 ├── hybrid-cookbook/        # Go SDK hybrid flow
 ├── mini-rl/               # Reinforcement learning sandbox
 ├── mobile-use/            # Mobile automation
+├── osworld-ags/           # Public OSWorld AGS overlay
 └── shop-assistant/        # Shopping cart automation
 ```
 
@@ -129,6 +130,19 @@ Demonstrates how to use AgentSandbox cloud sandbox to run Android devices with A
 
 **Tech Stack**: Appium, Android, pytest
 
+### osworld-ags - Run OSWorld on AGS
+
+Shows how to run the public OSWorld project on Agent Sandbox by applying a small compatibility overlay:
+
+- **AGS Provider**: Adds `provider_name=ags` support to OSWorld
+- **Remote Desktop Access**: Supports noVNC viewing for AGS sandboxes
+- **Simple Setup**: Clone OSWorld, apply the overlay, install dependencies, and run
+
+**Use Cases**:
+- Run OSWorld on AGS using the overlay published in this cookbook
+
+**Tech Stack**: Python, aiohttp, e2b-code-interpreter, OSWorld
+
 ### shop-assistant - Shopping Cart Automation Example
 
 Demonstrates using Browser sandbox with Playwright to complete "Search → Add to Cart → View Cart" automation in logged-in state.
@@ -159,5 +173,5 @@ make run
 We welcome new example contributions! Each example should include:
 
 - `README.md` with feature description, use cases, running steps, expected output
-- `Makefile` with a `run` target as the unified entry point
+- an entry point or setup script when the example needs one
 - `.env.example` listing required environment variables
