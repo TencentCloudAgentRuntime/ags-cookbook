@@ -57,7 +57,7 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 ### 5. Install dependencies
-
+Note: only support Python 3.10
 ```bash
 cd osworld
 pip install -r requirements.txt
