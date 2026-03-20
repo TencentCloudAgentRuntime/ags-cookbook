@@ -33,7 +33,3 @@ make run
 
 - Exit status: 0
 - Result: pass
-
-## Logs
-
-- Main log file: reports/example-runs/hybrid-cookbook.log

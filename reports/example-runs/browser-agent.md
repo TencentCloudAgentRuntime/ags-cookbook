@@ -43,9 +43,3 @@ make run
 
 - Exit status: 0
 - Result: fixed-pass
-
-## Logs
-
-- First run with limited observability: reports/example-runs/browser-agent.log
-- Observed timeout run: reports/example-runs/browser-agent.retry.log
-- Successful final run: reports/example-runs/browser-agent.complete.log

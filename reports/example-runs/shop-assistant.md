@@ -37,9 +37,3 @@ make run
 
 - Result: fixed-pass
 - Core business flow verified successfully in guest mode.
-
-## Logs
-
-- Initial run: reports/example-runs/shop-assistant.log
-- Successful guest-mode run: reports/example-runs/shop-assistant.debug.log
-- Follow-up rerun after keepalive patch: reports/example-runs/shop-assistant.final.log

@@ -40,8 +40,3 @@ uv run multi_context_demo.py
 
 - Exit status: 0
 - Result: fixed-pass
-
-## Logs
-
-- First attempt: `reports/example-runs/data-analysis.log`
-- Successful retry: `reports/example-runs/data-analysis.retry.log`

@@ -47,8 +47,3 @@ uv run quickstart.py
 
 - Exit status: 0
 - Result: fixed-pass
-
-## Logs
-
-- Initial long-run log: reports/example-runs/mobile-use.log
-- Successful bounded run: reports/example-runs/mobile-use.final.log

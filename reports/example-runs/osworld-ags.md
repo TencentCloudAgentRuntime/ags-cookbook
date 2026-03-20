@@ -46,8 +46,3 @@ python quickstart.py --provider_name ags
 
 - Exit status: 0
 - Result: fixed-pass
-
-## Logs
-
-- First failed attempt: reports/example-runs/osworld-ags.log
-- Successful retry: reports/example-runs/osworld-ags.retry.log

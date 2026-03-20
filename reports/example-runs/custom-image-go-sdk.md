@@ -27,8 +27,3 @@
 
 - Result: fixed-pass (fallback tool)
 - `custom-dev` path remains a real issue to document as environment-specific / requires pre-provisioned healthy custom tool.
-
-## Logs
-
-- First attempt: reports/example-runs/custom-image-go-sdk.try-custom-dev.log
-- Fallback attempt: reports/example-runs/custom-image-go-sdk.try-code-interpreter.log
