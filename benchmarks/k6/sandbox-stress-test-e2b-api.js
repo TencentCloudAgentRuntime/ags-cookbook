@@ -72,10 +72,10 @@ const DELETE_TIMEOUT_THRESHOLD = parseInt(__ENV.DELETE_TIMEOUT_THRESHOLD) || 100
 const API_REGION = __ENV.API_REGION || 'ap-guangzhou';
 const E2B_API_KEY = __ENV.E2B_API_KEY;
 const USE_INTERNAL = __ENV.USE_INTERNAL === 'true'; // Set to 'true' for Tencent Cloud internal network
-const API_GATEWAY_URL = USE_INTERNAL 
+const API_GATEWAY_URL = USE_INTERNAL
   ? `https://api.${API_REGION}.internal.tencentags.com`
   : `https://api.${API_REGION}.tencentags.com`;
-const SANDBOX_DOMAIN = USE_INTERNAL 
+const SANDBOX_DOMAIN = USE_INTERNAL
   ? 'internal.tencentags.com'
   : 'tencentags.com';
 
@@ -94,7 +94,7 @@ const HTTP_SUCCESS_STATUS = 200;
 // Build scenarios based on TEST_SCENARIO
 function buildScenarios() {
   const scenarios = {};
-  
+
   switch (TEST_SCENARIO) {
     case 'ramping':
       // Gradual ramp-up test - Good for finding capacity limits
@@ -109,7 +109,7 @@ function buildScenarios() {
         gracefulRampDown: GRACEFUL_RAMP_DOWN,
       };
       break;
-      
+
     case 'spike':
       // Sudden spike test - Tests system behavior under sudden traffic surge
       scenarios.spike_test = {
@@ -124,7 +124,7 @@ function buildScenarios() {
         gracefulRampDown: GRACEFUL_RAMP_DOWN,
       };
       break;
-      
+
     case 'stress':
       // Stress test - Gradually increase load to find breaking point
       const stressStages = [];
@@ -132,7 +132,7 @@ function buildScenarios() {
         stressStages.push({ duration: STRESS_STAGE_DURATION, target: STRESS_VUS_STEP * i });
       }
       stressStages.push({ duration: '2m', target: 0 });
-      
+
       scenarios.stress_test = {
         executor: 'ramping-vus',
         startVUs: 0,
@@ -140,7 +140,7 @@ function buildScenarios() {
         gracefulRampDown: GRACEFUL_RAMP_DOWN,
       };
       break;
-      
+
     case 'soak':
       // Soak/endurance test - Sustained load over long period
       scenarios.soak_test = {
@@ -149,7 +149,7 @@ function buildScenarios() {
         duration: SOAK_DURATION,
       };
       break;
-      
+
     case 'smoke':
       // Smoke test - Minimal load to verify basic functionality
       scenarios.smoke_test = {
@@ -158,7 +158,7 @@ function buildScenarios() {
         duration: SMOKE_DURATION,
       };
       break;
-      
+
     case 'breakpoint':
       // Breakpoint test - Keep increasing until system breaks
       scenarios.breakpoint_test = {
@@ -176,7 +176,7 @@ function buildScenarios() {
         ],
       };
       break;
-      
+
     default:
       // Default to ramping test
       scenarios.default_load = {
@@ -190,7 +190,7 @@ function buildScenarios() {
         gracefulRampDown: GRACEFUL_RAMP_DOWN,
       };
   }
-  
+
   return scenarios;
 }
 
@@ -235,7 +235,7 @@ function createSandboxInstance() {
       console.warn(`VU ${__VU}: ⚠️  Create conflict (409), skip this iteration`);
       sandboxCreateSuccessRate.add(false);
       sandboxCreateConflictCounter.add(1);
-      
+
       return {
         success: false,
         skipped: true,
@@ -275,9 +275,9 @@ function createSandboxInstance() {
     }
   } catch (error) {
     sandboxCreateSuccessRate.add(false);
-    
+
     console.error(`VU ${__VU}: Create exception: ${error.message}`);
-    
+
     return {
       success: false,
       error: error.message,
@@ -299,12 +299,12 @@ function acquireSandboxToken(instanceId) {
 function executeSandboxCode(instanceId, token) {
   try {
     const sandboxUrl = `https://${SANDBOX_PORT}-${instanceId}.${API_REGION}.${SANDBOX_DOMAIN}/execute`;
-    
+
     const payload = {
       code: TEST_CODE,
       language: TEST_LANGUAGE
     };
-    
+
     const response = http.post(sandboxUrl, JSON.stringify(payload), {
       headers: {
         'X-Access-Token': token,
@@ -313,13 +313,13 @@ function executeSandboxCode(instanceId, token) {
       },
       timeout: EXECUTE_TIMEOUT,
     });
-    
+
     // Use k6's built-in HTTP timing for accurate measurement
     const duration = response.timings.duration;
-    
+
     codeExecuteDuration.add(duration);
     codeExecuteCounter.add(1);
-    
+
     if (response.status === HTTP_SUCCESS_STATUS) {
       codeExecuteSuccessRate.add(true);
       codeExecuteSuccessCounter.add(1);
@@ -388,10 +388,10 @@ function deleteSandboxInstance(instanceId) {
     }
   } catch (error) {
     sandboxDeleteSuccessRate.add(false);
-    
+
     console.error(`VU ${__VU}: ❌ Delete exception, InstanceId: ${instanceId} - ${error.message}`);
     console.warn(`VU ${__VU}: ⚠️  Instance ${instanceId} may need manual cleanup`);
-    
+
     return {
       success: false,
       error: error.message,
@@ -407,37 +407,37 @@ export default function () {
   }
 
   console.log(`VU ${__VU} Iteration ${__ITER}: Starting sandbox lifecycle`);
-  
+
   const createResult = createSandboxInstance();
-  
+
   check(createResult, {
     'Sandbox instance created': (r) => r.success === true,
     'Create response time reasonable': (r) => r.duration < CREATE_TIMEOUT_THRESHOLD,
     'Valid InstanceId returned': (r) => r.success && r.instanceId && r.instanceId.length > 0,
     'Valid Token returned': (r) => r.success && r.token && r.token.length > 0,
   });
-  
+
   // 处理 409 冲突：直接返回，K6 会启动新迭代
   if (createResult.skipped && createResult.reason === 'conflict') {
     console.log(`VU ${__VU} Iteration ${__ITER}: Skipped (409 conflict)`);
     return;
   }
-  
+
   if (!createResult.success || !createResult.instanceId || !createResult.token) {
     console.error(`VU ${__VU} Iteration ${__ITER}: Create failed or no InstanceId/Token, skipping subsequent steps`);
     sleep(SLEEP_ON_ERROR);
     return;
   }
-  
+
   sleep(WAIT_AFTER_CREATE);
-  
+
   // Token is already acquired during creation, use it directly
   const token = createResult.token;
-  
+
   let executeResult = { success: false, duration: 0 };
   if (token) {
     executeResult = executeSandboxCode(createResult.instanceId, token);
-    
+
     check(executeResult, {
       'Code executed': (r) => r.success === true,
       'Execute response time reasonable': (r) => r.duration < EXECUTE_TIMEOUT_THRESHOLD,
@@ -445,31 +445,31 @@ export default function () {
   } else {
     console.warn(`VU ${__VU} Iteration ${__ITER}: No token available, skipping code execution`);
   }
-  
+
   const deleteResult = deleteSandboxInstance(createResult.instanceId);
-  
+
   check(deleteResult, {
     'Sandbox instance deleted': (r) => r.success === true,
     'Delete response time reasonable': (r) => r.duration < DELETE_TIMEOUT_THRESHOLD,
   });
-  
+
   const executeDuration = executeResult.duration || 0;
   // Calculate total HTTP time only (excluding sleep/wait time for accurate performance metrics)
   const totalDuration = createResult.duration + executeDuration + deleteResult.duration;
   console.log(`VU ${__VU} Iteration ${__ITER}: Instance ${createResult.instanceId} lifecycle ${totalDuration.toFixed(2)}ms (create:${createResult.duration.toFixed(2)}ms, execute:${executeDuration.toFixed(2)}ms, delete:${deleteResult.duration.toFixed(2)}ms)`);
-  
+
   sandboxLifecycleDuration.add(totalDuration);
-  
+
   sleep(SLEEP_BETWEEN_ITERATIONS);
 }
 
 export function setup() {
   console.log('Starting sandbox stress test...');
-  
+
   if (!E2B_API_KEY) {
     throw new Error('Please set E2B_API_KEY environment variable');
   }
-  
+
   return {
     startTime: new Date().toISOString()
   };
@@ -490,7 +490,7 @@ export function handleSummary(data) {
   const deleteSuccessQPS = data.metrics.sandbox_delete_success ? (data.metrics.sandbox_delete_success.values.count / testDurationSeconds) : 0;
   const executeQPS = data.metrics.code_execute_total ? (data.metrics.code_execute_total.values.count / testDurationSeconds) : 0;
   const createConflicts = data.metrics.sandbox_create_conflict ? data.metrics.sandbox_create_conflict.values.count : 0;
-  
+
   return {
     'summary.json': JSON.stringify(data, null, 2),
     stdout: `

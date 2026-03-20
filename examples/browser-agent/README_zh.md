@@ -82,4 +82,3 @@ uv run main.py
 ```bash
 make run
 ```
-

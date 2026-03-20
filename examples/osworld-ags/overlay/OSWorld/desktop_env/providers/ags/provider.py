@@ -41,11 +41,11 @@ def _cleanup_all_providers():
     if _cleanup_done:
         return
     _cleanup_done = True
-    
+
     providers = list(_active_providers)
     if not providers:
         return
-        
+
     logger.info("Cleaning up %d AGS sandbox(es)...", len(providers))
     for provider in providers:
         try:
@@ -105,14 +105,14 @@ def find_available_port(start_port: int) -> int:
 def find_and_bind_port(start_port: int, max_retries: int = 100) -> socket.socket:
     """
     Find an available port and return a socket bound to it.
-    
+
     This function atomically finds and binds to a port, avoiding race conditions
     in concurrent scenarios where multiple processes try to bind to the same port.
-    
+
     Args:
         start_port: Port number to start searching from
         max_retries: Maximum number of ports to try
-        
+
     Returns:
         A socket bound to the port. Caller must close this socket before starting
         the actual server, or use SO_REUSEADDR.
@@ -135,7 +135,7 @@ def find_and_bind_port(start_port: int, max_retries: int = 100) -> socket.socket
 class LocalProxyServer:
     """
     Local proxy server for AGS sandbox, supporting both HTTP and WebSocket.
-    
+
     Uses aiohttp to handle HTTP requests and WebSocket connections on the same port.
     This is essential for services like noVNC that use WebSocket (websockify).
     """
@@ -153,7 +153,7 @@ class LocalProxyServer:
     def start(self, max_retries: int = 500):
         """
         Start the proxy server in a background thread.
-        
+
         Args:
             max_retries: Maximum number of port binding retries if address is in use
         """
@@ -393,7 +393,7 @@ class LocalProxyServer:
 class CDPProxyServer:
     """
     CDP (Chrome DevTools Protocol) proxy server that supports both HTTP and WebSocket.
-    
+
     Uses aiohttp to handle both HTTP requests and WebSocket connections on the same port.
     """
 
@@ -410,27 +410,27 @@ class CDPProxyServer:
     def start(self, max_retries: int = 50):
         """
         Start the CDP proxy server in a background thread.
-        
+
         Args:
             max_retries: Maximum number of port binding retries if address is in use
         """
         if not AIOHTTP_AVAILABLE:
             logger.error("aiohttp not available, CDP proxy cannot start")
             return
-        
+
         self._start_error = None
         self._start_event = threading.Event()
         self._max_retries = max_retries
-            
+
         self.thread = threading.Thread(target=self._run_server, daemon=True)
         self.thread.start()
-        
+
         # Wait for server to start or fail
         self._start_event.wait(timeout=10)
-        
+
         if self._start_error:
             raise self._start_error
-            
+
         logger.info(
             "CDP proxy started: localhost:%d -> %s",
             self.local_port,
@@ -441,7 +441,7 @@ class CDPProxyServer:
         """Run the aiohttp server."""
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        
+
         try:
             self.loop.run_until_complete(self._start_server())
             self._start_event.set()  # Signal successful start
@@ -458,13 +458,13 @@ class CDPProxyServer:
         """Start the aiohttp web server with retry on port conflict."""
         import random
         app = web.Application()
-        
+
         # Route all requests through our handler
         app.router.add_route('*', '/{path:.*}', self._handle_request)
-        
+
         self.runner = web.AppRunner(app)
         await self.runner.setup()
-        
+
         # Try to bind with retries to handle concurrent port conflicts
         # Use random offset to reduce collision probability in concurrent scenarios
         last_error = None
@@ -472,7 +472,7 @@ class CDPProxyServer:
         random_offset = random.randint(0, 1000)
         current_port = base_port + random_offset
         max_retries = getattr(self, '_max_retries', 500)
-        
+
         for attempt in range(max_retries):
             if current_port >= 65535:
                 current_port = base_port + (current_port - 65535)
@@ -488,7 +488,7 @@ class CDPProxyServer:
                     current_port += 1
                     continue
                 raise
-        
+
         raise OSError(f"Failed to bind after {max_retries} retries: {last_error}")
 
     async def _handle_request(self, request: web.Request):
@@ -496,7 +496,7 @@ class CDPProxyServer:
         path = "/" + request.match_info.get('path', '')
         if request.query_string:
             path += '?' + request.query_string
-            
+
         # Check if this is a WebSocket upgrade request
         if request.headers.get('Upgrade', '').lower() == 'websocket':
             return await self._handle_websocket(request, path)
@@ -508,24 +508,24 @@ class CDPProxyServer:
         target_url = f"https://{self.target_host}{path}"
         # Note: Host header is handled by the internal proxy in the sandbox
         headers = {"X-Access-Token": self.access_token}
-        
+
         logger.debug("CDP HTTP: %s -> %s", path, target_url)
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(target_url, headers=headers) as response:
                     content = await response.read()
-                    
+
                     # If remote returns error, log it clearly
                     if response.status >= 400:
-                        logger.error("Remote CDP returned error %d: %s", 
+                        logger.error("Remote CDP returned error %d: %s",
                                    response.status, content.decode('utf-8', errors='replace')[:500])
-                    
+
                     # Rewrite WebSocket URLs in /json/* responses
                     if path.startswith("/json") and response.status == 200:
                         content_str = content.decode("utf-8")
                         logger.debug("CDP /json response: %s", content_str[:200])
-                        
+
                         # Replace remote WebSocket URLs with local
                         # Pattern matches wss://host or ws://host followed by path
                         content_str = re.sub(
@@ -535,7 +535,7 @@ class CDPProxyServer:
                         )
                         logger.debug("CDP /json rewritten: %s", content_str[:200])
                         content = content_str.encode("utf-8")
-                    
+
                     return web.Response(
                         body=content,
                         status=response.status,
@@ -549,13 +549,13 @@ class CDPProxyServer:
         """Handle WebSocket connection."""
         ws_client = web.WebSocketResponse()
         await ws_client.prepare(request)
-        
+
         remote_url = f"wss://{self.target_host}{path}"
         # Note: Host header is handled by the internal proxy in the sandbox
         headers = {"X-Access-Token": self.access_token}
-        
+
         logger.debug("CDP WebSocket: %s -> %s", path, remote_url)
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(remote_url, headers=headers) as ws_remote:
@@ -590,10 +590,10 @@ class CDPProxyServer:
                         forward_remote_to_client(),
                         return_exceptions=True
                     )
-                    
+
         except Exception as e:
             logger.error("CDP WebSocket proxy error: %s", e)
-        
+
         return ws_client
 
     def stop(self):
@@ -628,18 +628,18 @@ class CDPProxyServer:
                 future.result(timeout=5)
             except Exception as e:
                 logger.debug("CDP proxy cleanup error: %s", e)
-        
+
         # Step 3: 停止事件循环
         self.loop.call_soon_threadsafe(self.loop.stop)
-        
+
         # Step 4: 等待后台线程结束
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=3)
-        
+
         # Step 5: 关闭事件循环
         if not self.loop.is_closed():
             self.loop.close()
-        
+
         # 清空引用
         self.runner = None
         self.loop = None
@@ -673,7 +673,7 @@ class AGSProvider(Provider):
         self.local_chromium_port = None
         self.local_vnc_port = None
         self.local_vlc_port = None
-        
+
         # Register for cleanup on exit
         _active_providers.add(self)
 
@@ -762,10 +762,10 @@ class AGSProvider(Provider):
     def _ensure_chromium_cdp_bridge(self):
         """
         Pre-deploy CDP proxy infrastructure for Chromium.
-        
+
         Does NOT start Chrome — Chrome is started by task setup's config steps
         (e.g., "launch google-chrome --remote-debugging-port=1337").
-        
+
         This method:
         1. Installs aiohttp dependency
         2. Deploys /tmp/cdp_proxy.py script (rewrites Host header for Chrome CDP)
@@ -971,7 +971,7 @@ if __name__ == "__main__":
     def stop_emulator(self, path_to_vm: str, region=None, *args, **kwargs):
         """Stop and kill the AGS sandbox."""
         logger.info("stop_emulator called, sandbox_id=%s", self.sandbox_id)
-        
+
         # Stop local proxies first
         self._stop_local_proxies()
 

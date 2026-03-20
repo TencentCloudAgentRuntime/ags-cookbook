@@ -195,13 +195,13 @@ def _load_env_file() -> None:
 def load_config() -> Dict[str, Any]:
     """Load and validate configuration"""
     _load_env_file()
-    
+
     def _parse_bool(key: str, default: bool = False) -> bool:
         raw = os.getenv(key, "")
         if raw == "":
             return default
         return raw.lower() in ('true', '1', 'yes')
-    
+
     def _parse_optional_int(key: str) -> Optional[int]:
         raw = os.getenv(key, "").strip()
         if raw == "":
@@ -220,7 +220,7 @@ def load_config() -> Dict[str, Any]:
         'THREAD_POOL_SIZE': int(os.getenv("THREAD_POOL_SIZE", str(DEFAULT_CONFIG['THREAD_POOL_SIZE']))),
         'USE_MOUNTED_APK': _parse_bool("USE_MOUNTED_APK", DEFAULT_CONFIG['USE_MOUNTED_APK']),
     }
-    
+
     _validate_config(config)
     return config
 
@@ -278,7 +278,7 @@ def extract_error_details(e: Exception) -> str:
     # Basic error type and message
     error_type = type(e).__name__
     error_msg = str(e).strip()
-    
+
     if error_msg:
         error_parts.append(f"{error_type}: {error_msg}")
     else:
@@ -376,7 +376,7 @@ def download_apk(apk_name: str, save_path: Path) -> bool:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         response = requests.get(download_url, stream=True, timeout=300)
         response.raise_for_status()
-        
+
         with open(save_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -436,19 +436,19 @@ class TeeLogger:
         self._file = open(self._log_file, 'w', encoding='utf-8', buffering=1)
         sys.stdout = self
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         sys.stdout = self._original_stdout or self._terminal
         if self._file:
             self._file.close()
             self._file = None
-    
+
     def write(self, message: str) -> None:
         if self._mirror_to_terminal:
             self._terminal.write(message)
         if self._file:
             self._file.write(message)
-    
+
     def flush(self) -> None:
         if self._mirror_to_terminal:
             self._terminal.flush()
@@ -473,15 +473,15 @@ class OperationMetrics:
     retry_triggered: int = 0  # Number of retries triggered
     retry_success: int = 0    # Successful after retry
     retry_failed: int = 0     # Still failed after retry
-    
+
     @property
     def success_rate(self) -> float:
         return (self.success_count / self.total_runs * 100) if self.total_runs else 0.0
-    
+
     @property
     def avg_latency_ms(self) -> float:
         return statistics.mean(self.latencies_ms) if self.latencies_ms else 0.0
-    
+
     @property
     def p95_latency_ms(self) -> float:
         if len(self.latencies_ms) < 2:
@@ -489,15 +489,15 @@ class OperationMetrics:
         sorted_lat = sorted(self.latencies_ms)
         idx = min(int(len(sorted_lat) * 0.95), len(sorted_lat) - 1)
         return sorted_lat[idx]
-    
+
     @property
     def max_latency_ms(self) -> float:
         return max(self.latencies_ms) if self.latencies_ms else 0.0
-    
+
     @property
     def min_latency_ms(self) -> float:
         return min(self.latencies_ms) if self.latencies_ms else 0.0
-    
+
     def record_success(self, latency_ms: float, retried: bool = False) -> None:
         """Record successful operation"""
         self.total_runs += 1
@@ -534,7 +534,7 @@ class OperationMetrics:
             'retry_success': self.retry_success,
             'retry_failed': self.retry_failed,
         }
-    
+
     def to_detail_dict(self) -> Dict[str, Any]:
         """Convert to detail dictionary (for details.json, includes raw samples)"""
         return {
@@ -548,7 +548,7 @@ class OperationMetrics:
             'retry_success': self.retry_success,
             'retry_failed': self.retry_failed,
         }
-    
+
     @classmethod
     def from_detail_dict(cls, data: Dict[str, Any]) -> 'OperationMetrics':
         """Restore OperationMetrics from details.json structure"""
@@ -562,7 +562,7 @@ class OperationMetrics:
         m.retry_success = int(data.get('retry_success', 0) or 0)
         m.retry_failed = int(data.get('retry_failed', 0) or 0)
         return m
-    
+
     def merge(self, other: 'OperationMetrics') -> None:
         """Merge another metrics object"""
         self.total_runs += other.total_runs
@@ -641,30 +641,30 @@ def _sandbox_test_result_from_detail_dict(data: Dict[str, Any]) -> SandboxTestRe
     r.real_sandbox_id = str(data.get('real_sandbox_id', '') or '')
     r.success = bool(data.get('success', False))
     r.error = str(data.get('error', '') or '')
-    
+
     r.create_success = bool(data.get('create_success', False))
     r.connect_success = bool(data.get('connect_success', False))
     r.operations_success = bool(data.get('operations_success', False))
     r.destroy_success = bool(data.get('destroy_success', False))
-    
+
     r.create_latency_ms = float(data.get('create_latency_ms', 0.0) or 0.0)
     r.connect_latency_ms = float(data.get('connect_latency_ms', 0.0) or 0.0)
     r.total_latency_ms = float(data.get('total_latency_ms', 0.0) or 0.0)
-    
+
     r.create_retry_count = int(data.get('create_retry_count', 0) or 0)
     r.create_retried = bool(data.get('create_retried', False))
-    
+
     r.start_time = str(data.get('start_time', '') or '')
     r.end_time = str(data.get('end_time', '') or '')
     r.create_start_time = str(data.get('create_start_time', '') or '')
     r.create_end_time = str(data.get('create_end_time', '') or '')
     r.destroy_start_time = str(data.get('destroy_start_time', '') or '')
     r.destroy_end_time = str(data.get('destroy_end_time', '') or '')
-    
+
     ops_detail = data.get('operations_detail')
     ops_summary = data.get('operations')
     ops: Dict[str, Any] = ops_detail if isinstance(ops_detail, dict) else (ops_summary if isinstance(ops_summary, dict) else {})
-    
+
     if isinstance(ops_detail, dict):
         r.operation_metrics = {k: OperationMetrics.from_detail_dict(v) for k, v in ops_detail.items() if isinstance(v, dict)}
     elif isinstance(ops_summary, dict):
@@ -682,7 +682,7 @@ def _sandbox_test_result_from_detail_dict(data: Dict[str, Any]) -> SandboxTestRe
             m.retry_failed = int(v.get('retry_failed', 0) or 0)
             metrics[k] = m
         r.operation_metrics = metrics
-    
+
     return r
 
 
@@ -691,26 +691,26 @@ def _sandbox_test_result_from_detail_dict(data: Dict[str, Any]) -> SandboxTestRe
 # =============================================================================
 class ResourceManager:
     """Manage sandbox and driver resources (thread-safe)"""
-    
+
     def __init__(self):
         self._sandboxes: Dict[int, Any] = {}
         self._drivers: Dict[int, Any] = {}
         self._cleanup_done = False
         self._lock = asyncio.Lock()
-    
+
     async def register_sandbox(self, sandbox_id: int, sandbox: Any) -> None:
         async with self._lock:
             self._sandboxes[sandbox_id] = sandbox
-    
+
     async def register_driver(self, sandbox_id: int, driver: Any) -> None:
         async with self._lock:
             self._drivers[sandbox_id] = driver
-    
+
     async def unregister(self, sandbox_id: int) -> None:
         async with self._lock:
             self._sandboxes.pop(sandbox_id, None)
             self._drivers.pop(sandbox_id, None)
-    
+
     async def cleanup_all(self) -> None:
         """Async cleanup of all resources"""
         async with self._lock:
@@ -799,12 +799,12 @@ def create_appium_driver(sandbox: Any, sandbox_id: int = -1, max_retries: int = 
 
     def _log(msg: str) -> None:
         print(f"  [{format_timestamp()}] [Sandbox {sandbox_id:2d}]   {msg}")
-    
+
     access_token = sandbox._envd_access_token
     health_url = f"https://{sandbox.get_host(8080)}/healthz"
     headers = {'X-Access-Token': access_token}
     last_error: Optional[Exception] = None
-    
+
     for attempt in range(max_retries + 1):
         if attempt > 0:
             _log(f"Retry {attempt}/{max_retries}, health check first...")
@@ -819,14 +819,14 @@ def create_appium_driver(sandbox: Any, sandbox_id: int = -1, max_retries: int = 
                 time.sleep(0.1)  # 100ms interval, max 1 second
             else:
                 _log("Health check timeout, continue trying to connect")
-        
+
         try:
             with timer() as t1:
                 options = UiAutomator2Options()
                 options.platform_name = 'Android'
                 options.automation_name = 'UiAutomator2'
                 options.new_command_timeout = 0
-                
+
                 ConnectionClass = create_appium_connection_class(access_token)
                 appium_url = f"https://{sandbox.get_host(4723)}"
                 client_config = AppiumClientConfig(
@@ -834,13 +834,13 @@ def create_appium_driver(sandbox: Any, sandbox_id: int = -1, max_retries: int = 
                     timeout=300,
                 )
                 executor = ConnectionClass(client_config=client_config)
-            
+
             with timer() as t2:
                 driver = webdriver.Remote(
                     command_executor=executor,
                     options=options,
                 )
-            
+
             _log(f"Config: {t1['elapsed_ms']:.0f}ms, Session create: {t2['elapsed_ms']:.0f}ms")
 
             if driver and hasattr(driver, 'get_window_size'):
@@ -861,7 +861,7 @@ def create_appium_driver(sandbox: Any, sandbox_id: int = -1, max_retries: int = 
 # =============================================================================
 class AsyncSandboxTester:
     """Async sandbox tester"""
-    
+
     def __init__(self, sandbox_id: int, config: Dict[str, Any], output_dir: Path,
                  executor: ThreadPoolExecutor, resource_manager: ResourceManager):
         self.sandbox_id = sandbox_id
@@ -870,17 +870,17 @@ class AsyncSandboxTester:
         self.output_dir = output_dir
         self.executor = executor
         self.resource_manager = resource_manager
-        
+
         self.sandbox: Optional[Any] = None
         self.driver: Optional[Any] = None
         self.screen_width = 720
         self.screen_height = 1280
-        
+
         self.sandbox_output_dir = output_dir / f"sandbox_{sandbox_id}"
         self.sandbox_output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.metrics = create_operation_metrics()
-    
+
     def _log(self, msg: str) -> None:
         print(f"  [{format_timestamp()}] [Sandbox {self.sandbox_id:2d}] {msg}")
 
@@ -922,7 +922,7 @@ class AsyncSandboxTester:
         last_error = None
         total_start = time.perf_counter()
         result.create_start_time = format_timestamp()
-        
+
         for attempt in range(max_retries + 1):
             if attempt > 0:
                 result.create_retried = True
@@ -972,11 +972,11 @@ class AsyncSandboxTester:
                 self.executor,
                 functools.partial(create_appium_driver, self.sandbox, self.sandbox_id)
             )
-            
+
             result.connect_latency_ms = (time.perf_counter() - start) * 1000
             result.connect_success = True
             await self.resource_manager.register_driver(self.sandbox_id, self.driver)
-            
+
             window_size = await loop.run_in_executor(self.executor, self.driver.get_window_size)
             self.screen_width = window_size['width']
             self.screen_height = window_size['height']
@@ -1068,7 +1068,7 @@ class AsyncSandboxTester:
         last_error = None
         total_start = time.perf_counter()
         retried = False
-        
+
         for attempt in range(max_retries + 1):
             if attempt > 0:
                 retried = True
@@ -1103,13 +1103,13 @@ class AsyncSandboxTester:
         x = random.randint(100, self.screen_width - 100)
         y = random.randint(200, self.screen_height - 200)
         return self._execute_shell('input', ['tap', str(x), str(y)])
-    
+
     def _install_and_grant(self, app_name: str) -> bool:
         if not self._install_app(app_name):
             return False
         self._grant_permissions(app_name)
         return True
-    
+
     def _upload_app(self, app_name: str) -> bool:
         """Upload APK (skip if using mounted mode)"""
         # If using mounted APK, return success directly (no need to upload)
@@ -1240,7 +1240,7 @@ class AsyncSandboxTester:
         config = APP_CONFIGS.get(app_name.lower())
         if not config:
             return False
-        
+
         package = config['package']
         for permission in config.get('permissions', []):
             try:
@@ -1398,10 +1398,10 @@ class ResultReporter:
             for key, metrics in r.operation_metrics.items():
                 if key in operation_metrics:
                     operation_metrics[key].merge(metrics)
-            
+
             if r.success:
                 success_count += 1
-        
+
         data: Dict[str, Any] = {
             'config': {
                 'sandbox_count': self.sandbox_count,
@@ -1430,7 +1430,7 @@ class ResultReporter:
         }
 
         return data
-    
+
     def print_summary(self, summary: Dict[str, Any]) -> None:
         """Print summary report"""
         print(f"\n{'='*80}")
@@ -1541,17 +1541,17 @@ class BatchRunner:
     async def run(self, task_dir: Optional[Path] = None, sandbox_id_offset: int = 0) -> Dict[str, Any]:
         """Run batch operations"""
         self._sandbox_id_offset = int(sandbox_id_offset)
-        
+
         if task_dir is None:
             output_dir = Path(__file__).parent / "output" / "batch_output"
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             task_dir = output_dir / f"{self.sandbox_count}_{timestamp}"
             task_dir.mkdir(parents=True, exist_ok=True)
         else:
             task_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Thread pool size: Appium connections/operations are sync blocking, need thread pool for concurrency
         # Default=SANDBOX_COUNT (consistent with old behavior), can override with THREAD_POOL_SIZE; max 1000
         override_workers = self.config.get('THREAD_POOL_SIZE')
@@ -1569,7 +1569,7 @@ class BatchRunner:
                 if self.executor:
                     self.executor.shutdown(wait=False)
                     self.executor = None
-    
+
     async def _run_tests(self, task_dir: Path) -> Dict[str, Any]:
         """Execute tests"""
         self._print_header(task_dir)
@@ -1708,19 +1708,19 @@ def _worker_process_entry(worker_id: int, sandbox_count: int, sandbox_id_offset:
 def _run_multiprocess(config: Dict[str, Any]) -> None:
     """Multi-process mode: parent process splits tasks and aggregates results"""
     global _worker_processes
-    
+
     total = int(config['SANDBOX_COUNT'])
     process_count = int(config.get('PROCESS_COUNT', 1) or 1)
     counts = _split_sandbox_counts(total, process_count)
     process_count = len(counts)
-    
+
     output_dir = Path(__file__).parent / "output" / "batch_output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     task_dir = output_dir / f"{total}_p{process_count}_{timestamp}"
     task_dir.mkdir(parents=True, exist_ok=True)
-    
+
     log_file = task_dir / "console.log"
     # Parent process summary always outputs to terminal (most important info for user)
     mirror_to_terminal = True
@@ -1741,10 +1741,10 @@ def _run_multiprocess(config: Dict[str, Any]) -> None:
             plan.append({'worker_id': wid, 'sandbox_count': c, 'sandbox_id_offset': offset})
             offset += c
         (task_dir / "workers.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding='utf-8')
-        
+
         ctx = multiprocessing.get_context("spawn")
         processes: List[multiprocessing.Process] = []
-        
+
         offset = 0
         for wid, c in enumerate(counts):
             worker_dir = task_dir / f"worker_{wid:02d}"
@@ -1761,14 +1761,14 @@ def _run_multiprocess(config: Dict[str, Any]) -> None:
             )
             processes.append(p)
             offset += c
-        
+
         _worker_processes = processes
         for p in processes:
             p.start()
-        
+
         for p in processes:
             p.join()
-        
+
         exit_codes = {p.name: p.exitcode for p in processes}
         failed = {k: v for k, v in exit_codes.items() if v not in (0, None)}
         if failed:
@@ -1788,7 +1788,7 @@ def _run_multiprocess(config: Dict[str, Any]) -> None:
             if not summary_path.exists() or not details_path.exists():
                 print(f"Warning: worker_{wid:02d} missing result files, skipping aggregation")
                 continue
-            
+
             worker_summaries.append(json.loads(summary_path.read_text(encoding='utf-8')))
             details = json.loads(details_path.read_text(encoding='utf-8'))
             if isinstance(details, list):
@@ -1809,7 +1809,7 @@ def _run_multiprocess(config: Dict[str, Any]) -> None:
                 continue
         overall_start = min(start_times) if start_times else datetime.now()
         overall_end = max(end_times) if end_times else datetime.now()
-        
+
         reporter = ResultReporter(total)
         summary = reporter.aggregate(all_results, overall_start, overall_end, config)
         reporter.print_summary(summary)
@@ -1906,7 +1906,7 @@ def _sync_cleanup() -> None:
                     os.kill(p.pid, signal.SIGINT)
             except Exception:
                 pass
-        
+
         deadline = time.time() + 8
         for p in list(_worker_processes):
             remaining = max(0.0, deadline - time.time())
@@ -1914,20 +1914,20 @@ def _sync_cleanup() -> None:
                 p.join(timeout=remaining)
             except Exception:
                 pass
-        
+
         for p in list(_worker_processes):
             try:
                 if p.is_alive():
                     p.terminate()
             except Exception:
                 pass
-        
+
         for p in list(_worker_processes):
             try:
                 p.join(timeout=2)
             except Exception:
                 pass
-        
+
         _worker_processes.clear()
         print("Child processes stopped")
 

@@ -17,7 +17,7 @@
    ```bash
    # macOS
    brew install k6
-   
+
    # Linux
    sudo apt-get install k6
    ```
@@ -47,11 +47,11 @@
    # 添加 InfluxData Helm 仓库
    helm repo add influxdata https://helm.influxdata.com/
    helm repo update
-   
+
    # 安装 InfluxDB 2.x
    # 先设置环境变量
    export INFLUXDB_PASSWORD="your-password"
-   
+
    helm install influxdb2 influxdata/influxdb2 \
      --set adminUser.organization=influxdata \
      --set adminUser.bucket=default \
@@ -59,11 +59,11 @@
      --set adminUser.password=${INFLUXDB_PASSWORD} \
      --set service.type=ClusterIP \
      -n default
-   
+
    # 获取 InfluxDB Token（安装后自动生成）
    kubectl get secret influxdb2-auth -o jsonpath='{.data.admin-token}' | base64 -d
    ```
-   
+
    安装完成后，将以下信息填入 `deploy/00-configmap-secret.yaml`：
    - `INFLUXDB_URL`: `http://influxdb2.default.svc.cluster.local:80`
    - `INFLUXDB_TOKEN`: 上面获取的 Token
@@ -82,15 +82,15 @@
    kubectl create configmap sandbox-stress-test-script \
      --from-file=test.js=sandbox-stress-test.js \
      -n default
-   
+
    kubectl create configmap sandbox-stress-test-data-plane-script \
      --from-file=test.js=sandbox-stress-test-data-plane.js \
      -n default
-   
+
    kubectl create configmap sandbox-stress-test-non-exec-script \
      --from-file=test.js=sandbox-stress-test-non-exec.js \
      -n default
-   
+
    kubectl create configmap sandbox-stress-test-e2b-api-script \
      --from-file=test.js=sandbox-stress-test-e2b-api.js \
      -n default
@@ -101,7 +101,7 @@
    # 编辑 deploy/02-ramping-test.yaml 选择要使用的脚本 ConfigMap
    # 可选: sandbox-stress-test-script / sandbox-stress-test-non-exec-script / sandbox-stress-test-e2b-api-script
    kubectl apply -f deploy/02-ramping-test.yaml
-   
+
    # 或运行数据面压测
    kubectl apply -f deploy/03-data-plane-test.yaml
    ```

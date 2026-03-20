@@ -46,13 +46,13 @@ mobile-use/
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
-uv sync
+make setup
 ```
 
-### 2. Configure API Keys
+### 2. Configure API keys
 
 **Option 1: .env file (recommended for local development)**
 ```bash
@@ -69,17 +69,29 @@ export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 export SANDBOX_TEMPLATE="mobile-v1"
 ```
 
-### 3. Run Examples
+### 3. Run examples
 
 **Quick Start Example:**
 ```bash
-python quickstart.py
+make run
 ```
 
 **Batch Operations:**
 ```bash
-python batch.py
+uv run batch.py
 ```
+
+
+### Useful runtime controls
+
+The quickstart script now supports environment variables that make local validation easier:
+
+```bash
+export LONG_RUN_SECONDS=0
+export LONG_RUN_RESERVE_SECONDS=0
+```
+
+Use them when you want a smoke-like local run instead of waiting through the full long-running demo phase.
 
 ## Sandbox Connect Tool
 
@@ -96,7 +108,7 @@ python batch.py
 ### Basic Usage
 
 ```bash
-python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other parameters]
+uv run sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other parameters]
 ```
 
 ### Supported Actions
@@ -371,4 +383,3 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 ```bash
 make run
 ```
-

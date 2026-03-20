@@ -17,7 +17,7 @@ K6-based stress testing for Tencent Cloud Sandbox instances (create-execute-dele
    ```bash
    # macOS
    brew install k6
-   
+
    # Linux
    sudo apt-get install k6
    ```
@@ -47,11 +47,11 @@ K6-based stress testing for Tencent Cloud Sandbox instances (create-execute-dele
    # Add InfluxData Helm repository
    helm repo add influxdata https://helm.influxdata.com/
    helm repo update
-   
+
    # Install InfluxDB 2.x
    # Set environment variable first
    export INFLUXDB_PASSWORD="your-password"
-   
+
    helm install influxdb2 influxdata/influxdb2 \
      --set adminUser.organization=influxdata \
      --set adminUser.bucket=default \
@@ -59,11 +59,11 @@ K6-based stress testing for Tencent Cloud Sandbox instances (create-execute-dele
      --set adminUser.password=${INFLUXDB_PASSWORD} \
      --set service.type=ClusterIP \
      -n default
-   
+
    # Get InfluxDB Token (auto-generated after installation)
    kubectl get secret influxdb2-auth -o jsonpath='{.data.admin-token}' | base64 -d
    ```
-   
+
    After installation, fill in the following in `deploy/00-configmap-secret.yaml`:
    - `INFLUXDB_URL`: `http://influxdb2.default.svc.cluster.local:80`
    - `INFLUXDB_TOKEN`: The token obtained above
@@ -82,15 +82,15 @@ K6-based stress testing for Tencent Cloud Sandbox instances (create-execute-dele
    kubectl create configmap sandbox-stress-test-script \
      --from-file=test.js=sandbox-stress-test.js \
      -n default
-   
+
    kubectl create configmap sandbox-stress-test-data-plane-script \
      --from-file=test.js=sandbox-stress-test-data-plane.js \
      -n default
-   
+
    kubectl create configmap sandbox-stress-test-non-exec-script \
      --from-file=test.js=sandbox-stress-test-non-exec.js \
      -n default
-   
+
    kubectl create configmap sandbox-stress-test-e2b-api-script \
      --from-file=test.js=sandbox-stress-test-e2b-api.js \
      -n default
@@ -101,7 +101,7 @@ K6-based stress testing for Tencent Cloud Sandbox instances (create-execute-dele
    # Edit deploy/02-ramping-test.yaml to select the script ConfigMap
    # Options: sandbox-stress-test-script / sandbox-stress-test-non-exec-script / sandbox-stress-test-e2b-api-script
    kubectl apply -f deploy/02-ramping-test.yaml
-   
+
    # Or run data plane stress test
    kubectl apply -f deploy/03-data-plane-test.yaml
    ```

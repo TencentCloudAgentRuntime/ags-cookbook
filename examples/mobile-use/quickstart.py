@@ -90,7 +90,7 @@ def _load_config() -> Dict[str, Any]:
     """
     # Load .env file first
     _load_env_file()
-    
+
     config = {
         'E2B_DOMAIN': os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com"),
         # E2B_API_KEY is provided by Tencent Cloud Agent Sandbox product
@@ -98,7 +98,7 @@ def _load_config() -> Dict[str, Any]:
         'SANDBOX_TEMPLATE': os.getenv("SANDBOX_TEMPLATE", "mobile-v1"),
         'SANDBOX_TIMEOUT': int(os.getenv("SANDBOX_TIMEOUT", "3600")),  # 1 hour default
     }
-    
+
     return config
 
 
@@ -150,13 +150,13 @@ def dump_logcat(driver: WebDriver) -> Optional[str]:
 def cleanup() -> None:
     """Cleanup resources: dump logcat, close driver, and terminate sandbox"""
     global _driver, _sandbox, _cleaned_up
-    
+
     if _cleaned_up:
         return
     _cleaned_up = True
-    
+
     print("\nCleaning up resources...")
-    
+
     # Take screenshot before exit
     try:
         if _driver is not None:
@@ -168,7 +168,7 @@ def cleanup() -> None:
             print(f"  - Screenshot saved: {screenshot_path}")
     except Exception as e:
         print(f"  - Failed to take screenshot: {e}")
-    
+
     # Dump full logcat logs before closing driver
     try:
         if _driver is not None:
@@ -176,7 +176,7 @@ def cleanup() -> None:
             dump_logcat(_driver)
     except Exception as e:
         print(f"  - Failed to dump logcat: {e}")
-    
+
     try:
         if _driver is not None:
             print("  - Closing Appium driver...")
@@ -184,7 +184,7 @@ def cleanup() -> None:
             print("  - Appium driver closed")
     except Exception as e:
         print(f"  - Error closing driver: {e}")
-    
+
     try:
         if _sandbox is not None:
             print("  - Terminating sandbox...")
@@ -192,7 +192,7 @@ def cleanup() -> None:
             print("  - Sandbox terminated")
     except Exception as e:
         print(f"  - Error terminating sandbox: {e}")
-    
+
     print("Test completed, sandbox cleaned up")
 
 
@@ -253,42 +253,42 @@ APP_CONFIGS = {
 def download_apk(apk_name: str, save_path: Path) -> bool:
     """
     Download APK file from remote server.
-    
+
     Note: Since Tencent Cloud COS blocks .apk downloads via default domain,
     remote files use .ap suffix, saved as .apk after download.
-    
+
     Args:
         apk_name: APK filename (e.g., "yingyongbao.apk")
         save_path: Path to save the file
-        
+
     Returns:
         Whether download succeeded
     """
     from urllib.parse import quote
-    
+
     # Change .apk suffix to .ap (actual filename on COS)
     remote_name = apk_name.replace('.apk', '.ap')
-    
+
     # URL encode filename (handle Chinese and special characters)
     encoded_name = quote(remote_name)
     download_url = f"{APK_DOWNLOAD_BASE_URL}/{encoded_name}"
-    
+
     print(f"  - APK file not found, starting download...")
     print(f"  - Download URL: {download_url}")
-    
+
     try:
         # Ensure directory exists
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Download file
         response = requests.get(download_url, stream=True, timeout=300)
         response.raise_for_status()
-        
+
         # Get file size
         total_size = int(response.headers.get('content-length', 0))
         if total_size > 0:
             print(f"  - File size: {total_size / 1024 / 1024:.2f} MB")
-        
+
         # Write file
         downloaded = 0
         with open(save_path, 'wb') as f:
@@ -299,11 +299,11 @@ def download_apk(apk_name: str, save_path: Path) -> bool:
                     if total_size > 0:
                         progress = downloaded / total_size * 100
                         print(f"\r  - Download progress: {progress:.1f}%", end='', flush=True)
-        
+
         print()  # New line
         print(f"  - Download completed: {save_path}")
         return True
-        
+
     except requests.exceptions.RequestException as e:
         print(f"\n  - Download failed: {e}")
         # Clean up incomplete file
@@ -331,33 +331,33 @@ def upload_app(driver: WebDriver, app_name: str, apk_path: Optional[str] = None)
     if not config:
         print(f"Unsupported app: {app_name}")
         return False
-    
+
     print(f"[Action: upload_app] Uploading {config['name']} APK to device...")
-    
+
     if apk_path is None:
         # Default APK path: apk/ subdirectory under script directory
         apk_dir = SCRIPT_DIR / "apk"
         apk_path = apk_dir / config['apk_name']
     else:
         apk_path = Path(apk_path)
-    
+
     # If APK doesn't exist, try to download
     if not apk_path.exists():
         if not download_apk(config['apk_name'], apk_path):
             print(f"[x] APK file not found and download failed: {apk_path}")
             return False
-    
+
     file_size = apk_path.stat().st_size
     total_chunks = (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
-    
+
     print(f"  - Local APK path: {apk_path}")
     print(f"  - File size: {file_size / 1024 / 1024:.2f} MB")
     print(f"  - Chunk size: {CHUNK_SIZE / 1024 / 1024:.0f} MB")
     print(f"  - Total chunks: {total_chunks}")
-    
+
     temp_dir = '/data/local/tmp/chunks'
     remote_path = config['remote_path']
-    
+
     try:
         # Clean and create temp directory
         driver.execute_script('mobile: shell', {
@@ -368,15 +368,15 @@ def upload_app(driver: WebDriver, app_name: str, apk_path: Optional[str] = None)
             'command': 'mkdir',
             'args': ['-p', temp_dir]
         })
-        
+
         # Clear target file
         driver.execute_script('mobile: shell', {
             'command': 'rm',
             'args': ['-f', remote_path]
         })
-        
+
         start_time = time.time()
-        
+
         # Phase 1: Upload all chunks
         print(f"  [Phase 1] Uploading chunks...")
         with open(apk_path, 'rb') as f:
@@ -384,28 +384,28 @@ def upload_app(driver: WebDriver, app_name: str, apk_path: Optional[str] = None)
                 chunk_data = f.read(CHUNK_SIZE)
                 chunk_b64 = base64.b64encode(chunk_data).decode('utf-8')
                 chunk_path = f"{temp_dir}/chunk_{i:04d}"
-                
+
                 print(f"    - Chunk {i + 1}/{total_chunks} ({len(chunk_data) / 1024 / 1024:.2f}MB)...", end=' ', flush=True)
                 chunk_start = time.time()
-                
+
                 driver.push_file(chunk_path, chunk_b64)
-                
+
                 elapsed = time.time() - chunk_start
                 print(f"done ({elapsed:.1f}s)")
-        
+
         upload_time = time.time() - start_time
         print(f"  - Upload completed, time: {upload_time:.1f}s")
-        
+
         # Phase 2: Merge chunks one by one
         print(f"  [Phase 2] Merging chunks...")
         merge_start = time.time()
-        
+
         for i in range(total_chunks):
             chunk_path = f"{temp_dir}/chunk_{i:04d}"
             print(f"    - Merging chunk {i + 1}/{total_chunks}...", end=' ', flush=True)
-            
+
             chunk_merge_start = time.time()
-            
+
             if i == 0:
                 # First chunk: copy directly
                 driver.execute_script('mobile: shell', {
@@ -418,34 +418,34 @@ def upload_app(driver: WebDriver, app_name: str, apk_path: Optional[str] = None)
                     'command': 'cat',
                     'args': [chunk_path, '>>', remote_path]
                 })
-            
+
             # Delete merged chunk
             driver.execute_script('mobile: shell', {
                 'command': 'rm',
                 'args': ['-f', chunk_path]
             })
-            
+
             chunk_merge_time = time.time() - chunk_merge_start
             print(f"done ({chunk_merge_time:.1f}s)")
-        
+
         merge_time = time.time() - merge_start
         print(f"  - Merge completed, time: {merge_time:.1f}s")
-        
+
         # Clean temp directory
         driver.execute_script('mobile: shell', {
             'command': 'rm',
             'args': ['-rf', temp_dir]
         })
-        
+
         # Verify file
         result = driver.execute_script('mobile: shell', {
             'command': 'ls',
             'args': ['-la', remote_path]
         })
-        
+
         total_time = time.time() - start_time
         print(f"  - Total time: {total_time:.1f}s")
-        
+
         if result and 'No such file' not in str(result):
             print(f"  - Remote file: {result.strip()}")
             print(f"[ok] APK upload completed")
@@ -455,7 +455,7 @@ def upload_app(driver: WebDriver, app_name: str, apk_path: Optional[str] = None)
             print(f"[x] File not found")
             print()
             return False
-            
+
     except Exception as e:
         print(f"[x] APK upload failed: {e}")
         # Clean temp files
@@ -480,9 +480,9 @@ def install_app(driver: WebDriver, app_name: str) -> bool:
     if not config:
         print(f"Unsupported app: {app_name}")
         return False
-    
+
     print(f"[Action: install_app] Installing {config['name']}...")
-    
+
     try:
         # Check if already installed
         print(f"  - Checking if {config['name']} is installed...")
@@ -491,16 +491,16 @@ def install_app(driver: WebDriver, app_name: str) -> bool:
             print(f"[ok] {config['name']} available (already exists)")
             print()
             return True
-        
+
         # Install using pm install
         print(f"  - Installing APK...")
         print(f"  - Estimated time: 60-120 seconds, please wait...")
-        
+
         result = driver.execute_script('mobile: shell', {
             'command': 'pm',
             'args': ['install', '-r', '-g', config['remote_path']]
         })
-        
+
         if result and ('Success' in str(result) or 'success' in str(result).lower()):
             print(f"[ok] {config['name']} installed successfully")
             print()
@@ -517,7 +517,7 @@ def install_app(driver: WebDriver, app_name: str) -> bool:
                 print(f"[x] {config['name']} installation failed")
                 print()
                 return False
-        
+
     except Exception as e:
         # Check if actually installed
         try:
@@ -541,9 +541,9 @@ def grant_app_permissions(driver: WebDriver, app_name: str) -> bool:
     if not config:
         print(f"Unsupported app: {app_name}")
         return False
-    
+
     print(f"[Action: grant_permissions] Granting permissions to {config['name']}...")
-    
+
     success_count = 0
     for permission in config['permissions']:
         try:
@@ -556,7 +556,7 @@ def grant_app_permissions(driver: WebDriver, app_name: str) -> bool:
             success_count += 1
         except Exception as e:
             print(f"  - Failed to grant: {perm_name} ({e})")
-    
+
     print(f"  Permissions granted: {success_count}/{len(config['permissions'])}")
     return success_count > 0
 
@@ -573,15 +573,15 @@ def launch_app(driver: WebDriver, app_name: str) -> bool:
     if not config:
         print(f"Unsupported app: {app_name}")
         return False
-    
+
     print(f"[Action: launch_app] Launching {config['name']}...")
-    
+
     try:
         # Step 1: Try activate_app
         driver.activate_app(config['package'])
         print(f"  - Launch command sent (activate_app), waiting for app to start...")
         time.sleep(3)
-        
+
         app_state = driver.query_app_state(config['package'])
         if app_state == 4:
             print(f"  {config['name']} running in foreground")
@@ -603,7 +603,7 @@ def launch_app(driver: WebDriver, app_name: str) -> bool:
                 print(f"  [warning] {config['name']} still in background (state={app_state}), proceeding anyway")
                 print(f"[ok] {config['name']} launched (background)")
             return True
-        
+
         # Step 2: activate_app didn't work (state={app_state}), fallback to am start -n
         print(f"  [!] App state is {app_state} after activate_app, trying am start -n...")
         component = f"{config['package']}/{config['activity']}"
@@ -613,7 +613,7 @@ def launch_app(driver: WebDriver, app_name: str) -> bool:
         })
         print(f"  - Launch command sent (am start -n {component}), waiting...")
         time.sleep(5)
-        
+
         app_state = driver.query_app_state(config['package'])
         if app_state >= 3:
             state_desc = "foreground" if app_state == 4 else "background"
@@ -624,7 +624,7 @@ def launch_app(driver: WebDriver, app_name: str) -> bool:
             print(f"[x] {config['name']} launch failed, state: {app_state}")
             print(f"  State codes: 0=not installed, 1=not running, 2=background suspended, 3=background running, 4=foreground running")
             return False
-        
+
     except Exception as e:
         print(f"  Launch failed: {e}")
         return False
@@ -637,29 +637,29 @@ def open_browser(driver: WebDriver, url: str) -> bool:
     Args:
         driver: Appium driver
         url: URL to open
-        
+
     Returns:
         Whether open succeeded
     """
     print(f"[Action: open_browser] Opening URL in browser...")
     print(f"  - Target URL: {url}")
-    
+
     try:
         # Use Android Intent to launch browser
         driver.execute_script('mobile: shell', {
             'command': 'am',
             'args': ['start', '-a', 'android.intent.action.VIEW', '-d', url]
         })
-        
+
         print(f"  Browser launched")
-        
+
         # Wait for page load
         print(f"  - Waiting for page to load...")
         time.sleep(5)
         print(f"  Page loaded")
         print()
         return True
-        
+
     except Exception as e:
         print(f"  Open failed: {e}")
         print()
@@ -674,24 +674,24 @@ def tap_screen(driver: WebDriver, x: int, y: int) -> bool:
         driver: Appium driver
         x: X coordinate
         y: Y coordinate
-        
+
     Returns:
         Whether tap succeeded
     """
     print(f"[Action: tap_screen] Tapping screen at ({x}, {y})...")
-    
+
     try:
         # Use adb input tap
         driver.execute_script('mobile: shell', {
             'command': 'input',
             'args': ['tap', str(x), str(y)]
         })
-        
+
         print(f"  Tapped at: ({x}, {y})")
         time.sleep(0.5)
         print()
         return True
-        
+
     except Exception as e:
         print(f"  Tap failed: {e}")
         print()
@@ -704,26 +704,26 @@ def take_screenshot(driver: WebDriver, filename: Optional[str] = None) -> Option
 
     Screenshots are saved to output/quickstart_output/ under the script directory.
     Directory is created automatically if it doesn't exist.
-    
+
     Args:
         driver: Appium driver
         filename: Screenshot filename, auto-generated if not provided
-        
+
     Returns:
         Screenshot file path, None if failed
     """
     print("[Action: screenshot] Taking screenshot...")
-    
+
     # Save to output/quickstart_output/ under the script directory
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # Generate filename
     if filename is None:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = f"mobile_screenshot_{timestamp}.png"
-    
+
     screenshot_path = OUTPUT_DIR / filename
-    
+
     try:
         driver.save_screenshot(str(screenshot_path))
         print(f"  Screenshot saved")
@@ -732,7 +732,7 @@ def take_screenshot(driver: WebDriver, filename: Optional[str] = None) -> Option
         print(f"  - File size: {screenshot_path.stat().st_size / 1024:.2f} KB")
         print()
         return str(screenshot_path)
-        
+
     except Exception as e:
         print(f"  Screenshot failed: {e}")
         print()
@@ -745,43 +745,43 @@ def get_location(driver: WebDriver, debug: bool = False) -> Optional[Dict[str, A
 
     Note: 'last location=null' in dumpsys location is normal when no app
     is requesting location. Mock location will be returned when apps request it.
-    
+
     Args:
         driver: Appium driver
         debug: Whether to output debug info
-        
+
     Returns:
         Dictionary containing location info, None if failed
     """
     import re
-    
+
     print("[Action: get_location] Getting current GPS location...")
-    
+
     try:
         result = driver.execute_script('mobile: shell', {
             'command': 'dumpsys',
             'args': ['location']
         })
-        
+
         # Check if mock provider is registered
         has_mock = '[mock]' in result
-        
+
         # Check if LocationService is running
         services = driver.execute_script('mobile: shell', {
             'command': 'dumpsys',
             'args': ['activity', 'services', 'io.appium.settings']
         })
         location_service_running = 'LocationService' in services
-        
+
         print(f"  - Mock Provider status: {'registered' if has_mock else 'not registered'}")
         print(f"  - LocationService status: {'running' if location_service_running else 'not running'}")
-        
+
         # Try to get location from dumpsys
         patterns = [
             (r'last location=Location\[(\w+)\s+([\d.-]+),([\d.-]+)', 3),
             (r'Location\[(\w+)\s+([\d.-]+),([\d.-]+)', 3),
         ]
-        
+
         for pattern, group_count in patterns:
             match = re.search(pattern, result)
             if match:
@@ -789,7 +789,7 @@ def get_location(driver: WebDriver, debug: bool = False) -> Optional[Dict[str, A
                 provider = groups[0]
                 latitude = float(groups[1])
                 longitude = float(groups[2])
-                
+
                 location = {
                     'latitude': latitude,
                     'longitude': longitude,
@@ -799,18 +799,18 @@ def get_location(driver: WebDriver, debug: bool = False) -> Optional[Dict[str, A
                 print(f"[ok] GPS location: ({latitude}, {longitude})")
                 print()
                 return location
-        
+
         # Even without last location, mock may still work
         if location_service_running:
             print(f"  [!] dumpsys shows no location data (this is normal)")
             print(f"  - Mock location will be returned when apps request it")
             print()
             return {'status': 'mock_ready', 'note': 'LocationService running, location available on request'}
-        
+
         print(f"  GPS location: not set")
         print()
         return None
-            
+
     except Exception as e:
         print(f"[x] Failed to get GPS location: {e}")
         print()
@@ -822,33 +822,33 @@ def set_location(driver: WebDriver, latitude: float, longitude: float, altitude:
     Set GPS location.
 
     Uses Appium Settings LocationService to set mock location.
-    
+
     Args:
         driver: Appium driver
         latitude: Latitude (-90 to 90)
         longitude: Longitude (-180 to 180)
         altitude: Altitude in meters (default 0)
-        
+
     Returns:
         Whether setting succeeded
     """
     print(f"[Action: set_location] Setting GPS location...")
     print(f"  - Target location: ({latitude}, {longitude})")
-    
+
     # Validate coordinate range
     if not (-90 <= latitude <= 90):
         print(f"[x] Latitude out of range: {latitude} (valid range: -90 to 90)")
         print()
         return False
-    
+
     if not (-180 <= longitude <= 180):
         print(f"[x] Longitude out of range: {longitude} (valid range: -180 to 180)")
         print()
         return False
-    
+
     try:
         appium_settings_pkg = "io.appium.settings"
-        
+
         # Grant location permissions
         print(f"  - Granting location permissions to io.appium.settings...")
         for perm in ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION']:
@@ -866,7 +866,7 @@ def set_location(driver: WebDriver, latitude: float, longitude: float, altitude:
             'args': ['set', appium_settings_pkg, 'android:mock_location', 'allow']
         })
         print(f"  - mock_location permission set")
-        
+
         # Start LocationService
         driver.execute_script('mobile: shell', {
             'command': 'am',
@@ -880,15 +880,15 @@ def set_location(driver: WebDriver, latitude: float, longitude: float, altitude:
             ]
         })
         print(f"  - LocationService started")
-        
+
         time.sleep(3)
-        
+
         # Verify service is running
         services = driver.execute_script('mobile: shell', {
             'command': 'dumpsys',
             'args': ['activity', 'services', 'io.appium.settings']
         })
-        
+
         if 'LocationService' in services:
             print(f"[ok] GPS location set: ({latitude}, {longitude})")
             print(f"  - This mock location will be returned when apps request location")
@@ -898,7 +898,7 @@ def set_location(driver: WebDriver, latitude: float, longitude: float, altitude:
             print(f"[!] LocationService may not have started properly")
             print()
             return False
-        
+
     except Exception as e:
         print(f"[x] Failed to set GPS location: {e}")
         print()
@@ -909,19 +909,19 @@ def install_and_launch_app(driver: WebDriver, app_name: str, max_retries: int = 
     """
     Complete app installation and launch flow:
     upload_app -> install_app -> grant_app_permissions -> launch_app
-    
+
     Args:
         driver: Appium driver
         app_name: App name
         max_retries: Max retry count for install/launch failures, default 1
     """
     print(f"\n===== Installing and launching {app_name} =====")
-    
+
     # 1. Upload APK
     if not upload_app(driver, app_name):
         print(f"Failed to upload {app_name}")
         return False
-    
+
     # 2. Install APK (with retry)
     install_success = False
     for attempt in range(max_retries + 1):
@@ -931,15 +931,15 @@ def install_and_launch_app(driver: WebDriver, app_name: str, max_retries: int = 
         if install_app(driver, app_name):
             install_success = True
             break
-    
+
     if not install_success:
         print(f"Failed to install {app_name} (retried {max_retries} times)")
         return False
-    
+
     # 3. Grant permissions
     if not grant_app_permissions(driver, app_name):
         print(f"Failed to grant permissions to {app_name} (non-fatal error)")
-    
+
     # 4. Launch app (with retry)
     launch_success = False
     for attempt in range(max_retries + 1):
@@ -949,11 +949,11 @@ def install_and_launch_app(driver: WebDriver, app_name: str, max_retries: int = 
         if launch_app(driver, app_name):
             launch_success = True
             break
-    
+
     if not launch_success:
         print(f"Failed to launch {app_name} (retried {max_retries} times)")
         return False
-    
+
     print(f"===== {app_name} installation and launch completed =====\n")
     return True
 
@@ -997,18 +997,18 @@ def create_driver(sandbox: Sandbox, max_retries: int = 3, retry_interval: int = 
 
     First tries direct connection (usually works after sandbox starts),
     retries with health check if failed.
-    
+
     Args:
         sandbox: E2B Sandbox instance
         max_retries: Max retry count, default 3
         retry_interval: Retry interval in seconds, default 5
-        
+
     Returns:
         Appium driver instance
     """
     health_url = f"https://{sandbox.get_host(8080)}/healthz"
     headers = {'X-Access-Token': sandbox._envd_access_token}
-    
+
     # First try direct connection without health check
     print(f"\nConnecting to Appium service...")
     try:
@@ -1024,19 +1024,19 @@ def create_driver(sandbox: Sandbox, max_retries: int = 3, retry_interval: int = 
             print(f"service not ready (Connection refused)")
         else:
             print(f"connection failed: {error_msg[:50]}")
-    
+
     # First connection failed, enter retry logic (with health check)
     print(f"  - Waiting for service to be ready, max wait {max_retries * retry_interval}s...")
-    
+
     for attempt in range(1, max_retries + 1):
         print(f"  - Waiting {retry_interval}s...")
         time.sleep(retry_interval)
-        
+
         try:
             # Check health endpoint
             print(f"  - Retry {attempt}/{max_retries}: checking service status...", end=' ', flush=True)
             resp = requests.get(health_url, headers=headers, timeout=10)
-            
+
             if resp.status_code == 200:
                 print(f"health check passed")
                 print(f"  - Attempting connection...", end=' ', flush=True)
@@ -1045,7 +1045,7 @@ def create_driver(sandbox: Sandbox, max_retries: int = 3, retry_interval: int = 
                 return driver
             else:
                 print(f"health check returned {resp.status_code}")
-                
+
         except requests.exceptions.RequestException as e:
             print(f"health check failed: {type(e).__name__}")
         except Exception as e:
@@ -1056,7 +1056,7 @@ def create_driver(sandbox: Sandbox, max_retries: int = 3, retry_interval: int = 
                 print(f"service not ready (Connection refused)")
             else:
                 print(f"connection failed: {error_msg[:50]}")
-    
+
     raise Exception(f"Appium service not ready within {max_retries * retry_interval}s")
 
 
@@ -1064,7 +1064,7 @@ def get_device_info(driver: WebDriver) -> Dict[str, Any]:
     """Get device details"""
     capabilities = driver.capabilities
     window_size = driver.get_window_size()
-    
+
     # Get screen resolution and DPI
     try:
         wm_size = driver.execute_script('mobile: shell', {'command': 'wm', 'args': ['size']})
@@ -1072,7 +1072,7 @@ def get_device_info(driver: WebDriver) -> Dict[str, Any]:
     except Exception:
         wm_size = "N/A"
         wm_density = "N/A"
-    
+
     info = {
         'deviceName': capabilities.get('deviceName', 'N/A'),
         'platformVersion': capabilities.get('platformVersion', 'N/A'),
@@ -1100,7 +1100,7 @@ def main(
         sandbox_timeout: Sandbox timeout in seconds
     """
     global _driver, _sandbox
-    
+
     # Validate API Key
     if not e2b_api_key:
         print("=" * 70)
@@ -1115,11 +1115,11 @@ def main(
         print("\n   Method 3: Modify config in if __name__ == '__main__' directly")
         print("=" * 70)
         sys.exit(1)
-    
+
     # Set environment variables for SDK
     os.environ["E2B_DOMAIN"] = e2b_domain
     os.environ["E2B_API_KEY"] = e2b_api_key
-    
+
     # Print current config
     print("=" * 70)
     print("Current Configuration:")
@@ -1127,7 +1127,7 @@ def main(
     print(f"  SANDBOX_TEMPLATE: {sandbox_template}")
     print(f"  SANDBOX_TIMEOUT:  {sandbox_timeout}s ({sandbox_timeout / 3600:.1f} hours)")
     print("=" * 70)
-    
+
     # Create sandbox
     print(f"\nCreating sandbox (template={sandbox_template}, timeout={sandbox_timeout})...")
     sandbox_start_time = time.perf_counter()
@@ -1136,7 +1136,7 @@ def main(
     sandbox_elapsed_ms = (sandbox_end_time - sandbox_start_time) * 1000
     print(f"Sandbox created, time: {sandbox_elapsed_ms:.2f}ms ({sandbox_elapsed_ms / 1000:.3f}s)")
     _sandbox = sandbox
-    
+
     # Get ws-scrcpy screen stream URL (WebCodecs player direct connection)
     from urllib.parse import quote
     scrcpy_host = sandbox.get_host(8000)
@@ -1144,13 +1144,13 @@ def main(
     scrcpy_udid = "emulator-5554"
     scrcpy_ws = f"wss://{scrcpy_host}/?action=proxy-adb&remote=tcp%3A8886&udid={scrcpy_udid}&access_token={scrcpy_token}"
     scrcpy_url = f"https://{scrcpy_host}/?access_token={scrcpy_token}#!action=stream&udid={scrcpy_udid}&player=webcodecs&ws={quote(scrcpy_ws, safe='')}"
-    
+
     print(f"VNC URL: {scrcpy_url}")
 
     # Create Appium driver (with wait and retry)
     driver = create_driver(sandbox)
     _driver = driver
-    
+
     # Get device info
     device_info = get_device_info(driver)
     print(f"\n===== Device Info =====")
@@ -1168,33 +1168,34 @@ def main(
 
     # Install and launch WeChat
     install_and_launch_app(driver, 'wechat')
-    
+
     # Get GPS location before setting
     print("===== GPS Location Before Setting =====")
     get_location(driver)
-    
+
     # Set GPS location (Shenzhen)
     set_location(driver, latitude=22.54347, longitude=113.92972)
-    
+
     # Get GPS location after setting
     print("===== GPS Location After Setting =====")
     get_location(driver)
-    
-    # Long-running test: run for sandbox timeout minus 10 minutes (reserve time for cleanup)
-    total_sleep = sandbox_timeout - 600  # Sandbox timeout - 10 minutes
-    interval = 600  # Take screenshot every 600 seconds (10 minutes)
-    heartbeat_interval = 300  # Send heartbeat every 300 seconds (5 minutes) to keep session active
+
+    # Long-running test: configurable to support both interactive demos and CI/smoke runs
+    reserve_seconds = int(os.getenv("LONG_RUN_RESERVE_SECONDS", "600"))
+    total_sleep = int(os.getenv("LONG_RUN_SECONDS", str(max(sandbox_timeout - reserve_seconds, 0))))
+    interval = int(os.getenv("SCREENSHOT_INTERVAL_SECONDS", "600"))
+    heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "300"))
     elapsed = 0
-    
+
     print(f"Starting long-running test...")
     print(f"  - Total duration: {total_sleep}s ({total_sleep / 3600:.1f} hours)")
     print(f"  - Screenshot interval: {interval}s ({interval / 3600:.1f} hours)")
     print(f"  - Heartbeat interval: {heartbeat_interval}s ({heartbeat_interval / 60:.0f} minutes)")
     print(f"  - Expected screenshot count: {total_sleep // interval + 1}")
-    
+
     # Take initial screenshot
     take_screenshot(driver, f"screenshot_elapsed_0s.png")
-    
+
     while elapsed < total_sleep:
         # Use heartbeat to keep session active instead of sleeping entire interval
         time_until_next_screenshot = interval
@@ -1203,14 +1204,14 @@ def main(
             time.sleep(sleep_time)
             time_until_next_screenshot -= sleep_time
             elapsed += sleep_time
-            
+
             # Send heartbeat command to keep session active
             try:
                 # Use lightweight command as heartbeat
                 driver.current_activity
             except Exception as e:
                 print(f"  [!] Heartbeat failed (elapsed={elapsed}s): {e}")
-        
+
         hours = elapsed / 3600
         print(f"Running for {elapsed}s ({hours:.1f} hours)...")
         take_screenshot(driver, f"screenshot_elapsed_{elapsed}s.png")
@@ -1219,7 +1220,7 @@ if __name__ == "__main__":
     # ==========================================================================
     # Configuration Section - Modify configuration here
     # ==========================================================================
-    # 
+    #
     # Configuration priority (high to low):
     #   1. Direct assignment below (uncomment and modify)
     #   2. Configuration in .env file
@@ -1227,10 +1228,10 @@ if __name__ == "__main__":
     #   4. Default values
     #
     # ==========================================================================
-    
+
     # Load configuration from .env file and environment variables
     config = _load_config()
-    
+
     # --------------------------------------------------------------------------
     # To override configuration manually, uncomment and modify the following:
     # --------------------------------------------------------------------------
@@ -1239,7 +1240,7 @@ if __name__ == "__main__":
     # config['SANDBOX_TEMPLATE'] = "mobile-v1"
     # config['SANDBOX_TIMEOUT'] = 3600  # 1 hour
     # --------------------------------------------------------------------------
-    
+
     # Execute main program
     main(
         e2b_domain=config['E2B_DOMAIN'],
@@ -1247,6 +1248,6 @@ if __name__ == "__main__":
         sandbox_template=config['SANDBOX_TEMPLATE'],
         sandbox_timeout=config['SANDBOX_TIMEOUT'],
     )
-    
+
     # Cleanup is executed automatically via atexit
     # cleanup() is called on normal exit or when receiving SIGINT/SIGTERM signal

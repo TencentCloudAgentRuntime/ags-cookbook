@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 # 设置环境变量（可通过环境变量预先设置，或在此处直接修改）
 if not os.getenv('E2B_DOMAIN'):
-    os.environ['E2B_DOMAIN'] = 'tencentags.com'
+    os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
 if not os.getenv('E2B_API_KEY'):
     # E2B_API_KEY should be obtained from Tencent Cloud Agent Sandbox product
     os.environ['E2B_API_KEY'] = 'your_api_key'
@@ -19,23 +19,23 @@ if not os.getenv('E2B_API_KEY'):
 def create_complex_demo_data():
     print("创建演示数据集, 总数5000条")
     np.random.seed(42)
-    
+
     # 生成电商数据
     n_products = 5000
     categories = ['Electronics', 'Clothing', 'Books', 'Home & Garden', 'Sports', 'Beauty', 'Automotive']
     regions = ['North America', 'Europe', 'Asia Pacific', 'Latin America', 'Middle East', 'Africa']
-    
+
     # 生成时间序列数据
     start_date = datetime.now() - timedelta(days=365)
     dates = [start_date + timedelta(days=x) for x in range(365)]
-    
+
     # 先生成价格，然后基于价格生成合理的成本
     prices = np.random.lognormal(3, 0.8, n_products).round(2)
-    
+
     # 成本设定为价格的50-85%
     cost_ratios = np.random.uniform(0.5, 0.85, n_products)
     costs = (prices * cost_ratios).round(2)
-    
+
     data = {
         'product_id': [f'SKU_{i:05d}' for i in range(1, n_products + 1)],
         'product_name': [f'Product_{i}' for i in range(1, n_products + 1)],
@@ -53,21 +53,21 @@ def create_complex_demo_data():
         'marketing_spend': np.random.gamma(2, 50, n_products).round(2),
         'return_rate': np.random.beta(1, 20, n_products),
     }
-    
+
     df = pd.DataFrame(data)
-    
+
     # 计算衍生字段
     df['revenue'] = df['price'] * df['sales_count'] * (1 - df['discount_rate'])
     df['profit'] = df['revenue'] - (df['cost'] * df['sales_count'])
     df['profit_margin'] = df['profit'] / df['revenue']
     df['days_since_launch'] = (datetime.now() - df['launch_date']).dt.days
     df['roi'] = df['profit'] / df['marketing_spend']
-    
+
     # 添加季节性因素
     df['launch_month'] = df['launch_date'].dt.month
     df['launch_quarter'] = df['launch_date'].dt.quarter
     df['is_holiday_season'] = df['launch_month'].isin([11, 12])
-    
+
     df.to_csv('complex_demo_data.csv', index=False)
     print(f"演示数据已创建: {len(df)} 个产品, {len(categories)} 个类别, {len(regions)} 个地区")
     return 'complex_demo_data.csv'
@@ -114,12 +114,12 @@ print(f"  数据保留率: {cleaned_count/original_count*100:.1f}%")
 print(f"  清洗后利润率范围: {df_cleaned['profit_margin'].min():.3f} 到 {df_cleaned['profit_margin'].max():.3f}")
 
 # 特征工程
-df_cleaned['price_tier'] = pd.cut(df_cleaned['price'], 
-                                 bins=[0, 20, 50, 100, 500, float('inf')], 
+df_cleaned['price_tier'] = pd.cut(df_cleaned['price'],
+                                 bins=[0, 20, 50, 100, 500, float('inf')],
                                  labels=['Budget', 'Economy', 'Mid-range', 'Premium', 'Luxury'])
 
 df_cleaned['performance_score'] = (
-    df_cleaned['customer_rating'] * 0.3 + 
+    df_cleaned['customer_rating'] * 0.3 +
     df_cleaned['sales_count'] / df_cleaned['sales_count'].max() * 5 * 0.4 +
     (1 - df_cleaned['return_rate']) * 5 * 0.3
 )
@@ -218,7 +218,7 @@ try:
     correlation_columns = ['price', 'sales_count', 'customer_rating', 'profit_margin', 'marketing_spend', 'roi']
     available_columns = [col for col in correlation_columns if col in df.columns]
     print(f"可用的相关性分析列: {available_columns}")
-    
+
     correlation_matrix = df[available_columns].corr()
     print("相关性分析完成")
 except Exception as e:
@@ -274,7 +274,7 @@ try:
             'total_products': len(df)
         }
     }
-    
+
     # 只添加成功的分析结果
     if category_analysis is not None:
         # 将MultiIndex转换为字符串键
@@ -287,7 +287,7 @@ try:
             category_dict[key] = category_analysis[col].to_dict()
         analysis_report['category_analysis'] = category_dict
         analysis_report['key_insights']['top_revenue_category'] = category_analysis['revenue']['sum'].idxmax()
-    
+
     if region_analysis is not None:
         # 将MultiIndex转换为字符串键
         region_dict = {}
@@ -299,16 +299,16 @@ try:
             region_dict[key] = region_analysis[col].to_dict()
         analysis_report['region_analysis'] = region_dict
         analysis_report['key_insights']['most_profitable_region'] = region_analysis['profit_margin']['mean'].idxmax()
-    
+
     if correlation_matrix is not None:
         analysis_report['correlation_matrix'] = correlation_matrix.to_dict()
-    
+
     if top_performers is not None:
         analysis_report['top_performers'] = top_performers.to_dict('records')
 
     with open('/tmp/analysis_report.json', 'w') as f:
         json.dump(analysis_report, f, indent=2, default=str)
-    
+
     print("分析报告已保存")
 except Exception as e:
     print(f"生成分析报告失败: {e}")
@@ -365,7 +365,7 @@ except NameError:
     print("无法访问Context 1的变量")
     isolation_tests.append("Context 1变量隔离成功")
 
-# 测试访问Context 2的变量  
+# 测试访问Context 2的变量
 try:
     print(f"尝试访问Context 2的变量 'analyst_expert_id': {analyst_expert_id}")
     isolation_tests.append("能访问Context 2变量 - 隔离失败")
@@ -408,7 +408,7 @@ print(f"数据减少: {len(df_original) - len(df_cleaned)} 行 ({(1-len(df_clean
 try:
     print("开始创建对比仪表板...")
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))  # 减小图片尺寸
-    fig.suptitle(f'数据清洗前后对比仪表板\\n原始:{len(df_original)}条 → 清洗后:{len(df_cleaned)}条 (移除{len(df_original)-len(df_cleaned)}条亏损产品)', 
+    fig.suptitle(f'数据清洗前后对比仪表板\\n原始:{len(df_original)}条 → 清洗后:{len(df_cleaned)}条 (移除{len(df_original)-len(df_cleaned)}条亏损产品)',
                 fontsize=16, fontweight='bold')
 
     # 1. 客户评分分布对比
@@ -469,7 +469,7 @@ try:
     plt.savefig('/tmp/data_cleaning_comparison.png', dpi=200, bbox_inches='tight')  # 降低DPI
     plt.close()
     print("数据清洗对比仪表板已生成")
-    
+
 except Exception as e:
     print(f"创建对比仪表板失败: {e}")
     import traceback
@@ -502,7 +502,7 @@ try:
 
     # 3. 价格vs销量散点图
     print("绘制价格销量散点图...")
-    scatter = ax3.scatter(df_cleaned['price'], df_cleaned['sales_count'], c=df_cleaned['customer_rating'], 
+    scatter = ax3.scatter(df_cleaned['price'], df_cleaned['sales_count'], c=df_cleaned['customer_rating'],
                          s=30, alpha=0.6, cmap='viridis')  # 减小点的大小
     ax3.set_xlabel('Price ($)')
     ax3.set_ylabel('Sales Count')
@@ -511,7 +511,7 @@ try:
     # 4. 利润率分布
     print("绘制利润率分布...")
     ax4.hist(df_cleaned['profit_margin'], bins=20, alpha=0.7, color='skyblue', edgecolor='black')  # 减少bins
-    ax4.axvline(df_cleaned['profit_margin'].mean(), color='red', linestyle='--', 
+    ax4.axvline(df_cleaned['profit_margin'].mean(), color='red', linestyle='--',
                label=f'Mean: {df_cleaned["profit_margin"].mean():.2%}')
     ax4.set_xlabel('Profit Margin')
     ax4.set_ylabel('Frequency')
@@ -522,7 +522,7 @@ try:
     plt.savefig('/tmp/advanced_dashboard.png', dpi=150, bbox_inches='tight')  # 降低DPI
     plt.close()
     print("高级数据仪表板已生成")
-    
+
 except Exception as e:
     print(f"创建综合仪表板失败: {e}")
     import traceback
@@ -532,12 +532,12 @@ except Exception as e:
 try:
     print("开始创建相关性热力图...")
     plt.figure(figsize=(8, 6))  # 减小尺寸
-    
+
     # 检查列是否存在
     correlation_columns = ['price', 'sales_count', 'customer_rating', 'profit_margin', 'marketing_spend', 'roi']
     available_columns = [col for col in correlation_columns if col in df_cleaned.columns]
     print(f"可用的相关性分析列: {available_columns}")
-    
+
     if len(available_columns) >= 2:
         correlation_data = df_cleaned[available_columns].corr()
         sns.heatmap(correlation_data, annot=True, cmap='RdBu_r', center=0, square=True, fmt='.2f')
@@ -548,7 +548,7 @@ try:
         print("相关性热力图已生成")
     else:
         print("可用列不足，跳过相关性热力图")
-        
+
 except Exception as e:
     print(f"创建相关性热力图失败: {e}")
     import traceback
@@ -583,55 +583,55 @@ def enhanced_showcase_demo():
             with open(data_file, 'r') as f:
                 sandbox.files.write('/tmp/complex_input_data.csv', f)
             print("数据文件上传成功")
-            
+
             # Context 1 - 数据预处理专家
             print("\nContext 1 - 数据预处理专家")
             print("-" * 40)
-            
+
             context1 = sandbox.create_code_context()
             print(f"数据预处理专家工作环境: {context1.cwd}")
-            
+
             sandbox.run_code(
                 get_preprocessing_code(),
                 context=context1,
                 on_stdout=lambda data: print(f"[预处理专家] {data}"),
                 on_stderr=lambda data: print(f"[预处理专家错误] {data}")
             )
-            
+
             # Context 2: 高级分析师
             print("\nContext 2 - 高级数据分析师")
             print("-" * 40)
-            
+
             context2 = sandbox.create_code_context()
             print(f"高级分析师工作环境: {context2.cwd}")
-            
+
             sandbox.run_code(
                 get_analysis_code(),
                 context=context2,
                 on_stdout=lambda data: print(f"[高级分析师] {data}"),
                 on_stderr=lambda data: print(f"[高级分析师错误] {data}")
             )
-            
+
             # Context 3: 可视化大师
             print("\nContext 3 - 数据可视化大师")
             print("-" * 40)
-            
+
             context3 = sandbox.create_code_context()
             print(f"可视化大师工作环境: {context3.cwd}")
-            
+
             sandbox.run_code(
                 get_visualization_code(),
                 context=context3,
                 on_stdout=lambda data: print(f"[可视化大师] {data}"),
                 on_stderr=lambda data: print(f"[可视化大师错误] {data}")
             )
-            
+
             # 批量文件下载
             print("\n步骤2: 批量文件下载")
             print("-" * 40)
-            
+
             os.makedirs('./enhanced_demo_output', exist_ok=True)
-            
+
             download_files = [
                 ('/tmp/complex_input_data.csv', './enhanced_demo_output/complex_input_data.csv'),
                 ('/tmp/cleaned_data.csv', './enhanced_demo_output/cleaned_data.csv'),
@@ -641,7 +641,7 @@ def enhanced_showcase_demo():
                 ('/tmp/advanced_dashboard.png', './enhanced_demo_output/advanced_dashboard.png'),
                 ('/tmp/correlation_heatmap.png', './enhanced_demo_output/correlation_heatmap.png')
             ]
-            
+
             success_count = 0
             for remote_path, local_path in download_files:
                 try:
@@ -652,7 +652,7 @@ def enhanced_showcase_demo():
                     success_count += 1
                 except Exception as e:
                     print(f"下载失败: {remote_path} - {e}")
-            
+
             print("成功展示的核心能力：")
             print("3个Context完全隔离 - 数据预处理→分析→可视化")
             print("复杂数据处理 - 5000个产品，7个类别，6个地区")
@@ -663,11 +663,11 @@ def enhanced_showcase_demo():
             print("完整文件流 - 上传→处理→下载")
             print(f"成功下载 {success_count}/{len(download_files)} 个文件")
             print("\n请查看 ./enhanced_demo_output/ 目录中的所有生成文件！")
-            
+
         finally:
             sandbox.kill()
             print("沙箱已安全关闭")
-            
+
     except Exception as e:
         print(f"演示过程中出现错误: {e}")
         import traceback

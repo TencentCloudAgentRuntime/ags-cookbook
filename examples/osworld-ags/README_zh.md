@@ -14,7 +14,7 @@
 
 你需要：
 
-- Python 和 `pip`
+- `uv`（用于管理隔离的 Python 3.10 环境）
 - `git`
 - AGS API Key
 - 一个兼容 OSWorld 的 AGS sandbox template
@@ -56,21 +56,20 @@ OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-### 5. 安装依赖
-请注意：只支持Python 3.10
+### 5. 在隔离的 uv 环境中安装依赖
+请注意：当前只支持 Python 3.10
 ```bash
-cd osworld
-pip install -r requirements.txt
+make setup
 ```
 
-overlay 会把 AGS 依赖写入 `requirements.txt`，包括 `e2b-code-interpreter` 和 `aiohttp`。
+这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会把 AGS 依赖写入 `requirements.txt`，包括 `e2b-code-interpreter` 和 `aiohttp`。
 
 ## 运行
 
 ### 快速检查
 
 ```bash
-python quickstart.py --provider_name ags
+make run
 ```
 
 如果这一步能成功，说明 AGS provider 已经安装正确。
@@ -78,7 +77,8 @@ python quickstart.py --provider_name ags
 ### 运行多环境模式
 
 ```bash
-python run_multienv.py --provider_name ags --model gpt-4o --num_envs 2
+cd osworld
+uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt-4o --num_envs 2
 ```
 
 ## Overlay 会改哪些文件

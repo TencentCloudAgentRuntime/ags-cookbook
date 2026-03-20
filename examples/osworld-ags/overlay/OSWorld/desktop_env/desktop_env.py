@@ -25,42 +25,42 @@ Metric = Callable[[Any, Any], float]
 Getter = Callable[[gym.Env, Dict[str, Any]], Any]
 
 MAX_RETRIES = 5 # Maximum retries for environment setup
-            
+
 
 
 def _fix_pyautogui_less_than_bug(command: str) -> str:
     """
     Fix PyAutoGUI '<' character bug by converting it to hotkey("shift", ',') calls.
-    
+
     This fixes the known PyAutoGUI issue where typing '<' produces '>' instead.
     References:
     - https://github.com/asweigart/pyautogui/issues/198
     - https://github.com/xlang-ai/OSWorld/issues/257
-    
+
     Args:
         command (str): The original pyautogui command
-        
+
     Returns:
         str: The fixed command with '<' characters handled properly
     """
-    # Pattern to match press('<') or press('\u003c') calls  
+    # Pattern to match press('<') or press('\u003c') calls
     press_pattern = r'pyautogui\.press\(["\'](?:<|\\u003c)["\']\)'
 
     # Handle press('<') calls
     def replace_press_less_than(match):
         return 'pyautogui.hotkey("shift", ",")'
-    
+
     # First handle press('<') calls
     command = re.sub(press_pattern, replace_press_less_than, command)
 
     # Pattern to match typewrite calls with quoted strings
     typewrite_pattern = r'pyautogui\.typewrite\((["\'])(.*?)\1\)'
-    
+
     # Then handle typewrite calls
     def process_typewrite_match(match):
         quote_char = match.group(1)
         content = match.group(2)
-        
+
         # Preprocess: Try to decode Unicode escapes like \u003c to actual '<'
         # This handles cases where '<' is represented as escaped Unicode
         try:
@@ -70,15 +70,15 @@ def _fix_pyautogui_less_than_bug(command: str) -> str:
         except UnicodeDecodeError:
             # If decoding fails, proceed with original content to avoid breaking existing logic
             pass  # English comment: Graceful degradation - fall back to original content if decoding fails
-        
+
         # Check if content contains '<'
         if '<' not in content:
             return match.group(0)
-        
+
         # Split by '<' and rebuild
         parts = content.split('<')
         result_parts = []
-        
+
         for i, part in enumerate(parts):
             if i == 0:
                 # First part
@@ -89,11 +89,11 @@ def _fix_pyautogui_less_than_bug(command: str) -> str:
                 result_parts.append('pyautogui.hotkey("shift", ",")')
                 if part:
                     result_parts.append(f"pyautogui.typewrite({quote_char}{part}{quote_char})")
-        
+
         return '; '.join(result_parts)
-    
+
     command = re.sub(typewrite_pattern, process_typewrite_match, command)
-    
+
     return command
 
 
@@ -148,12 +148,12 @@ class DesktopEnv(gym.Env):
         self.screen_width = screen_size[0]
         self.screen_height = screen_size[1]
 
-        # Default 
+        # Default
         self.server_port = 5000
         self.chromium_port = 9222
         self.vnc_port = 8006
         self.vlc_port = 8080
-        
+
         # Initialize with default (no proxy) provider
         self.current_use_proxy = False
         self.manager, self.provider = create_vm_manager_and_provider(provider_name, region, use_proxy=False)
@@ -176,7 +176,7 @@ class DesktopEnv(gym.Env):
                 if provider_name in {"vmware", "virtualbox"} else path_to_vm
         else:
             self.path_to_vm = self.manager.get_vm_path(os_type=self.os_type, region=region, screen_size=(self.screen_width, self.screen_height))
-        
+
         self.snapshot_name = snapshot_name
         self.cache_dir_base: str = cache_dir
         # todo: add the logic to get the screen size from the VM
@@ -229,8 +229,8 @@ class DesktopEnv(gym.Env):
         # due to the fact it could be changed when implemented by cloud services
         path_to_vm = self.provider.revert_to_snapshot(self.path_to_vm, self.snapshot_name)
         if path_to_vm and not path_to_vm == self.path_to_vm:
-            # path_to_vm has to be a new path 
-            
+            # path_to_vm has to be a new path
+
             self.manager.delete_vm(self.path_to_vm, self.region)
             self.manager.add_vm(path_to_vm, self.region)
             self.manager.occupy_vm(path_to_vm, os.getpid(), self.region)
@@ -245,7 +245,7 @@ class DesktopEnv(gym.Env):
         self.provider.stop_emulator(self.path_to_vm)
 
     def reset(self, task_config: Optional[Dict[str, Any]] = None, seed=None, options=None) -> Dict[str, Any]:
-        
+
         # Reset to certain task in OSWorld
         logger.info("Resetting environment...")
         logger.info("Switching task...")
@@ -258,17 +258,17 @@ class DesktopEnv(gym.Env):
             # Only revert to snapshot if environment has been used (step/setup)
             # This optimization is especially important for cloud providers like AWS
             # where unnecessary snapshot operations are costly and time-consuming
-            
+
             if task_config is not None:
                 # Only consider task proxy requirement if proxy is enabled at system level
                 task_use_proxy = task_config.get("proxy", False) and self.enable_proxy
                 if not self.enable_proxy and task_config.get("proxy", False):
                     logger.info("Task requires proxy but proxy is disabled at system level, ignoring proxy requirement.")
-                
+
                 if task_use_proxy != self.current_use_proxy:
                     # keep because get_info_from_website depend on this
                     self.current_use_proxy = task_use_proxy
-            
+
             if self.is_environment_used:
                 logger.info("Environment has been used, reverting to snapshot {}...".format(self.snapshot_name))
                 self._revert_to_snapshot()
@@ -302,7 +302,7 @@ class DesktopEnv(gym.Env):
                     time.sleep(5)
             else:
                 break
-            
+
         logger.info("Environment setup complete.")
 
         observation = self._get_obs()
@@ -333,7 +333,7 @@ class DesktopEnv(gym.Env):
         os.makedirs(self.cache_dir, exist_ok=True)
         self.instruction = task_config["instruction"]
         self.config = task_config["config"] if "config" in task_config else []
-        
+
         self._set_evaluator_info(task_config)
 
     def _set_evaluator_info(self, task_config: Dict[str, Any]):
@@ -386,7 +386,7 @@ class DesktopEnv(gym.Env):
     def step(self, action, pause=2):
         self._step_no += 1
         self.action_history.append(action)
-        
+
         # Mark environment as used when step is called
         self.is_environment_used = True
 

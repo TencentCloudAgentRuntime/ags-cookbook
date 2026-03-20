@@ -35,7 +35,8 @@ export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # Optional
 ### 2. Run Example
 
 ```bash
-uv run main.py
+make setup
+make run
 ```
 
 ### Expected Output
@@ -77,4 +78,3 @@ Reward: 1.0
 ```bash
 make run
 ```
-

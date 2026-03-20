@@ -9,10 +9,12 @@ from e2b import Sandbox
 
 # 设置环境变量（可通过环境变量预先设置，或在此处直接修改）
 if not os.getenv('E2B_DOMAIN'):
-    os.environ['E2B_DOMAIN'] = 'tencentags.com'
+    os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
 if not os.getenv('E2B_API_KEY'):
     # E2B_API_KEY should be obtained from Tencent Cloud Agent Sandbox product
     os.environ['E2B_API_KEY'] = 'your_api_key'
+
+KEEPALIVE_SECONDS = int(os.getenv("KEEPALIVE_SECONDS", "300"))
 
 async def navigate_home(page, keyword):
     print(f"搜索玩具: {keyword}")
@@ -215,11 +217,11 @@ async def upload_and_import_cookies(browser_sandbox, page, local_cookies_file="c
 
         with open(local_cookies_file, 'r', encoding='utf-8') as f:
             cookies_content = f.read()
-        
+
         sandbox_cookies_path = "/home/user/amazon_cookies.json"
         browser_sandbox.files.write(sandbox_cookies_path, cookies_content)
         print(f"Cookie文件已上传到沙箱: {sandbox_cookies_path}")
-        
+
         # 在沙箱中读取并解析cookies
         cookies_json = browser_sandbox.files.read(sandbox_cookies_path)
         cookies = json.loads(cookies_json)
@@ -235,11 +237,11 @@ async def upload_and_import_cookies(browser_sandbox, page, local_cookies_file="c
             return False, None
         if not success:
             return False, None
-        
+
         await page.context.add_cookies(cookies)
         print(f"成功导入cookies")
         return True, page
-            
+
     except Exception as e:
         print(f"上传和导入cookies失败: {e}")
         return False, None
@@ -306,12 +308,12 @@ async def add_to_cart(page, product_url):
             return False
         await page.wait_for_timeout(1500)
         cart_button_selectors = [
-            '#add-to-cart-button', 
+            '#add-to-cart-button',
             'input[name="submit.add-to-cart"]',
             '#addToCart',
             '.a-button-input[aria-labelledby="submit.add-to-cart-announce"]'
         ]
-        
+
         cart_button = None
         for selector in cart_button_selectors:
             try:
@@ -327,7 +329,7 @@ async def add_to_cart(page, product_url):
                         cart_button = None
             except:
                 continue
-        
+
         # 在 domcontentloaded 后，若找不到加车按钮，则每 10s 重试一次，最多 1 分钟
         if not cart_button:
             for attempt in range(6):
@@ -353,7 +355,7 @@ async def add_to_cart(page, product_url):
             if not cart_button:
                 print("找不到可用的购物车按钮")
                 return False
-        
+
         # 点击加入购物车
         try:
             await cart_button.click()
@@ -365,7 +367,7 @@ async def add_to_cart(page, product_url):
                 pass
             await page.wait_for_timeout(500)
             await cart_button.click()
-        
+
         # 成功检测：每 10 秒重试一次，最多 1 分钟
         success_indicators = [
             '#attachDisplayAddBaseAlert',
@@ -395,10 +397,10 @@ async def add_to_cart(page, product_url):
                 success = True
                 break
             await page.wait_for_timeout(10000)
-        
+
         print("商品已成功加入购物车!" if success else "可能已加入购物车，但无法确认")
         return True if success else True
-            
+
     except Exception as e:
         print(f"加入购物车出错: {e}")
         return False
@@ -419,18 +421,18 @@ async def view_cart(page):
         if not success:
             return []
         await page.wait_for_timeout(1500)
-        
+
         print(f"成功访问购物车页面: {page.url}")
         cart_items = []
         item_selectors = [
-            '[data-name="Active Items"] [data-item-index]', 
+            '[data-name="Active Items"] [data-item-index]',
             '.sc-list-item[data-item-index]',
             '[data-asin][data-item-index]',
             '.sc-list-item-content',
             '#sc-active-cart .sc-list-item',
             '.a-spacing-mini[data-asin]'
         ]
-        
+
         # 在 domcontentloaded 后，若未解析到商品，则每 10s 重试一次，最多 1 分钟
         items = []
         for attempt in range(6):
@@ -449,11 +451,11 @@ async def view_cart(page):
             # 若本轮所有选择器都未找到，等待 10s 后重试
             print(f"未解析到购物车商品，等待 10s 后重试（第 {attempt+1}/6 次）")
             await page.wait_for_timeout(10000)
-        
+
         if not items:
             print("购物车为空或无法解析商品（已重试 1 分钟）")
             return []
-        
+
     except Exception as e:
         print(f"查看购物车出错: {e}")
         return []
@@ -461,76 +463,78 @@ async def view_cart(page):
 
 async def main():
     """主函数"""
-    
+
     # 创建浏览器沙箱
     browser_sandbox = Sandbox.create(template="browser-v1", timeout=600)
     print(f"Browser沙箱已创建: {browser_sandbox.sandbox_id}")
-    
+
     # 构建VNC和CDP连接URL
     novnc_url = f"https://{browser_sandbox.get_host(9000)}/novnc/vnc_lite.html?&path=websockify?access_token={browser_sandbox._envd_access_token}"
     cdp_url = f"https://{browser_sandbox.get_host(9000)}/cdp"
-    
+
     print(f"VNC实时查看链接: {novnc_url}")
     print("复制上面的链接到浏览器中，可以实时查看操作过程")
-    
+
     try:
         async with async_playwright() as playwright:
             # 通过CDP协议连接到远程浏览器
             browser = await playwright.chromium.connect_over_cdp(
-                cdp_url, 
+                cdp_url,
                 headers={"X-Access-Token": str(browser_sandbox._envd_access_token)}
             )
-            
+
             # 获取现有的上下文和页面
             context = browser.contexts[0]
             page = context.pages[0]
-            
+
             # 步骤1: 从本地上传并导入Amazon cookies
             local_cookie_file = "cookie.json"
+            cookies_imported = False
             if os.path.exists(local_cookie_file):
 
                 cookies_imported, new_page = await upload_and_import_cookies(browser_sandbox, page, local_cookie_file)
                 if new_page:  # 如果创建了新页面，使用新页面
                     page = new_page
             else:
-                print(f"本地cookie文件不存在: {local_cookie_file}")
-                return
-            
+                print(f"本地cookie文件不存在: {local_cookie_file}，将继续以访客模式执行")
+
             if not cookies_imported:
-                print("Cookie导入失败，程序退出")
-                return
-            
+                print("Cookie未导入成功，继续以访客模式执行")
+
             # 步骤2: 搜索玩具
             toys = await search_toys(page, "dinosaur toys")
-            
+
             if not toys:
                 print("未找到玩具商品，程序退出")
                 return
-            
+
             # 步骤3: 自动将第一款玩具加入购物车
             if toys:
                 first_toy = toys[0]
                 # 加入购物车
                 await add_to_cart(page, first_toy['url'])
-            
+
             # 步骤4: 查看购物车
             cart_items = await view_cart(page)
-            
+
             if cart_items:
                 print(f"购物车中有 {len(cart_items)} 件商品")
             else:
                 print("购物车为空")
-            
+
             print("\nAmazon玩具购物流程完成!")
             print("您可以通过VNC链接查看浏览器状态，或手动完成后续操作")
-            
+
             # 保持沙箱运行一段时间供查看
-            print("\n沙箱将保持运行5分钟，您可以手动操作...")
-            await asyncio.sleep(300)  # 5分钟
-        
+            if KEEPALIVE_SECONDS > 0:
+                print(f"\n沙箱将保持运行 {KEEPALIVE_SECONDS} 秒，您可以手动操作...")
+                await asyncio.sleep(KEEPALIVE_SECONDS)
+            else:
+                print("\nKEEPALIVE_SECONDS=0，跳过额外保活等待")
+
     except Exception as e:
         print(f"程序执行出错: {e}")
-        
+
     finally:
         print("\n清理沙箱...")
         browser_sandbox.kill()

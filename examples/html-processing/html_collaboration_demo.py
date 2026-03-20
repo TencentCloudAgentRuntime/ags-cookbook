@@ -10,7 +10,7 @@ from datetime import datetime
 
 # 设置环境变量（可通过环境变量预先设置，或在此处直接修改）
 if not os.getenv('E2B_DOMAIN'):
-    os.environ['E2B_DOMAIN'] = 'tencentags.com'
+    os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
 if not os.getenv('E2B_API_KEY'):
     # E2B_API_KEY should be obtained from Tencent Cloud Agent Sandbox product
     os.environ['E2B_API_KEY'] = 'your_api_key'
@@ -63,11 +63,11 @@ def create_initial_html(output_dir):
     </div>
 </body>
 </html>"""
-    
+
     html_file_path = os.path.join(output_dir, "demo.html")
     with open(html_file_path, "w", encoding="utf-8") as f:
         f.write(html_content)
-    
+
     print(f"初始HTML文件已创建: {html_file_path}")
     return html_content, html_file_path
 
@@ -140,35 +140,35 @@ print(f"   新增内容: {len(modified_html) - len(html_content)} 字符")
 async def browser_render_and_screenshot(sandbox, html_file, output_name, output_dir):
     """使用Browser沙箱渲染HTML并截图"""
     from playwright.async_api import async_playwright
-    
+
     # 构建CDP连接URL
     cdp_url = f"https://{sandbox.get_host(9000)}/cdp"
-    
+
     async with async_playwright() as playwright:
         # 连接到Browser沙箱
         browser = await playwright.chromium.connect_over_cdp(
-            cdp_url, 
+            cdp_url,
             headers={"X-Access-Token": str(sandbox._envd_access_token)}
         )
         context = browser.contexts[0]
         page = context.pages[0]
-        
+
         # 打开HTML文件
         file_url = f"file:///home/user/{html_file}"
         await page.goto(file_url)
         await page.wait_for_load_state("networkidle")
-        
+
         # 截图
         screenshot_bytes = await page.screenshot(full_page=True)
-        
+
         # 保存截图到沙箱
         sandbox.files.write(f"{output_name}.png", screenshot_bytes)
-        
+
         # 直接保存到输出目录
         screenshot_path = os.path.join(output_dir, f"{output_name}.png")
         with open(screenshot_path, "wb") as f:
             f.write(screenshot_bytes)
-        
+
         print(f"截图已保存: {screenshot_path}")
         return await page.title()
 
@@ -177,50 +177,50 @@ def html_collaboration_demo():
     try:
         print("开始HTML协作处理演示")
         print("=" * 50)
-        
+
         # 步骤0: 创建输出目录
         output_dir = './html_collaboration_output'
         os.makedirs(output_dir, exist_ok=True)
         print(f"输出目录已创建: {output_dir}")
-        
+
         # 步骤1: 创建初始HTML文件
         print("\n步骤1: 创建初始HTML文件")
         print("-" * 30)
         initial_html, html_file_path = create_initial_html(output_dir)
-        
+
         # 步骤2: 创建Browser沙箱并首次渲染
         print("\n步骤2: 创建Browser沙箱并首次渲染")
         print("-" * 30)
-        
+
         from e2b import Sandbox
         browser_sandbox = Sandbox.create(template="browser-v1", timeout=1800)
         print(f"Browser沙箱已创建: {browser_sandbox.sandbox_id}")
-        
+
         # 上传HTML到Browser沙箱
         with open(html_file_path, "r", encoding="utf-8") as f:
             browser_sandbox.files.write("demo.html", f)
         print("HTML文件已上传到Browser沙箱")
-        
+
         # 首次截图
         import asyncio
         title1 = asyncio.run(browser_render_and_screenshot(
             browser_sandbox, "demo.html", "screenshot_before", output_dir
         ))
         print(f"首次渲染完成，页面标题: {title1}")
-        
+
         # 步骤3: 创建Code沙箱并编辑HTML
         print("\n步骤3: 创建Code沙箱并编辑HTML")
         print("-" * 30)
-        
+
         from e2b_code_interpreter import Sandbox as CodeSandbox
         code_sandbox = CodeSandbox.create(template="code-interpreter-v1", timeout=1800)
         print(f"Code沙箱已创建: {code_sandbox.sandbox_id}")
-        
+
         # 上传HTML到Code沙箱
         with open(html_file_path, "r", encoding="utf-8") as f:
             code_sandbox.files.write("/tmp/demo.html", f)
         print("HTML文件已上传到Code沙箱")
-        
+
         # 执行HTML编辑代码
         print("开始执行HTML编辑...")
         result = code_sandbox.run_code(
@@ -228,11 +228,11 @@ def html_collaboration_demo():
             on_stdout=lambda data: print(f"[Code] {data}"),
             on_stderr=lambda data: print(f"[Code Error] {data}")
         )
-        
+
         if result.error:
             print(f"Code执行出错: {result.error}")
             return
-        
+
         # 从Code沙箱下载编辑后的HTML
         try:
             edited_html_content = code_sandbox.files.read("/tmp/demo_edited.html")
@@ -243,22 +243,22 @@ def html_collaboration_demo():
         except Exception as e:
             print(f"下载编辑后HTML失败: {e}")
             return
-        
+
         # 步骤4: 上传编辑后的HTML到Browser沙箱并再次渲染
         print("\n步骤4: 上传编辑后HTML并再次渲染")
         print("-" * 30)
-        
+
         # 上传编辑后的HTML到Browser沙箱
         with open(edited_html_path, "r", encoding="utf-8") as f:
             browser_sandbox.files.write("demo_edited.html", f)
         print("编辑后HTML已上传到Browser沙箱")
-        
+
         # 第二次截图
         title2 = asyncio.run(browser_render_and_screenshot(
             browser_sandbox, "demo_edited.html", "screenshot_after", output_dir
         ))
         print(f"第二次渲染完成，页面标题: {title2}")
-        
+
         # 步骤5: 展示协作成果
         print("\nHTML协作处理演示完成!")
         print("=" * 50)
@@ -269,20 +269,20 @@ def html_collaboration_demo():
         print(f"   编辑后页面标题: {title2}")
         print("   生成对比截图: 2张")
         print("   输出文件: 4个")
-        
+
         print("\n协作流程展示:")
         print("   本地创建HTML → Browser沙箱渲染 → 截图1")
         print("   HTML传输到Code沙箱 → 程序化编辑 → 生成新版本")
         print("   新版本传回Browser沙箱 → 再次渲染 → 截图2")
-        
+
         print(f"\n请查看 {output_dir} 目录中的所有文件!")
         print("   所有文件都直接生成在输出目录中，无需移动！")
-        
+
     except Exception as e:
         print(f"演示过程中出现错误: {e}")
         import traceback
         traceback.print_exc()
-    
+
     finally:
         # 清理资源
         try:
@@ -291,7 +291,7 @@ def html_collaboration_demo():
                 print("Browser沙箱已关闭")
         except:
             pass
-        
+
         try:
             if 'code_sandbox' in locals():
                 code_sandbox.kill()

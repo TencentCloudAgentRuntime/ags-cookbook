@@ -1,35 +1,32 @@
 # hybrid-cookbook
 
-A minimal cookbook project:
-- **Control plane**: latest `tencentcloud-sdk-go`
-- **Data plane**: `ags-go-sdk`
+A minimal Go example for the AGS hybrid workflow: create a sandbox through the Tencent Cloud control plane, connect through the AGS data plane, run code, and clean up on exit.
 
-## Project Structure
-- `main.go` - single entrypoint
-- `.env` - unified config
-- `.env.example` - config template
-- `Agents.md` - quick run notes
+## Prerequisites
 
-## Setup
-1. Copy template:
-   - `cp .env.example .env`
-2. Fill credentials in `.env`.
+- Go
+- `TENCENTCLOUD_SECRET_ID`
+- `TENCENTCLOUD_SECRET_KEY`
+- Optional `TENCENTCLOUD_REGION` (defaults to `ap-guangzhou` in this example)
+- An available AGS tool name if you override the default in `.env`
 
-## Run
-```bash
-go mod tidy
-go run .
-```
-
-## Flow
-1. Start sbx (control plane)
-2. Connect and run code (data plane)
-3. List sbx (control plane)
-4. Stop sbx (defer cleanup)
-
-## Quick Start
+## Local commands
 
 ```bash
+make setup
 make run
 ```
 
+## Expected result
+
+A successful run should:
+
+- start a sandbox instance
+- connect and execute code through the data plane
+- print sandbox information
+- stop the sandbox during cleanup
+
+## Common failure hints
+
+- If the control plane rejects the request, verify `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`
+- If tool startup fails, check that the configured AGS tool exists in your account and region

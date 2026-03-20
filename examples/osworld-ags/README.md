@@ -14,7 +14,7 @@ It works by copying a small overlay into a local OSWorld checkout. The overlay a
 
 You need:
 
-- Python and `pip`
+- `uv` (used to manage an isolated Python 3.10 environment)
 - `git`
 - an AGS API key
 - an OSWorld-compatible AGS sandbox template
@@ -56,21 +56,20 @@ OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-### 5. Install dependencies
-Note: only support Python 3.10
+### 5. Install dependencies in an isolated uv environment
+Note: currently only supports Python 3.10
 ```bash
-cd osworld
-pip install -r requirements.txt
+make setup
 ```
 
-The overlay adds the AGS dependencies to `requirements.txt`, including `e2b-code-interpreter` and `aiohttp`.
+This creates `osworld/.venv` with `uv`, installs Python 3.10 if needed, and installs the overlaid `requirements.txt` into that virtual environment. The overlay adds the AGS dependencies to `requirements.txt`, including `e2b-code-interpreter` and `aiohttp`.
 
 ## Run
 
 ### Quick check
 
 ```bash
-python quickstart.py --provider_name ags
+make run
 ```
 
 If this succeeds, the AGS provider is installed correctly.
@@ -78,7 +77,8 @@ If this succeeds, the AGS provider is installed correctly.
 ### Run multienv
 
 ```bash
-python run_multienv.py --provider_name ags --model gpt-4o --num_envs 2
+cd osworld
+uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt-4o --num_envs 2
 ```
 
 ## What The Overlay Changes
