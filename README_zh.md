@@ -45,25 +45,13 @@ export TENCENTCLOUD_REGION="ap-guangzhou"
 
 ## 快速开始
 
-### 1. 检查本地工具
-
-```bash
-make bootstrap
-```
-
-### 2. 查看所有示例
+### 1. 查看所有示例
 
 ```bash
 make examples-list
 ```
 
-### 3. 执行仓库本地检查
-
-```bash
-make check
-```
-
-### 4. 运行单个示例
+### 2. 运行单个示例
 
 大多数示例目录都提供本地 `make run`：
 

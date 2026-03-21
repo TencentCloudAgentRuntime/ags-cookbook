@@ -46,10 +46,10 @@
 | `osworld-ags` | 重型 | Python 3.10 + OSWorld overlay | `make setup` 后 `make run` | 需要外部 checkout 与模板 / 工具准备 |
 | `shop-assistant` | 进阶 | Python + 浏览器沙箱 | `make run` | 已支持无 Cookie 的 guest 模式 |
 
-如需仓库级辅助命令，请回到仓库根目录执行：
+如需在仓库根目录调度单个示例，可执行：
 
 ```bash
-make bootstrap
 make examples-list
-make check
+make example-setup EXAMPLE=<name>
+make example-run EXAMPLE=<name>
 ```

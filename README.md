@@ -48,25 +48,13 @@ export TENCENTCLOUD_REGION="ap-guangzhou"
 
 ## Quick start
 
-### 1. Check local tooling
-
-```bash
-make bootstrap
-```
-
-### 2. Browse available examples
+### 1. Browse available examples
 
 ```bash
 make examples-list
 ```
 
-### 3. Run repository-local checks
-
-```bash
-make check
-```
-
-### 4. Run a specific example
+### 2. Run a specific example
 
 Most examples provide a local `make run` target:
 

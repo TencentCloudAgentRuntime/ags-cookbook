@@ -46,10 +46,10 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `osworld-ags` | heavy | Python 3.10 + OSWorld overlay | `make setup` then `make run` | External checkout and template/tool requirements |
 | `shop-assistant` | advanced | Python + browser sandbox | `make run` | Cookie-free guest mode now supported |
 
-For repository-level helpers, return to the repository root and use:
+From the repository root, you can use:
 
 ```bash
-make bootstrap
 make examples-list
-make check
+make example-setup EXAMPLE=<name>
+make example-run EXAMPLE=<name>
 ```

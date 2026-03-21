@@ -11,12 +11,12 @@ Thanks for contributing to Agent Sandbox Cookbook.
 - `go` for Go examples
 - `git`
 
-Run:
+Run the smallest relevant example locally from its own directory, or use the repository root to dispatch a single example:
 
 ```bash
-make bootstrap
 make examples-list
-make check
+make example-setup EXAMPLE=<name>
+make example-run EXAMPLE=<name>
 ```
 
 
@@ -25,7 +25,7 @@ make check
 Use the following public documents by role:
 
 - Example users: `README.md` -> `examples/README.md` -> target example `README.md`
-- Contributors: `CONTRIBUTING.md` -> local checks; use GitHub Issues for larger collaborative work
+- Contributors: `CONTRIBUTING.md` -> relevant example README / Makefile; use GitHub Issues for larger collaborative work
 
 ## Repository boundary
 
