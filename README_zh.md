@@ -17,6 +17,7 @@
 - `python3`
 - `go`（Go 示例需要）
 - `git`
+- Docker 对部分流程有帮助，但不是每个示例都必需
 
 ### Python 版本
 
@@ -42,7 +43,6 @@ export TENCENTCLOUD_SECRET_KEY="your_secret_key"
 export TENCENTCLOUD_REGION="ap-guangzhou"
 ```
 
-
 ## 快速开始
 
 ### 1. 检查本地工具
@@ -65,7 +65,7 @@ make check
 
 ### 4. 运行单个示例
 
-大多数示例目录都提供 `make run`：
+大多数示例目录都提供本地 `make run`：
 
 ```bash
 make example-setup EXAMPLE=mini-rl
@@ -88,12 +88,13 @@ make example-run EXAMPLE=mini-rl
 | `osworld-ags` | Python 3.10 + OSWorld overlay | 依赖重，且需要可用的 OSWorld 工具 |
 | `shop-assistant` | Python + 浏览器沙箱 | 搜索 / 加购演示 |
 
-详细说明见 `examples/README.md`，其中包含 starter / advanced / heavy 的选择建议。
+详见 `examples/README_zh.md`，其中包含各示例的使用说明与推荐阅读顺序。
 
 ## 重要 DX 说明
 
-- Python 示例优先使用 `uv sync` + `uv run`
-- 默认域名具有地域属性；本仓库验证基线为 `ap-guangzhou.tencentags.com`
+- Python 示例优先使用 `uv sync` + `uv run ...`
+- 不要假设根 README 中的默认值适用于所有示例；请始终以具体 example 的 README 和 `.env.example` 为准
+- 默认域名具有地域属性；`ap-guangzhou.tencentags.com` 是本仓库多数示例使用的文档基线
 - 某些示例依赖你账号中已预先创建的 AGS 工具 / 模板
 
 ## 贡献

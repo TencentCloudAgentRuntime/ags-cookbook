@@ -20,6 +20,21 @@ make check
 ```
 
 
+## Repository guidance map
+
+Use the following public documents by role:
+
+- Example users: `README.md` -> `examples/README.md` -> target example `README.md`
+- Contributors: `CONTRIBUTING.md` -> local checks; use GitHub Issues for larger collaborative work
+
+## Repository boundary
+
+This repository is user-centered first.
+
+- Prefer committing content that directly improves how AGS users discover, run, and understand examples
+- Keep project-governance and maintenance-only content to the minimum needed for public collaboration
+- Keep execution notes, temporary drafts, and other non-customer-facing working materials in `.local/`
+
 ## Development workflow
 
 1. Fork the repository

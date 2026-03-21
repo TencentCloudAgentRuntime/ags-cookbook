@@ -1,112 +1,44 @@
-# Examples - 示例代码
+# Data Analysis 示例
 
-本目录包含Agent Sandbox沙箱的高级使用示例。
+本示例展示一个多 Context 的 AGS 数据工作流：数据清洗、分析与可视化在隔离的 Context 中完成，并通过沙箱文件系统交换产物。
 
-## multi_context_demo.py
+## 前置条件
 
-**多Context协作演示** - 展示真正的环境隔离和专业分工
+- Python >= 3.12
+- `uv`
+- `E2B_API_KEY`
+- 可选 `E2B_DOMAIN`（文档基线：`ap-guangzhou.tencentags.com`）
 
-### 功能特性
-
-- **3个Context完全隔离**：数据预处理 → 分析 → 可视化
-- **5000产品电商数据**：复杂业务场景模拟
-- **数据清洗效果对比**：清洗前后可视化对比
-- **专业可视化图表**：业务仪表板、热力图、相关性分析
-
-### 业务场景
-
-模拟跨国电商平台的产品组合优化：
-- 5000个SKU，7个品类，6个全球市场
-- 年营收188万美元，平均客户评分4.21/5.0
-- 识别并移除5.9%的亏损产品
-- 利润率优化至26.6%
-
-### 执行流程
-
-1. **Context 1 - 数据预处理专家**
-   - 读取原始数据（5000条记录）
-   - 数据质量检查和清洗
-   - 移除亏损产品（295个SKU）
-   - 特征工程：价格分层、绩效评分
-
-2. **Context 2 - 高级数据分析师**
-   - 验证环境隔离（无法访问Context 1变量）
-   - 分组分析：按类别、地区统计
-   - 相关性分析：6个关键指标
-   - 显著性检验：ANOVA方差分析
-
-3. **Context 3 - 数据可视化大师**
-   - 双重隔离验证（无法访问前两个Context变量）
-   - 数据清洗前后对比图表
-   - 综合业务仪表板
-   - 特征相关性热力图
-
-### 输出文件
-
-运行后生成7个文件：
-- `data_cleaning_comparison.png` - **数据清洗效果对比**
-- `advanced_dashboard.png` - 综合业务仪表板
-- `correlation_heatmap.png` - 特征相关性分析
-- `analysis_report.json` - 详细分析报告
-- `cleaned_data.csv` - 清洗后的数据集
-- `complex_input_data.csv` - 原始数据集
-- `data_quality_report.json` - 数据质量报告
-
-### 运行方式
+## 必要环境变量
 
 ```bash
-# 设置环境变量
-export E2B_DOMAIN='tencentags.com'
-export E2B_API_KEY='your_ags_api_key'  # 由腾讯云 Agent Sandbox 产品提供
-
-# 运行演示
-python multi_context_demo.py
-
-# 查看结果
-ls enhanced_demo_output/
+export E2B_API_KEY="your_ags_api_key"
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # 可选覆盖
 ```
 
-### 关键图表解读
-
-#### 1. 数据清洗对比图（左上）
-- **红色**：清洗前分布
-- **蓝色**：清洗后分布
-- **重点**：利润率从有负值变为完全正值
-
-#### 2. 地区表现热力图（右上）
-- **显示**：各地区相对平均值的百分比
-- **解读**：>100%高于平均，<100%低于平均
-- **洞察**：北美收入领先8%，中东表现较弱
-
-#### 3. 数据质量指标（左下）
-- **产品总数**：5000 → 4705（减少295个）
-- **亏损产品**：295 → 0（完全消除）
-- **量化效果**：数据清洗的具体改善
-
-#### 4. 价格分层特征（右下）
-- **新增特征**：Budget、Economy、Mid-range、Premium、Luxury
-- **商业价值**：从价格数值转换为有意义的分层
-
-### 学习要点
-
-1. **环境隔离验证**：观察各Context如何验证无法访问其他Context变量
-2. **数据流转机制**：通过文件系统实现Context间通信
-3. **业务价值实现**：从技术演示到实际商业决策支持
-4. **可视化设计**：如何设计有意义的对比图表
-5. **错误处理**：沙箱环境的异常处理和资源管理
-
-### 自定义扩展
-
-可以基于此示例扩展：
-- 增加新的Context（如机器学习专家）
-- 修改业务场景（如金融、医疗等）
-- 添加更多可视化图表
-- 集成外部数据源
-- 实现实时数据处理
-
-## 快速开始
+## 本地命令
 
 ```bash
+make setup
 make run
 ```
 
+## 预期输出
+
+成功运行后，`enhanced_demo_output/` 中应包含图表和报告文件，例如：
+
+- `data_cleaning_comparison.png`
+- `advanced_dashboard.png`
+- `correlation_heatmap.png`
+- `analysis_report.json`
+
+## 常见失败提示
+
+- 如果沙箱创建失败，检查 `E2B_API_KEY` 和 `E2B_DOMAIN`
+- 如果你的账号是地域隔离的，建议显式设置区域域名，而不是依赖历史默认值
+
+## 它展示了什么
+
+- 多个 AGS 执行 Context 之间的真实隔离
+- 通过文件系统完成产物交接
+- 比单脚本演示更接近真实业务的数据处理流水线
