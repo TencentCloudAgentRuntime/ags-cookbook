@@ -34,6 +34,7 @@ This repository is user-centered first.
 - Prefer committing content that directly improves how AGS users discover, run, and understand examples
 - Keep project-governance and maintenance-only content to the minimum needed for public collaboration
 - Keep execution notes, temporary drafts, and other non-customer-facing working materials in `.local/`
+- Keep development and maintenance plumbing in dot-directories when practical (for example `.github/`, `.pre-commit-config.yaml`, `.repo/`) so customer-facing paths stay focused on examples
 
 ## Development workflow
 
