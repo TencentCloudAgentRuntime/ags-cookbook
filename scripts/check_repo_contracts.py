@@ -42,7 +42,7 @@ for example_dir in EXAMPLE_DIRS:
     readme_text = read(readme)
     make_text = read(makefile)
 
-    if not re.search(r"(?m)^run:\s*$", make_text):
+    if not re.search(r"(?m)^run:", make_text):
         errors.append(f"{makefile.relative_to(ROOT)} missing run target")
     if "make run" not in readme_text:
         errors.append(f"{readme.relative_to(ROOT)} should mention make run")
