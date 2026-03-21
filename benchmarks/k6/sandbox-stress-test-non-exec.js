@@ -1,3 +1,16 @@
+/**
+ * K6 不支持自动加载 .env 文件，运行前请手动设置环境变量：
+ *
+ *   source .env.example    # 加载示例配置（或 source .env 加载你的实际配置）
+ *   k6 run sandbox-stress-test-non-exec.js
+ *
+ * 或逐条 export：
+ *   export TENCENTCLOUD_SECRET_ID=your_secret_id_here
+ *   export TENCENTCLOUD_SECRET_KEY=your_secret_key_here
+ *
+ * 所有可配置参数见下方 __ENV 读取部分，均可通过 k6 run -e KEY=VALUE 覆盖。
+ */
+
 import { check, sleep } from 'k6';
 import { Trend, Rate, Counter } from 'k6/metrics';
 import http from 'k6/http';
