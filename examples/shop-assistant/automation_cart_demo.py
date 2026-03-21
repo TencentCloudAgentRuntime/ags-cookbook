@@ -11,8 +11,7 @@ from e2b import Sandbox
 if not os.getenv('E2B_DOMAIN'):
     os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
 if not os.getenv('E2B_API_KEY'):
-    # E2B_API_KEY should be obtained from Tencent Cloud Agent Sandbox product
-    os.environ['E2B_API_KEY'] = 'your_api_key'
+    raise RuntimeError('E2B_API_KEY is required')
 
 KEEPALIVE_SECONDS = int(os.getenv("KEEPALIVE_SECONDS", "300"))
 

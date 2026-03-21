@@ -26,7 +26,7 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run a browser
 - Python >= 3.12
 - `uv`
 - `E2B_API_KEY`
-- OpenAI-compatible LLM backend variables (`LLM_API_KEY`, `LLM_API_URL`, `LLM_MODEL`)
+- OpenAI-compatible backend variables (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`)
 
 ## Local commands
 
@@ -41,9 +41,9 @@ Set environment variables before running:
 
 ```bash
 export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
-export LLM_API_KEY="your_llm_api_key"           # LLM API Key
-export LLM_API_URL="https://your-llm-api/v1/chat/completions"
-export LLM_MODEL="your-model-name"              # Optional example model name
+export OPENAI_API_KEY="your_llm_api_key"           # LLM API Key
+export OPENAI_BASE_URL="https://your-openai-compatible-api/v1"
+export OPENAI_MODEL="your-model-name"              # Required model name
 export E2B_DOMAIN="ap-guangzhou.tencentags.com" # Optional
 ```
 
@@ -76,5 +76,5 @@ A successful run should create a browser sandbox, print a VNC/debug URL, navigat
 
 ## Common failure hints
 
-- If the LLM backend times out, reduce context size or confirm `LLM_API_URL` / `LLM_API_KEY` / `LLM_MODEL`
+- If the LLM backend times out, reduce context size or confirm `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL`
 - If browser startup fails, verify `E2B_API_KEY` and `E2B_DOMAIN`

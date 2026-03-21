@@ -6,27 +6,14 @@ from playwright.async_api import async_playwright
 from e2b import Sandbox
 from typing import List, Dict
 
-try:
-    from tencentcloud.common import credential
-    from tencentcloud.common.profile.client_profile import ClientProfile
-    from tencentcloud.common.profile.http_profile import HttpProfile
-    from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
-except ImportError:
-    credential = None
-    ClientProfile = None
-    HttpProfile = None
-    hunyuan_client = None
-    models = None
 
 # ========== 配置 ==========
 # 可通过环境变量设置，或在此处直接修改
 E2B_DOMAIN = os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com")
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_API_URL = os.getenv("LLM_API_URL", "https://example.com/v1/chat/completions")
-LLM_MODEL = os.getenv("LLM_MODEL", "hunyuan-turbos-latest")
-TENCENTCLOUD_SECRET_ID = os.getenv("TENCENTCLOUD_SECRET_ID", "")
-TENCENTCLOUD_SECRET_KEY = os.getenv("TENCENTCLOUD_SECRET_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://example.com/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "")
 
 os.environ["E2B_DOMAIN"] = E2B_DOMAIN
 os.environ["E2B_API_KEY"] = E2B_API_KEY
@@ -34,68 +21,16 @@ os.environ["E2B_API_KEY"] = E2B_API_KEY
 
 def call_llm(messages: List[Dict], tools: List[Dict] = None) -> Dict:
     """调用 LLM API"""
-    if (not LLM_API_KEY or "example.com" in LLM_API_URL) and TENCENTCLOUD_SECRET_ID and TENCENTCLOUD_SECRET_KEY:
-        if not all([credential, ClientProfile, HttpProfile, hunyuan_client, models]):
-            raise RuntimeError("Tencent Hunyuan SDK 未安装，无法使用腾讯云密钥回退调用")
+    if not OPENAI_API_KEY or "example.com" in OPENAI_BASE_URL or not OPENAI_MODEL:
+        raise RuntimeError("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 未完整设置")
 
-        cred = credential.Credential(TENCENTCLOUD_SECRET_ID, TENCENTCLOUD_SECRET_KEY)
-        http_profile = HttpProfile()
-        http_profile.endpoint = "hunyuan.tencentcloudapi.com"
-        client_profile = ClientProfile(httpProfile=http_profile)
-        client = hunyuan_client.HunyuanClient(cred, "", client_profile)
-
-        req = models.ChatCompletionsRequest()
-        payload = {
-            "Model": LLM_MODEL,
-            "Messages": [
-                {"Role": m["role"], "Content": m["content"]}
-                for m in messages
-                if m["role"] in {"system", "user", "assistant"}
-            ],
-        }
-        if tools:
-            payload["Tools"] = [
-                {
-                    "Type": tool["type"],
-                    "Function": {
-                        "Name": tool["function"]["name"],
-                        "Description": tool["function"]["description"],
-                        "Parameters": json.dumps(tool["function"]["parameters"], ensure_ascii=False),
-                    },
-                }
-                for tool in tools
-            ]
-            payload["ToolChoice"] = "auto"
-
-        req.from_json_string(json.dumps(payload, ensure_ascii=False))
-        response = client.ChatCompletions(req)
-        data = json.loads(response.to_json_string())
-        choice = data["Choices"][0]["Message"]
-        message = {
-            "role": choice["Role"],
-            "content": choice.get("Content", ""),
-        }
-        if choice.get("ToolCalls"):
-            message["tool_calls"] = [
-                {
-                    "id": tc["Id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["Type"],
-                        "arguments": tc["Function"]["Arguments"],
-                    },
-                }
-                for tc in choice["ToolCalls"]
-            ]
-        return {"choices": [{"message": message}]}
-
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": LLM_MODEL, "messages": messages, "max_tokens": 4096}
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": OPENAI_MODEL, "messages": messages, "max_tokens": 4096}
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
 
-    response = requests.post(LLM_API_URL, headers=headers, json=payload, timeout=90)
+    response = requests.post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions", headers=headers, json=payload, timeout=90)
     response.raise_for_status()
     return response.json()
 
@@ -128,6 +63,8 @@ class SandboxBrowserAgent:
 
         if not E2B_API_KEY or E2B_API_KEY.startswith("oak_xxx"):
             raise ValueError("E2B_API_KEY 未设置")
+        if not OPENAI_API_KEY or "example.com" in OPENAI_BASE_URL or not OPENAI_MODEL:
+            raise ValueError("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 未完整设置")
 
         # 创建浏览器沙箱
         self.sandbox = Sandbox.create(template="browser-v1", timeout=timeout)
