@@ -13,7 +13,7 @@ setup:
 
 run:
 	@test -x $(OSWORLD_PY) || (echo "missing $(OSWORLD_VENV): run 'make setup' first" && exit 1)
-	cd $(OSWORLD_DIR) && uv run --python .venv/bin/python quickstart.py --provider_name ags
+	cd $(OSWORLD_DIR) && .venv/bin/python quickstart.py --provider_name ags
 
 clean:
 	rm -rf $(OSWORLD_VENV)
