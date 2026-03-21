@@ -19,11 +19,6 @@ make examples-list
 make check
 ```
 
-Optional but recommended:
-
-```bash
-pre-commit install
-```
 
 ## Development workflow
 

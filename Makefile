@@ -3,7 +3,7 @@
 EXAMPLES := $(shell find examples -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
 EXAMPLE ?=
 
-.PHONY: help bootstrap examples-list report-status contract-check docs-check python-check go-check check precommit example-setup example-run smoke
+.PHONY: help bootstrap examples-list report-status contract-check docs-check python-check go-check check example-setup example-run smoke
 
 help:
 	@echo "Available targets:"
@@ -46,8 +46,6 @@ go-check:
 check: bootstrap docs-check python-check go-check
 	@echo "Local checks passed."
 
-precommit:
-	@uvx pre-commit run --all-files
 
 report-status:
 	@python3 -c "from pathlib import Path; root=Path('reports/example-runs'); \

@@ -1,6 +1,6 @@
 Tencent is pleased to support the open source community by making Agent Sandbox Cookbook available.
 
-Copyright (C) 2026 Tencent. All rights reserved.
+Copyright (C) 2026 Tencent. All rights reserved. 
 
 Agent Sandbox Cookbook is licensed under Apache-2.0, except for the third-party components listed below, which remain licensed under their respective original terms. Agent Sandbox Cookbook does not impose any additional restrictions beyond those specified in the original licenses of these third-party components. Users are required to comply with all applicable terms and conditions of the original licenses and to ensure that the use of these third-party components conforms to all relevant laws and regulations.
 

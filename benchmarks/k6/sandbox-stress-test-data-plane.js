@@ -74,7 +74,7 @@ function buildScenarios() {
   // Calculate ramp up duration: MAX_VUS / VUS_INCREASE_PER_SECOND
   const rampUpSeconds = Math.ceil(MAX_VUS / VUS_INCREASE_PER_SECOND);
   const rampUpDuration = `${rampUpSeconds}s`;
-
+  
   console.log(`Data plane stress test configuration:`);
   console.log(`- Max VUs: ${MAX_VUS}`);
   console.log(`- VUs increase per second: ${VUS_INCREASE_PER_SECOND}`);
@@ -82,7 +82,7 @@ function buildScenarios() {
   console.log(`- Steady duration: ${STEADY_DURATION}`);
   console.log(`- Code execution duration: ${CODE_EXECUTION_DURATION} seconds`);
   console.log(`- Max connections will be maintained during steady state`);
-
+  
   return {
     data_plane_stress: {
       executor: 'ramping-vus',
@@ -212,14 +212,14 @@ function createTencentCloudSignature(action, payload, timestamp) {
 function callTencentCloudAPI(action, payload = {}) {
   const timestamp = Math.floor(Date.now() / 1000);
   const payloadStr = JSON.stringify(payload);
-
+  
   const { headers } = createTencentCloudSignature(action, payloadStr, timestamp);
-
+  
   const response = http.post(`https://${API_CONFIG.host}/`, payloadStr, {
     headers: headers,
     timeout: API_TIMEOUT,
   });
-
+  
   return {
     status: response.status,
     body: response.body,
@@ -232,10 +232,10 @@ function createSandboxInstance() {
     const result = callTencentCloudAPI('StartSandboxInstance', {"ToolName": SANDBOX_TOOL_NAME});
     // Use k6's built-in HTTP timing for accurate measurement
     const duration = result.duration;
-
+    
     sandboxCreateDuration.add(duration);
     sandboxCreateCounter.add(1);
-
+    
     if (result.status !== HTTP_SUCCESS_STATUS) {
       sandboxCreateSuccessRate.add(false);
       console.error(`VU ${__VU}: Create failed - HTTP ${result.status}`);
@@ -245,9 +245,9 @@ function createSandboxInstance() {
         duration: duration
       };
     }
-
+    
     const data = JSON.parse(result.body);
-
+    
     if (data.Response && data.Response.Error) {
       sandboxCreateSuccessRate.add(false);
       console.error(`VU ${__VU}: Create failed - ${data.Response.Error.Code}: ${data.Response.Error.Message}`);
@@ -258,7 +258,7 @@ function createSandboxInstance() {
         duration: duration
       };
     }
-
+    
     if (!data.Response?.Instance?.InstanceId) {
       sandboxCreateSuccessRate.add(false);
       console.error(`VU ${__VU}: Create failed - No InstanceId returned`);
@@ -268,14 +268,14 @@ function createSandboxInstance() {
         duration: duration
       };
     }
-
+    
     const instanceId = data.Response.Instance.InstanceId;
     sandboxCreateSuccessRate.add(true);
     sandboxCreateSuccessCounter.add(1);
-
+    
     console.log(`VU ${__VU}: Created successfully, InstanceId: ${instanceId}`);
     console.log(`VU ${__VU}: Status: ${data.Response.Instance.Status}, Tool: ${data.Response.Instance.ToolName}`);
-
+    
     return {
       success: true,
       instanceId: instanceId,
@@ -284,9 +284,9 @@ function createSandboxInstance() {
     };
   } catch (error) {
     sandboxCreateSuccessRate.add(false);
-
+    
     console.error(`VU ${__VU}: Create exception: ${error.message}`);
-
+    
     return {
       success: false,
       error: error.message,
@@ -302,10 +302,10 @@ function acquireSandboxToken(instanceId) {
     });
     // Use k6's built-in HTTP timing for accurate measurement
     const duration = result.duration;
-
+    
     tokenAcquireDuration.add(duration);
     tokenAcquireCounter.add(1);
-
+    
     if (result.status !== HTTP_SUCCESS_STATUS) {
       tokenAcquireSuccessRate.add(false);
       console.warn(`VU ${__VU}: ⚠️  Acquire token failed, InstanceId: ${instanceId} - HTTP ${result.status}`);
@@ -315,9 +315,9 @@ function acquireSandboxToken(instanceId) {
         duration: duration
       };
     }
-
+    
     const data = JSON.parse(result.body);
-
+    
     if (data.Response && data.Response.Error) {
       tokenAcquireSuccessRate.add(false);
       console.warn(`VU ${__VU}: ⚠️  Acquire token failed, InstanceId: ${instanceId} - ${data.Response.Error.Code}: ${data.Response.Error.Message}`);
@@ -328,7 +328,7 @@ function acquireSandboxToken(instanceId) {
         duration: duration
       };
     }
-
+    
     if (!data.Response?.Token) {
       tokenAcquireSuccessRate.add(false);
       console.warn(`VU ${__VU}: ⚠️  Acquire token failed, InstanceId: ${instanceId} - No token returned`);
@@ -338,13 +338,13 @@ function acquireSandboxToken(instanceId) {
         duration: duration
       };
     }
-
+    
     const token = data.Response.Token;
     const expiresAt = data.Response.ExpiresAt;
     tokenAcquireSuccessRate.add(true);
     tokenAcquireSuccessCounter.add(1);
     console.log(`VU ${__VU}: Token acquired, InstanceId: ${instanceId}, ExpiresAt: ${expiresAt}`);
-
+    
     return {
       success: true,
       token: token,
@@ -365,12 +365,12 @@ function acquireSandboxToken(instanceId) {
 function executeSandboxCode(instanceId, token) {
   try {
     const sandboxUrl = `https://${SANDBOX_PORT}-${instanceId}.${API_REGION}.${SANDBOX_DOMAIN_SUFFIX}/execute`;
-
+    
     const payload = {
       code: TEST_CODE,
       language: TEST_LANGUAGE
     };
-
+    
     const response = http.post(sandboxUrl, JSON.stringify(payload), {
       headers: {
         'X-Access-Token': token,
@@ -378,13 +378,13 @@ function executeSandboxCode(instanceId, token) {
       },
       timeout: EXECUTE_TIMEOUT,
     });
-
+    
     // Use k6's built-in HTTP timing for accurate measurement
     const duration = response.timings.duration;
-
+    
     codeExecuteDuration.add(duration);
     codeExecuteCounter.add(1);
-
+    
     if (response.status === HTTP_SUCCESS_STATUS) {
       codeExecuteSuccessRate.add(true);
       codeExecuteSuccessCounter.add(1);
@@ -421,10 +421,10 @@ function deleteSandboxInstance(instanceId) {
     });
     // Use k6's built-in HTTP timing for accurate measurement
     const duration = result.duration;
-
+    
     sandboxDeleteDuration.add(duration);
     sandboxDeleteCounter.add(1);
-
+    
     if (result.status !== HTTP_SUCCESS_STATUS) {
       sandboxDeleteSuccessRate.add(false);
       console.error(`VU ${__VU}: ❌ Delete failed, InstanceId: ${instanceId} - HTTP ${result.status}`);
@@ -435,9 +435,9 @@ function deleteSandboxInstance(instanceId) {
         duration: duration
       };
     }
-
+    
     const data = JSON.parse(result.body);
-
+    
     if (data.Response && data.Response.Error) {
       sandboxDeleteSuccessRate.add(false);
       console.error(`VU ${__VU}: ❌ Delete failed, InstanceId: ${instanceId} - ${data.Response.Error.Code}: ${data.Response.Error.Message}`);
@@ -449,12 +449,12 @@ function deleteSandboxInstance(instanceId) {
         duration: duration
       };
     }
-
+    
     sandboxDeleteSuccessRate.add(true);
     sandboxDeleteSuccessCounter.add(1);
-
+    
     console.log(`VU ${__VU}: Deleted successfully, InstanceId: ${instanceId}`);
-
+    
     return {
       success: true,
       response: data,
@@ -462,10 +462,10 @@ function deleteSandboxInstance(instanceId) {
     };
   } catch (error) {
     sandboxDeleteSuccessRate.add(false);
-
+    
     console.error(`VU ${__VU}: ❌ Delete exception, InstanceId: ${instanceId} - ${error.message}`);
     console.warn(`VU ${__VU}: ⚠️  Instance ${instanceId} may need manual cleanup`);
-
+    
     return {
       success: false,
       error: error.message,
@@ -481,33 +481,33 @@ export default function () {
   }
 
   console.log(`VU ${__VU} Iteration ${__ITER}: Starting sandbox lifecycle`);
-
+  
   const createResult = createSandboxInstance();
-
+  
   check(createResult, {
     'Sandbox instance created': (r) => r.success === true,
     'Create response time reasonable': (r) => r.duration < CREATE_TIMEOUT_THRESHOLD,
     'Valid InstanceId returned': (r) => r.success && r.instanceId && r.instanceId.length > 0,
   });
-
+  
   if (!createResult.success || !createResult.instanceId) {
     console.error(`VU ${__VU} Iteration ${__ITER}: Create failed or no InstanceId, skipping subsequent steps`);
     sleep(SLEEP_ON_ERROR);
     return;
   }
-
+  
   sleep(WAIT_AFTER_CREATE);
-
+  
   const tokenResult = acquireSandboxToken(createResult.instanceId);
-
+  
   check(tokenResult, {
     'Token acquired': (r) => r.success === true,
   });
-
+  
   let executeResult = { success: false, duration: 0 };
   if (tokenResult.success && tokenResult.token) {
     executeResult = executeSandboxCode(createResult.instanceId, tokenResult.token);
-
+    
     check(executeResult, {
       'Code executed': (r) => r.success === true,
       'Execute response time reasonable': (r) => r.duration < EXECUTE_TIMEOUT_THRESHOLD,
@@ -515,22 +515,22 @@ export default function () {
   } else {
     console.warn(`VU ${__VU} Iteration ${__ITER}: Token acquisition failed, skipping code execution`);
   }
-
+  
   const deleteResult = deleteSandboxInstance(createResult.instanceId);
-
+  
   check(deleteResult, {
     'Sandbox instance deleted': (r) => r.success === true,
     'Delete response time reasonable': (r) => r.duration < DELETE_TIMEOUT_THRESHOLD,
   });
-
+  
   const tokenDuration = tokenResult.duration || 0;
   const executeDuration = executeResult.duration || 0;
   // Calculate total HTTP time only (excluding sleep/wait time for accurate performance metrics)
   const totalDuration = createResult.duration + tokenDuration + executeDuration + deleteResult.duration;
   console.log(`VU ${__VU} Iteration ${__ITER}: Instance ${createResult.instanceId} lifecycle ${totalDuration.toFixed(2)}ms (create:${createResult.duration.toFixed(2)}ms, token:${tokenDuration.toFixed(2)}ms, execute:${executeDuration.toFixed(2)}ms, delete:${deleteResult.duration.toFixed(2)}ms)`);
-
+  
   sandboxLifecycleDuration.add(totalDuration);
-
+  
   sleep(SLEEP_BETWEEN_ITERATIONS);
 }
 
@@ -542,11 +542,11 @@ export function setup() {
   console.log(`- Steady duration: ${STEADY_DURATION}`);
   console.log(`- Code execution duration: ${CODE_EXECUTION_DURATION}s`);
   console.log(`- Expected max concurrent connections: ${MAX_VUS}`);
-
+  
   if (!__ENV.TENCENTCLOUD_SECRET_ID || !__ENV.TENCENTCLOUD_SECRET_KEY) {
     throw new Error('Please set TENCENTCLOUD_SECRET_ID and TENCENTCLOUD_SECRET_KEY environment variables');
   }
-
+  
   return {
     startTime: new Date().toISOString()
   };
@@ -567,7 +567,7 @@ export function handleSummary(data) {
   const deleteSuccessQPS = data.metrics.sandbox_delete_success ? (data.metrics.sandbox_delete_success.values.count / testDurationSeconds) : 0;
   const tokenQPS = data.metrics.token_acquire_total ? (data.metrics.token_acquire_total.values.count / testDurationSeconds) : 0;
   const executeQPS = data.metrics.code_execute_total ? (data.metrics.code_execute_total.values.count / testDurationSeconds) : 0;
-
+  
   return {
     'summary.json': JSON.stringify(data, null, 2),
     stdout: `
