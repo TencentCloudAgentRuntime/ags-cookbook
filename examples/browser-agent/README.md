@@ -7,7 +7,7 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run a browser
 ```
 ┌─────────────┐     Tool Call     ┌─────────────┐      CDP       ┌─────────────┐
 │     LLM     │ ───────────────▶  │   Browser   │ ─────────────▶ │  AgentSandbox  │
-│  (GLM-4.7)  │                   │    Agent    │                │   (browser) │
+│     LLM     │                   │    Agent    │                │   (browser) │
 └─────────────┘                   └─────────────┘                └─────────────┘
       ▲                                 │                              │
       │                                 │◀─────────────────────────────┘
@@ -43,7 +43,7 @@ Set environment variables before running:
 export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
 export LLM_API_KEY="your_llm_api_key"           # LLM API Key
 export LLM_API_URL="https://your-llm-api/v1/chat/completions"
-export LLM_MODEL="tke/glm5"                     # Example model name
+export LLM_MODEL="your-model-name"              # Optional example model name
 export E2B_DOMAIN="ap-guangzhou.tencentags.com" # Optional
 ```
 

@@ -18,7 +18,7 @@
 export E2B_API_KEY="your_ags_api_key"
 export LLM_API_KEY="your_llm_api_key"
 export LLM_API_URL="https://your-llm-api/v1/chat/completions"
-export LLM_MODEL="glm4.7"  # 可选
+export LLM_MODEL="your-model-name"  # 可选示例值
 export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # 可选
 ```
 
