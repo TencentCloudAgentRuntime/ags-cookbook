@@ -10,7 +10,7 @@
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
-- 可选 `E2B_DOMAIN`（文档基线：`ap-guangzhou.tencentags.com`）
+- 必填 `E2B_DOMAIN`
 
 ## 必要环境变量
 
@@ -19,7 +19,7 @@ export E2B_API_KEY="your_ags_api_key"
 export OPENAI_API_KEY="your_llm_api_key"
 export OPENAI_BASE_URL="https://your-openai-compatible-api/v1"
 export OPENAI_MODEL="your-model-name"  # 必填模型名
-export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # 可选
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 ```
 
 ## 本地命令

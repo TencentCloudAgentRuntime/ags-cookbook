@@ -22,7 +22,7 @@
 - `uv`
 - `E2B_API_KEY`
 - `SANDBOX_TEMPLATE`
-- 可选 `E2B_DOMAIN`（例如 `ap-guangzhou.tencentags.com`）
+- 必填 `E2B_DOMAIN`（例如 `ap-guangzhou.tencentags.com`）
 
 ## 本地命令
 

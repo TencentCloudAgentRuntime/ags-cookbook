@@ -9,19 +9,21 @@ from typing import List, Dict
 
 # ========== 配置 ==========
 # 可通过环境变量设置，或在此处直接修改
-E2B_DOMAIN = os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com")
+E2B_DOMAIN = os.getenv("E2B_DOMAIN", "")
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://example.com/v1")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "")
 
-os.environ["E2B_DOMAIN"] = E2B_DOMAIN
-os.environ["E2B_API_KEY"] = E2B_API_KEY
+if E2B_DOMAIN:
+    os.environ["E2B_DOMAIN"] = E2B_DOMAIN
+if E2B_API_KEY:
+    os.environ["E2B_API_KEY"] = E2B_API_KEY
 
 
 def call_llm(messages: List[Dict], tools: List[Dict] = None) -> Dict:
     """调用 LLM API"""
-    if not OPENAI_API_KEY or "example.com" in OPENAI_BASE_URL or not OPENAI_MODEL:
+    if not OPENAI_API_KEY or not OPENAI_BASE_URL or not OPENAI_MODEL:
         raise RuntimeError("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 未完整设置")
 
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
@@ -63,7 +65,7 @@ class SandboxBrowserAgent:
 
         if not E2B_API_KEY or E2B_API_KEY.startswith("oak_xxx"):
             raise ValueError("E2B_API_KEY 未设置")
-        if not OPENAI_API_KEY or "example.com" in OPENAI_BASE_URL or not OPENAI_MODEL:
+        if not OPENAI_API_KEY or not OPENAI_BASE_URL or not OPENAI_MODEL:
             raise ValueError("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL 未完整设置")
 
         # 创建浏览器沙箱
@@ -72,8 +74,7 @@ class SandboxBrowserAgent:
         # 生成 VNC 链接
         self.vnc_url = (
             f"https://{self.sandbox.get_host(9000)}/novnc/vnc_lite.html"
-            f"?path=websockify"
-            f"?access_token={self.sandbox._envd_access_token}"
+            f"?path=websockify&access_token={self.sandbox._envd_access_token}"
         )
         print(f"VNC: {self.vnc_url}")
 

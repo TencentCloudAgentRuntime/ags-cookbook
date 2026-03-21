@@ -82,7 +82,7 @@ make example-run EXAMPLE=mini-rl
 
 - Python 示例优先使用 `uv sync` + `uv run ...`
 - 不要假设根 README 中的默认值适用于所有示例；请始终以具体 example 的 README 和 `.env.example` 为准
-- 默认域名具有地域属性；`ap-guangzhou.tencentags.com` 是本仓库多数示例使用的文档基线
+- AGS 域名具有地域属性；请显式设置 `E2B_DOMAIN` 为你要使用的地域域名
 - 某些示例依赖你账号中已预先创建的 AGS 工具 / 模板
 
 ## 贡献

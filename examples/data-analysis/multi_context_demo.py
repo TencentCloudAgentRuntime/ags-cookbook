@@ -9,9 +9,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# 设置环境变量（可通过环境变量预先设置，或在此处直接修改）
+# 需要预先设置环境变量
 if not os.getenv('E2B_DOMAIN'):
-    os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
+    raise RuntimeError('E2B_DOMAIN is required')
 if not os.getenv('E2B_API_KEY'):
     raise RuntimeError('E2B_API_KEY is required')
 

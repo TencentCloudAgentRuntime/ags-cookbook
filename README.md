@@ -85,7 +85,7 @@ See `examples/README.md` for per-example details and a starter/advanced/heavy pi
 
 - Prefer `uv sync` + `uv run ...` for Python examples
 - Do not assume root README defaults apply to every example; always check each example's README and `.env.example`
-- AGS domain defaults should be treated as region-specific; `ap-guangzhou.tencentags.com` is the documented baseline in this repo after validation
+- AGS domains are region-specific; set `E2B_DOMAIN` explicitly for the region you want to use
 - Some examples require pre-provisioned tools/templates in your AGS account
 
 ## Contributing

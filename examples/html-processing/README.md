@@ -7,13 +7,13 @@ This example demonstrates a dual-sandbox AGS workflow: one sandbox edits HTML wh
 - Python >= 3.12
 - `uv`
 - `E2B_API_KEY`
-- Optional `E2B_DOMAIN` (documented baseline: `ap-guangzhou.tencentags.com`)
+- Required `E2B_DOMAIN`
 
 ## Required environment variables
 
 ```bash
 export E2B_API_KEY="your_ags_api_key"
-export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # optional override
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 ```
 
 ## Local commands

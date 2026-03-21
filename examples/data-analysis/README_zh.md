@@ -7,13 +7,13 @@
 - Python >= 3.12
 - `uv`
 - `E2B_API_KEY`
-- 可选 `E2B_DOMAIN`（文档基线：`ap-guangzhou.tencentags.com`）
+- 必填 `E2B_DOMAIN`
 
 ## 必要环境变量
 
 ```bash
 export E2B_API_KEY="your_ags_api_key"
-export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # 可选覆盖
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 ```
 
 ## 本地命令

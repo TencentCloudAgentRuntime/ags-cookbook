@@ -44,7 +44,7 @@ export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
 export OPENAI_API_KEY="your_llm_api_key"           # LLM API Key
 export OPENAI_BASE_URL="https://your-openai-compatible-api/v1"
 export OPENAI_MODEL="your-model-name"              # Required model name
-export E2B_DOMAIN="ap-guangzhou.tencentags.com" # Optional
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 ```
 
 After running, a VNC link will be output, allowing you to watch the automation process in real-time in your browser.

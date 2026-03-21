@@ -7,14 +7,14 @@ This example uses the AGS browser sandbox plus Playwright to search Amazon, ente
 - Python >= 3.12
 - `uv`
 - `E2B_API_KEY`
-- Optional `E2B_DOMAIN` (documented baseline: `ap-guangzhou.tencentags.com`)
+- Required `E2B_DOMAIN`
 - Optional `cookie.json` if you want a logged-in flow
 
 ## Required environment variables
 
 ```bash
 export E2B_API_KEY="your_ags_api_key"
-export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # optional override
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 export KEEPALIVE_SECONDS="0"  # optional, avoids long post-run sleep
 ```
 

@@ -99,7 +99,7 @@ class SandboxClient:
             e2b_api_key: E2B API Key (provided by Tencent Cloud Agent Sandbox product)
         """
         self.sandbox_id = sandbox_id
-        self.e2b_domain = e2b_domain or os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com")
+        self.e2b_domain = e2b_domain or os.getenv("E2B_DOMAIN", "")
         # E2B_API_KEY is provided by Tencent Cloud Agent Sandbox product
         self.e2b_api_key = e2b_api_key or os.getenv("E2B_API_KEY", "")
         self.sandbox = None

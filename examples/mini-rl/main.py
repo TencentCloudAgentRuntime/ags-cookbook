@@ -19,10 +19,9 @@ import json
 # Step 0: AgentSandbox 环境配置（真实）
 # =========================================================
 
-# AgentSandbox 域名（兼容 E2B），可通过环境变量预先设置
+# AgentSandbox 环境变量需预先设置
 if not os.getenv("E2B_DOMAIN"):
-    os.environ["E2B_DOMAIN"] = "ap-guangzhou.tencentags.com"
-# API Key（可通过环境变量预先设置）
+    raise RuntimeError("E2B_DOMAIN is required")
 if not os.getenv("E2B_API_KEY"):
     raise RuntimeError("E2B_API_KEY is required")
 

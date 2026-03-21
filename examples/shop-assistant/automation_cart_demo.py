@@ -7,9 +7,9 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 from e2b import Sandbox
 
-# 设置环境变量（可通过环境变量预先设置，或在此处直接修改）
+# 需要预先设置环境变量
 if not os.getenv('E2B_DOMAIN'):
-    os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
+    raise RuntimeError('E2B_DOMAIN is required')
 if not os.getenv('E2B_API_KEY'):
     raise RuntimeError('E2B_API_KEY is required')
 
@@ -468,7 +468,7 @@ async def main():
     print(f"Browser沙箱已创建: {browser_sandbox.sandbox_id}")
 
     # 构建VNC和CDP连接URL
-    novnc_url = f"https://{browser_sandbox.get_host(9000)}/novnc/vnc_lite.html?&path=websockify?access_token={browser_sandbox._envd_access_token}"
+    novnc_url = f"https://{browser_sandbox.get_host(9000)}/novnc/vnc_lite.html?path=websockify&access_token={browser_sandbox._envd_access_token}"
     cdp_url = f"https://{browser_sandbox.get_host(9000)}/cdp"
 
     print(f"VNC实时查看链接: {novnc_url}")

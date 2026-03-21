@@ -29,7 +29,7 @@ Set environment variables before running:
 
 ```bash
 export E2B_API_KEY="your_ags_api_key"  # provided by Tencent Cloud Agent Sandbox product
-export E2B_DOMAIN="ap-guangzhou.tencentags.com"  # Optional
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 ```
 
 ### 2. Run Example

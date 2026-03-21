@@ -92,7 +92,7 @@ def _load_config() -> Dict[str, Any]:
     _load_env_file()
 
     config = {
-        'E2B_DOMAIN': os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com"),
+        'E2B_DOMAIN': os.getenv("E2B_DOMAIN", ""),
         # E2B_API_KEY is provided by Tencent Cloud Agent Sandbox product
         'E2B_API_KEY': os.getenv("E2B_API_KEY", ""),
         'SANDBOX_TEMPLATE': os.getenv("SANDBOX_TEMPLATE", "mobile-v1"),
