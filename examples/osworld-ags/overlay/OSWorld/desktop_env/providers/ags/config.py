@@ -3,7 +3,7 @@ AGS (Agent Sandbox) Provider Configuration
 
 Environment variables (loaded from .env file):
 - E2B_API_KEY: API key for Agent Sandbox (required)
-- E2B_DOMAIN: Domain for Agent Sandbox (default: e2b.dev)
+- E2B_DOMAIN: Domain for Agent Sandbox (default: ap-guangzhou.tencentags.com)
 - AGS_TEMPLATE: Template name for the sandbox (default: osworld)
 - AGS_TIMEOUT: Sandbox timeout in seconds (default: 1800 = 30 minutes)
 
@@ -18,7 +18,7 @@ load_dotenv()
 
 # API Configuration
 E2B_API_KEY = os.environ.get("E2B_API_KEY", "")
-E2B_DOMAIN = os.environ.get("E2B_DOMAIN", "e2b.dev")
+E2B_DOMAIN = os.environ.get("E2B_DOMAIN", "ap-guangzhou.tencentags.com")
 
 # Sandbox Configuration
 AGS_TEMPLATE = os.environ.get("AGS_TEMPLATE", "osworld")

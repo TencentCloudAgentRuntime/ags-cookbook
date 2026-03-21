@@ -7,10 +7,13 @@ Agent Sandbox沙箱协作演示
 import os
 import time
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()  # 自动从 .env 文件加载环境变量（不覆盖已有的系统环境变量）
 
 # 设置环境变量（可通过环境变量预先设置，或在此处直接修改）
 if not os.getenv('E2B_DOMAIN'):
-    os.environ['E2B_DOMAIN'] = 'tencentags.com'
+    os.environ['E2B_DOMAIN'] = 'ap-guangzhou.tencentags.com'
 if not os.getenv('E2B_API_KEY'):
     # E2B_API_KEY should be obtained from Tencent Cloud Agent Sandbox product
     os.environ['E2B_API_KEY'] = 'your_api_key'

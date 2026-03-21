@@ -55,7 +55,7 @@ cp .env.example .env
 Edit the `.env` file with your actual values:
 
 ```dotenv
-E2B_DOMAIN=ap-chongqing.tencentags.com
+E2B_DOMAIN=ap-guangzhou.tencentags.com
 E2B_API_KEY=your_api_key_here
 SANDBOX_ID=your_sandbox_id
 ```
@@ -90,7 +90,7 @@ ttyd Web Terminal is ready!
 ============================================================
 
 Access URL:
-https://xxxxx.ap-chongqing.tencentags.com/?access_token=xxxxx
+https://xxxxx.ap-guangzhou.tencentags.com/?access_token=xxxxx
 
 Open the URL above in your browser to access the sandbox terminal.
 ============================================================
@@ -110,7 +110,7 @@ ttyd Web Terminal is ready!
 ============================================================
 
 Access URL:
-https://xxxxx.ap-chongqing.tencentags.com/?access_token=xxxxx
+https://xxxxx.ap-guangzhou.tencentags.com/?access_token=xxxxx
 
 Open the URL above in your browser to access the sandbox terminal.
 ============================================================

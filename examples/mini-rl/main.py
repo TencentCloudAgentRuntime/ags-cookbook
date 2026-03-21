@@ -10,9 +10,12 @@
 """
 
 import os
+from dotenv import load_dotenv
 from e2b_code_interpreter import Sandbox
 import re
 import json
+
+load_dotenv()  # 自动从 .env 文件加载环境变量（不覆盖已有的系统环境变量）
 
 
 # =========================================================

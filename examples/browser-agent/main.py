@@ -2,17 +2,20 @@ import os
 import asyncio
 import json
 import requests
+from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 from e2b import Sandbox
 from typing import List, Dict
+
+load_dotenv()  # 自动从 .env 文件加载环境变量（不覆盖已有的系统环境变量）
 
 # ========== 配置 ==========
 # 可通过环境变量设置，或在此处直接修改
 E2B_DOMAIN = os.getenv("E2B_DOMAIN", "ap-guangzhou.tencentags.com")
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_API_URL = os.getenv("LLM_API_URL", "https://example.com/v1/chat/completions")
-LLM_MODEL = os.getenv("LLM_MODEL", "glm4.7")
+LLM_API_KEY = os.getenv("OPENAI_API_KEY", "")
+LLM_API_URL = os.getenv("OPENAI_BASE_URL", "https://example.com/v1")
+LLM_MODEL = os.getenv("OPENAI_MODEL", "glm-4-flash")
 
 os.environ["E2B_DOMAIN"] = E2B_DOMAIN
 os.environ["E2B_API_KEY"] = E2B_API_KEY
@@ -26,7 +29,8 @@ def call_llm(messages: List[Dict], tools: List[Dict] = None) -> Dict:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
     
-    response = requests.post(LLM_API_URL, headers=headers, json=payload)
+    endpoint = LLM_API_URL.rstrip("/") + "/chat/completions"
+    response = requests.post(endpoint, headers=headers, json=payload)
     response.raise_for_status()
     return response.json()
 

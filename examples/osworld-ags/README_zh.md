@@ -50,7 +50,7 @@ cp .env.example osworld/.env
 
 ```bash
 E2B_API_KEY=your_api_key_here
-E2B_DOMAIN=ap-singapore.tencentags.com
+E2B_DOMAIN=ap-guangzhou.tencentags.com
 AGS_TEMPLATE=your_osworld_template_id
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1

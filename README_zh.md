@@ -100,7 +100,7 @@ ags-cookbook/
 
 ```bash
 export E2B_API_KEY="your-api-key-here"
-export E2B_DOMAIN="tencentags.com"  # 可选，默认使用此域名
+export E2B_DOMAIN=ap-guangzhou.tencentags.com  # 可选，默认使用此域名
 ```
 
 ### 运行示例

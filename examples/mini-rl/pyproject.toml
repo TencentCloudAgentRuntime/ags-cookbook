@@ -4,4 +4,5 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "e2b-code-interpreter>=2.4.1",
+    "python-dotenv>=1.0.0",
 ]

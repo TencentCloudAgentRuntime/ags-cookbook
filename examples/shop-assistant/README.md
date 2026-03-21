@@ -28,7 +28,7 @@ Suitable for automation verification and demonstration in e-commerce scenarios:
 
 ```bash
 # Set environment variables
-export E2B_DOMAIN='tencentags.com'
+export E2B_DOMAIN='ap-guangzhou.tencentags.com'
 export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 
 # Install dependencies

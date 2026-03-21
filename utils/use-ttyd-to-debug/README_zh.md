@@ -55,7 +55,7 @@ cp .env.example .env
 编辑 `.env` 文件，填入实际值：
 
 ```dotenv
-E2B_DOMAIN=ap-chongqing.tencentags.com
+E2B_DOMAIN=ap-guangzhou.tencentags.com
 E2B_API_KEY=your_api_key_here
 SANDBOX_ID=your_sandbox_id
 ```
@@ -90,7 +90,7 @@ ttyd Web 终端已就绪！
 ============================================================
 
 访问链接:
-https://xxxxx.ap-chongqing.tencentags.com/?access_token=xxxxx
+https://xxxxx.ap-guangzhou.tencentags.com/?access_token=xxxxx
 
 在浏览器中打开上述链接即可进入沙箱终端进行调试。
 ============================================================
@@ -110,7 +110,7 @@ ttyd Web 终端已就绪！
 ============================================================
 
 访问链接:
-https://xxxxx.ap-chongqing.tencentags.com/?access_token=xxxxx
+https://xxxxx.ap-guangzhou.tencentags.com/?access_token=xxxxx
 
 在浏览器中打开上述链接即可进入沙箱终端进行调试。
 ============================================================

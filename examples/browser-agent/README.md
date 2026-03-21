@@ -35,9 +35,9 @@ Set environment variables before running:
 
 ```bash
 export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
-export LLM_API_KEY="your_llm_api_key"           # LLM API Key
-export LLM_API_URL="https://your-llm-api/v1/chat/completions"
-export LLM_MODEL="glm4.7"                       # Optional, defaults to glm4.7
+export OPENAI_API_KEY="your_llm_api_key"        # LLM API Key
+export OPENAI_BASE_URL="https://your-llm-api/v1"
+export OPENAI_MODEL="glm-4-flash"               # Optional, defaults to glm-4-flash
 export E2B_DOMAIN="ap-guangzhou.tencentags.com" # Optional
 ```
 

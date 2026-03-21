@@ -56,7 +56,7 @@ Simulates product portfolio optimization for a multinational e-commerce platform
 
 ```bash
 # Set environment variables
-export E2B_DOMAIN='tencentags.com'
+export E2B_DOMAIN='ap-guangzhou.tencentags.com'
 export E2B_API_KEY='your_ags_api_key'  # provided by Tencent Cloud Agent Sandbox product
 
 # Run demo
