@@ -8,7 +8,7 @@ from typing import List, Dict
 
 
 # ========== 配置 ==========
-# 可通过环境变量设置，或在此处直接修改
+# 运行前请通过环境变量设置所需配置
 E2B_DOMAIN = os.getenv("E2B_DOMAIN", "")
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

@@ -102,6 +102,10 @@ class SandboxClient:
         self.e2b_domain = e2b_domain or os.getenv("E2B_DOMAIN", "")
         # E2B_API_KEY is provided by Tencent Cloud Agent Sandbox product
         self.e2b_api_key = e2b_api_key or os.getenv("E2B_API_KEY", "")
+        if not self.e2b_domain:
+            raise RuntimeError('E2B_DOMAIN is required')
+        if not self.e2b_api_key:
+            raise RuntimeError('E2B_API_KEY is required')
         self.sandbox = None
         self.driver = None
         

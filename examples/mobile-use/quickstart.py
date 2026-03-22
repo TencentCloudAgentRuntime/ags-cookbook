@@ -99,6 +99,11 @@ def _load_config() -> Dict[str, Any]:
         'SANDBOX_TIMEOUT': int(os.getenv("SANDBOX_TIMEOUT", "3600")),  # 1 hour default
     }
 
+    if not config['E2B_DOMAIN']:
+        raise RuntimeError('E2B_DOMAIN is required')
+    if not config['E2B_API_KEY']:
+        raise RuntimeError('E2B_API_KEY is required')
+
     return config
 
 

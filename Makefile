@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-EXAMPLES := $(shell find examples -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+EXAMPLES := $(shell find examples -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
 EXAMPLE ?=
 
 .PHONY: help examples-list example-setup example-run
