@@ -136,7 +136,10 @@ def inspect_source_image(engine: str, source_image: str) -> dict:
     config_raw = result.stdout.strip()
     config = json.loads(config_raw) if config_raw and config_raw != "null" else {}
     if not config:
-        print("  Warning: could not read image config, proceeding with defaults")
+        die(
+            f"Could not read image config for '{source_image}'.\n"
+            f"       Ensure the image exists and was pulled successfully."
+        )
 
     entrypoint = config.get("Entrypoint") or []
     cmd = config.get("Cmd") or []
@@ -181,6 +184,8 @@ def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, m
     cmd = image_info["cmd"]
     original_parts = entrypoint + cmd
     if original_parts:
+        # shlex.quote handles each arg; AGS passes Args as-is without re-interpolation.
+        # The user trusts the source image they chose to deploy.
         original_cmd = " ".join(shlex.quote(p) for p in original_parts)
         cc.Command = ["/bin/sh"]
         cc.Args = ["-c", f"/usr/bin/envd & exec {original_cmd}"]
