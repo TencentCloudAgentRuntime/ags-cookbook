@@ -62,6 +62,8 @@ A successful run should:
 2. Create (or update) an AGS sandbox tool pointing to the pushed image
 3. Print the tool name and SDK usage examples for creating sandbox instances
 
+The printed usage example requires the [e2b AGS SDK](https://pypi.org/project/e2b-code-interpreter/) — install it separately via `pip install e2b-code-interpreter` if needed.
+
 ## Common failure hints
 
 - If `podman push` fails with auth errors, re-run `podman login ccr.ccs.tencentyun.com`

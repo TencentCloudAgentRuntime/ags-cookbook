@@ -41,3 +41,5 @@ make run
 1. 构建薄包装镜像（源镜像 + envd）并推送到 CCR（`:latest` 和 `:<hash>` 两个标签）
 2. 创建（或更新）指向该镜像的 AGS 沙箱工具
 3. 输出工具名称和创建沙箱实例的 SDK 使用示例
+
+输出的使用示例需要 [e2b AGS SDK](https://pypi.org/project/e2b-code-interpreter/)，按需安装：`pip install e2b-code-interpreter`。

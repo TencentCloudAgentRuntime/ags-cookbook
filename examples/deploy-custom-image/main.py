@@ -86,6 +86,7 @@ def build_and_push(cfg: dict[str, str], engine: str) -> tuple[str, dict]:
     target = cfg["TENCENTCLOUD_REGISTRY"].rstrip("/")
     image_latest = f"{target}:latest"
 
+    # AGS runs linux/amd64 only; source image must provide an amd64 manifest
     run([engine, "pull", "--platform", "linux/amd64", source_image])
 
     print(f"\n  Inspecting source image: {source_image}")
@@ -130,7 +131,10 @@ def inspect_source_image(engine: str, source_image: str) -> dict:
         [engine, "inspect", "--format={{json .Config}}", source_image],
         check=True, capture_output=True, text=True,
     )
-    config = json.loads(result.stdout.strip())
+    config_raw = result.stdout.strip()
+    config = json.loads(config_raw) if config_raw and config_raw != "null" else {}
+    if not config:
+        print("  Warning: could not read image config, proceeding with defaults")
 
     entrypoint = config.get("Entrypoint") or []
     cmd = config.get("Cmd") or []
@@ -217,6 +221,9 @@ def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, m
             probe_port = int(m.group(1))
             probe_path = m.group(2) or "/"
             print(f"  Using image healthcheck: port={probe_port}, path={probe_path}")
+        else:
+            print(f"  Warning: cannot parse healthcheck command: {test_str!r}")
+            print(f"  Falling back to envd probe (port {ENVD_PORT}, path /health)")
 
     http_get = models.HttpGetAction()
     http_get.Scheme = "HTTP"
@@ -305,8 +312,9 @@ def print_summary(cfg: dict[str, str], image_ref: str, image_info: dict) -> None
     tool_name = cfg["TOOL_NAME"]
     domain = cfg["AGS_DOMAIN"]
 
-    image_ports = image_info["ports"]
-    port_list = ", ".join(str(p) for p, _ in sorted(image_ports))
+    # Only show application ports; ENVD_PORT (49983) is internal and not printed
+    app_ports = [(p, t) for p, t in image_info["ports"] if p != ENVD_PORT]
+    port_list = ", ".join(str(p) for p, _ in sorted(app_ports)) or "(none)"
 
     print(f"\n  Tool Name : {tool_name}")
     print(f"  Image     : {image_ref}")
@@ -314,13 +322,17 @@ def print_summary(cfg: dict[str, str], image_ref: str, image_info: dict) -> None
     print(f"  Region    : {cfg['TENCENTCLOUD_REGION']}")
     print(f"  Ports     : {port_list}")
     print()
+    # e2b_code_interpreter is the AGS-compatible Python SDK for creating sandbox instances.
+    # Install separately: pip install e2b-code-interpreter
     print("  \033[1;33mTo create a sandbox instance (Python):\033[0m")
     print()
-    print('  \033[90mfrom e2b_code_interpreter import Sandbox')
+    print('  \033[90mfrom e2b_code_interpreter import Sandbox  # pip install e2b-code-interpreter')
     print()
     print(f'  sandbox = Sandbox.create(template="{tool_name}", api_key="<YOUR_AGS_API_KEY>", domain="{domain}")')
+    # _envd_access_token is the only way to obtain the gateway access token;
+    # no public API is available in the current SDK version.
     print('  token = sandbox._envd_access_token')
-    for port_num, _ in sorted(image_ports):
+    for port_num, _ in sorted(app_ports):
         print(f'  print(f"port {port_num}: https://{{sandbox.get_host({port_num})}}/?" + f"access_token={{token}}")')
     print('\033[0m')
 
