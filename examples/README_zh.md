@@ -17,6 +17,7 @@
 - `mobile-use` —— 在 AGS 中运行 Android / Appium 自动化
 - `shop-assistant` —— 浏览器购物流程自动化，支持无 Cookie 的 guest 模式
 - `custom-image-go-sdk` —— Go 中的自定义镜像启动与数据面执行
+- `deploy-custom-image` —— 一键将任意 Docker 镜像部署为 AGS 自定义沙箱工具
 
 ### 重型 / 外部依赖
 
@@ -38,6 +39,7 @@
 |---|---|---|---|---|
 | `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
+| `deploy-custom-image` | 进阶 | Python + Dockerfile + CCR | `make run` | 需要 CCR 登录和有拉取权限的 CAM 角色 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
 | `html-processing` | 入门 | Python + 浏览器/代码双沙箱 | `make run` | 适合作为双沙箱协作的直观起点 |
 | `hybrid-cookbook` | 入门 | Go | `make run` | 最小 Go 集成路径 |

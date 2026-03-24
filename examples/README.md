@@ -17,6 +17,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `mobile-use` — Android / Appium automation in AGS
 - `shop-assistant` — browser shopping-flow automation with optional cookies
 - `custom-image-go-sdk` — custom-image startup and data-plane execution in Go
+- `deploy-custom-image` — one-click deploy any Docker image as a custom AGS sandbox tool
 
 ### Heavy / external-dependent
 
@@ -38,6 +39,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 |---|---|---|---|---|
 | `browser-agent` | advanced | Python + browser sandbox + LLM | `make run` | Requires OpenAI-compatible LLM backend env vars |
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
+| `deploy-custom-image` | advanced | Python + Dockerfile + CCR | `make run` | Requires CCR login and CAM role with pull permission |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | `html-processing` | starter | Python + browser/code sandboxes | `make run` | Good visual intro to dual-sandbox flow |
 | `hybrid-cookbook` | starter | Go | `make run` | Minimal Go integration path |
