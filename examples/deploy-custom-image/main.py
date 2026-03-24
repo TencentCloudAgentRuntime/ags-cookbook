@@ -14,6 +14,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
+ENVD_PORT = 49983
+MAX_LIST_PAGES = 50
 
 REQUIRED_VARS = [
     "SOURCE_IMAGE",
@@ -56,9 +58,9 @@ def load_config() -> dict[str, str]:
     env_file = SCRIPT_DIR / ".env"
     if not env_file.exists():
         die(
-            f"No .env found. Create one first:\n"
-            f"       cp .env.example .env\n"
-            f"       # then edit with your values"
+            "No .env found. Create one first:\n"
+            "       cp .env.example .env\n"
+            "       # then edit with your values"
         )
 
     load_dotenv(env_file)
@@ -68,7 +70,7 @@ def load_config() -> dict[str, str]:
         print("\033[1;31mMissing required environment variables:\033[0m")
         for var in missing:
             print(f"  - {var}")
-        die(f"Edit .env to fill in the missing values.")
+        die("Edit .env to fill in the missing values.")
 
     return {v: os.environ[v] for v in REQUIRED_VARS}
 
@@ -120,8 +122,6 @@ def build_and_push(cfg: dict[str, str], engine: str) -> tuple[str, dict]:
 # Image inspection
 # ---------------------------------------------------------------------------
 
-ENVD_PORT = 49983
-
 def inspect_source_image(engine: str, source_image: str) -> dict:
     """Extract CMD, ENTRYPOINT, ExposedPorts, and Healthcheck from the source image."""
     result = subprocess.run(
@@ -137,8 +137,14 @@ def inspect_source_image(engine: str, source_image: str) -> dict:
 
     ports: list[tuple[int, str]] = []
     for port_spec in exposed_ports:
-        num_str, proto = port_spec.split("/")
-        ports.append((int(num_str), proto.upper()))
+        parts = port_spec.split("/")
+        if len(parts) != 2:
+            print(f"  Warning: skipping unexpected port spec: {port_spec!r}")
+            continue
+        try:
+            ports.append((int(parts[0]), parts[1].upper()))
+        except ValueError:
+            print(f"  Warning: skipping invalid port number: {parts[0]!r}")
 
     print(f"  Entrypoint : {entrypoint or '(none)'}")
     print(f"  Cmd        : {cmd or '(none)'}")
@@ -159,9 +165,11 @@ def inspect_source_image(engine: str, source_image: str) -> dict:
 
 def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, models):
     """Build the CustomConfiguration from image inspection results."""
+    registry_type = os.environ.get("REGISTRY_TYPE", "personal")
+
     cc = models.CustomConfiguration()
     cc.Image = image_ref
-    cc.ImageRegistryType = "personal"
+    cc.ImageRegistryType = registry_type
 
     entrypoint = image_info["entrypoint"]
     cmd = image_info["cmd"]
@@ -178,7 +186,6 @@ def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, m
     res.Memory = cfg["TOOL_MEMORY"]
     cc.Resources = res
 
-    # Ports: source image exposed ports + envd port
     image_ports = list(image_info["ports"])
     port_nums = {p for p, _ in image_ports}
     if ENVD_PORT not in port_nums:
@@ -193,18 +200,17 @@ def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, m
         port_configs.append(pc)
     cc.Ports = port_configs
 
-    # Probe: use image HEALTHCHECK if it defines an HTTP-style check,
-    # otherwise fall back to envd /health on port 49983
     healthcheck = image_info["healthcheck"]
     probe_port = ENVD_PORT
     probe_path = "/health"
 
     if healthcheck and healthcheck.get("Test"):
         test_cmd = healthcheck["Test"]
-        # Docker HEALTHCHECK format: ["CMD-SHELL", "curl ..."] or ["CMD", "curl", ...]
         test_str = test_cmd[-1] if test_cmd else ""
-        # Try to extract port from curl/wget commands like "curl http://localhost:8080/health"
-        m = re.search(r"https?://(?:localhost|127\.0\.0\.1):(\d+)(/\S*)?", test_str)
+        m = re.search(
+            r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d+)(/\S*)?",
+            test_str,
+        )
         if m:
             probe_port = int(m.group(1))
             probe_path = m.group(2) or "/"
@@ -230,7 +236,7 @@ def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, m
 def find_tool_by_name(client, models, tool_name: str):
     """Paginate through all tools and find by exact ToolName match."""
     offset = 0
-    while True:
+    for _ in range(MAX_LIST_PAGES):
         req = models.DescribeSandboxToolListRequest()
         req.Limit = 100
         req.Offset = offset
@@ -242,6 +248,7 @@ def find_tool_by_name(client, models, tool_name: str):
         offset += len(tools)
         if not tools or offset >= resp.TotalCount:
             return None
+    return None
 
 
 def ags_create_or_update(cfg: dict[str, str], image_ref: str, image_info: dict) -> None:
@@ -295,7 +302,6 @@ def print_summary(cfg: dict[str, str], image_ref: str, image_info: dict) -> None
 
     tool_name = cfg["TOOL_NAME"]
     domain = cfg["AGS_DOMAIN"]
-    api_key = cfg["AGS_API_KEY"]
 
     image_ports = image_info["ports"]
     port_list = ", ".join(str(p) for p, _ in sorted(image_ports))
@@ -308,13 +314,13 @@ def print_summary(cfg: dict[str, str], image_ref: str, image_info: dict) -> None
     print()
     print("  \033[1;33mTo create a sandbox instance (Python):\033[0m")
     print()
-    print(f'  \033[90mfrom e2b_code_interpreter import Sandbox')
+    print('  \033[90mfrom e2b_code_interpreter import Sandbox')
     print()
-    print(f'  sandbox = Sandbox.create(template="{tool_name}", api_key="{api_key}", domain="{domain}")')
-    print(f'  token = sandbox._envd_access_token')
+    print(f'  sandbox = Sandbox.create(template="{tool_name}", api_key="<YOUR_AGS_API_KEY>", domain="{domain}")')
+    print('  token = sandbox._envd_access_token')
     for port_num, _ in sorted(image_ports):
         print(f'  print(f"port {port_num}: https://{{sandbox.get_host({port_num})}}/?" + f"access_token={{token}}")')
-    print(f'\033[0m')
+    print('\033[0m')
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +347,10 @@ def main() -> None:
         print_summary(cfg, image_ref, image_info)
     except subprocess.CalledProcessError as exc:
         die(f"Command failed: {exc.cmd}\n       Return code: {exc.returncode}")
+    except Exception as exc:  # noqa: BLE001
+        code = getattr(exc, "code", None) or type(exc).__name__
+        message = getattr(exc, "message", None) or str(exc)
+        die(f"API error [{code}]: {message}")
 
     print("\033[1;32m✅  All done!\033[0m")
 
