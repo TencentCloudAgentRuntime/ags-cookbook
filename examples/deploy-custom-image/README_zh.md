@@ -5,7 +5,7 @@
 ## 前置条件
 
 - Python >= 3.11
-- `podman` 或 `docker` CLI，已登录目标 CCR 仓库
+- `podman` 或 `docker` CLI，已登录目标镜像仓库 — 参考 [CCR 个人版快速入门](https://cloud.tencent.com/document/product/1141/63910) 或 [TCR 企业版快速入门](https://cloud.tencent.com/document/product/1141/39287)
 - 一个允许 AGS 从目标仓库拉取镜像的 CAM 角色
 - `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`
 

@@ -5,7 +5,7 @@ One-click workflow to deploy any existing Docker image as a custom AGS sandbox t
 ## Prerequisites
 
 - Python >= 3.11
-- `podman` or `docker` CLI, logged in to the target CCR registry
+- `podman` or `docker` CLI, logged in to the target registry — see [CCR Quick Start](https://cloud.tencent.com/document/product/1141/63910) or [TCR Quick Start](https://cloud.tencent.com/document/product/1141/39287)
 - A Tencent Cloud CAM role that allows AGS to pull from the target registry
 - `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`
 
