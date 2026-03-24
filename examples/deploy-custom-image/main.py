@@ -190,6 +190,8 @@ def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, m
         cc.Command = ["/bin/sh"]
         cc.Args = ["-c", f"/usr/bin/envd & exec {original_cmd}"]
     else:
+        print("  \033[33mWarning: source image has no ENTRYPOINT or CMD.\033[0m")
+        print("  \033[33m  The sandbox will only run envd — no application process.\033[0m")
         cc.Command = ["/usr/bin/envd"]
 
     res = models.ResourceConfiguration()
