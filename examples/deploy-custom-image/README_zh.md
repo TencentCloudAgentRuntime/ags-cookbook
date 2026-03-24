@@ -34,7 +34,7 @@ make run
 
 ## 工作原理
 
-`Dockerfile` 通过多阶段构建，从官方 `ccr.ccs.tencentyun.com/ags-image/envd:latest` 镜像中提取 `envd` 二进制并注入到源镜像中，不做任何其他修改。
+`Dockerfile` 通过 `COPY --from` 从固定 digest 的 `ccr.ccs.tencentyun.com/ags-image/envd` 镜像中提取 `envd` 二进制并注入到源镜像中（具体 digest 见 `Dockerfile`），不做任何其他修改。
 
 ## 预期结果
 
@@ -43,3 +43,9 @@ make run
 3. 输出工具名称和创建沙箱实例的 SDK 使用示例
 
 输出的使用示例需要 [e2b AGS SDK](https://pypi.org/project/e2b-code-interpreter/)，按需安装：`pip install e2b-code-interpreter`。
+
+## 常见失败排查
+
+- 如果 `podman push` 报认证错误，重新执行 `podman login ccr.ccs.tencentyun.com`
+- 如果控制面拒绝角色 ARN，检查 CAM 角色是否信任 AGS 服务并具有 TCR/CCR 拉取权限
+- 如果 `UpdateSandboxTool` 失败，确认工具最初是否由同一账号创建

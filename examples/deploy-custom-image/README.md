@@ -52,7 +52,7 @@ SOURCE_IMAGE (any registry)
                                               └─────────────────────┘
 ```
 
-The `Dockerfile` uses a multi-stage `COPY --from` to inject the `envd` binary from the official `ccr.ccs.tencentyun.com/ags-image/envd:latest` image into the source image. No other modifications are made to the original image.
+The `Dockerfile` uses `COPY --from` to inject the `envd` binary from a pinned digest of `ccr.ccs.tencentyun.com/ags-image/envd` (see `Dockerfile` for the exact digest). No other modifications are made to the original image.
 
 ## Expected result
 

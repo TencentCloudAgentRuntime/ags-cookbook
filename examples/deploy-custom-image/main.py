@@ -255,7 +255,7 @@ def find_tool_by_name(client, models, tool_name: str):
             if t.ToolName == tool_name:
                 return t
         offset += len(tools)
-        if not tools or offset >= resp.TotalCount:
+        if not tools or offset >= (resp.TotalCount or 0):
             return None
     return None
 
