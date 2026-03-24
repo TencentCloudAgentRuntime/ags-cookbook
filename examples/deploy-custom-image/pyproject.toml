@@ -3,6 +3,6 @@ name = "deploy-custom-image"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "tencentcloud-sdk-python-ags",
-    "python-dotenv",
+    "tencentcloud-sdk-python-ags>=3.1.59",
+    "python-dotenv>=1.0.0",
 ]

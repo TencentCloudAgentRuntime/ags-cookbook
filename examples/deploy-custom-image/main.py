@@ -329,9 +329,7 @@ def print_summary(cfg: dict[str, str], image_ref: str, image_info: dict) -> None
     print('  \033[90mfrom e2b_code_interpreter import Sandbox  # pip install e2b-code-interpreter')
     print()
     print(f'  sandbox = Sandbox.create(template="{tool_name}", api_key="<YOUR_AGS_API_KEY>", domain="{domain}")')
-    # _envd_access_token is the only way to obtain the gateway access token;
-    # no public API is available in the current SDK version.
-    print('  token = sandbox._envd_access_token')
+    print('  token = sandbox._envd_access_token  # NOTE: private API, no public alternative yet')
     for port_num, _ in sorted(app_ports):
         print(f'  print(f"port {port_num}: https://{{sandbox.get_host({port_num})}}/?" + f"access_token={{token}}")')
     print('\033[0m')
