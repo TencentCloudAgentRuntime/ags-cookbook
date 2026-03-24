@@ -72,7 +72,9 @@ def load_config() -> dict[str, str]:
             print(f"  - {var}")
         die("Edit .env to fill in the missing values.")
 
-    return {v: os.environ[v] for v in REQUIRED_VARS}
+    cfg = {v: os.environ[v] for v in REQUIRED_VARS}
+    cfg["REGISTRY_TYPE"] = os.environ.get("REGISTRY_TYPE", "personal")
+    return cfg
 
 
 # ---------------------------------------------------------------------------
@@ -171,11 +173,9 @@ def inspect_source_image(engine: str, source_image: str) -> dict:
 
 def build_custom_config(cfg: dict[str, str], image_ref: str, image_info: dict, models):
     """Build the CustomConfiguration from image inspection results."""
-    registry_type = os.environ.get("REGISTRY_TYPE", "personal")
-
     cc = models.CustomConfiguration()
     cc.Image = image_ref
-    cc.ImageRegistryType = registry_type
+    cc.ImageRegistryType = cfg["REGISTRY_TYPE"]
 
     entrypoint = image_info["entrypoint"]
     cmd = image_info["cmd"]
@@ -359,7 +359,7 @@ def main() -> None:
         print_summary(cfg, image_ref, image_info)
     except subprocess.CalledProcessError as exc:
         die(f"Command failed: {exc.cmd}\n       Return code: {exc.returncode}")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — surface SDK errors uniformly
         code = getattr(exc, "code", None) or type(exc).__name__
         message = getattr(exc, "message", None) or str(exc)
         die(f"API error [{code}]: {message}")
