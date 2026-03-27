@@ -44,7 +44,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `hybrid-cookbook` | starter | Go | `make run` | Minimal Go integration path |
 | `mini-rl` | starter | Python + code sandbox | `make run` | Smallest Python example |
 | `mobile-use` | advanced | Python + mobile sandbox + Appium | `make run` | Heavy runtime dependencies and long-running device flow |
-| `openclaw-cookbook` | advanced | Node.js + custom image + COS | `pnpm start` | Run OpenClaw in AGS with official image; includes local management UI |
+| `openclaw-cookbook` | advanced | Node.js + custom image + COS | `make run` | Run OpenClaw in AGS with official image; includes local management UI |
 | `osworld-ags` | heavy | Python 3.10 + OSWorld overlay | `make setup` then `make run` | External checkout and template/tool requirements |
 | `shop-assistant` | advanced | Python + browser sandbox | `make run` | Cookie-free guest mode now supported |
 

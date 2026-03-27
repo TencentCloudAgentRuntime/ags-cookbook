@@ -8,6 +8,7 @@ CONTAINER_ENGINE := podman
 .PHONY: setup build push run run-local stop
 
 setup:
+	@test -f localproxy/.env || (cp .env.example localproxy/.env && echo "📝 Created localproxy/.env from .env.example — please edit it with your credentials")
 	cd localproxy && pnpm install
 
 build:

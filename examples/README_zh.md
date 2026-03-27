@@ -44,7 +44,7 @@
 | `hybrid-cookbook` | 入门 | Go | `make run` | 最小 Go 集成路径 |
 | `mini-rl` | 入门 | Python + 代码沙箱 | `make run` | 最小 Python 示例 |
 | `mobile-use` | 进阶 | Python + 移动端沙箱 + Appium | `make run` | 运行时依赖较重，且流程较长 |
-| `openclaw-cookbook` | 进阶 | Node.js + 自定义镜像 + COS | `pnpm start` | 基于官方镜像在 AGS 中运行 OpenClaw；含本地管理界面 |
+| `openclaw-cookbook` | 进阶 | Node.js + 自定义镜像 + COS | `make run` | 基于官方镜像在 AGS 中运行 OpenClaw；含本地管理界面 |
 | `osworld-ags` | 重型 | Python 3.10 + OSWorld overlay | `make setup` 后 `make run` | 需要外部 checkout 与模板 / 工具准备 |
 | `shop-assistant` | 进阶 | Python + 浏览器沙箱 | `make run` | 已支持无 Cookie 的 guest 模式 |
 

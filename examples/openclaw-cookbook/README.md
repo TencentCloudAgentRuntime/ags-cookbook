@@ -1,68 +1,68 @@
-# OpenClaw 沙箱使用指南（官方镜像方案）
+# OpenClaw Sandbox Guide (Official Image)
 
-基于官方 `ghcr.io/openclaw/openclaw:latest` 镜像，在腾讯云 AGS 中运行 OpenClaw。无需维护 nginx 和启动脚本，OpenClaw 始终跟随官方最新版本。
-
----
-
-## 目录
-
-1. [架构概述](#架构概述)
-2. [前置准备](#前置准备)
-3. [准备 openclaw.json](#准备-openclawjson)
-4. [构建并推送镜像](#构建并推送镜像)
-5. [创建沙箱工具](#创建沙箱工具)
-6. [启动沙箱并访问 Dashboard](#启动沙箱并访问-dashboard)
-7. [持久化存储](#持久化存储)
-8. [日志与调试](#日志与调试)
-9. [常见问题](#常见问题)
+Run OpenClaw on Tencent Cloud AGS using the official `ghcr.io/openclaw/openclaw:latest` image. No need to maintain nginx or startup scripts — OpenClaw always tracks the latest official release.
 
 ---
 
-## 架构概述
+## Table of Contents
+
+1. [Architecture](#architecture)
+2. [Prerequisites](#prerequisites)
+3. [Prepare openclaw.json](#prepare-openclawjson)
+4. [Build and Push Image](#build-and-push-image)
+5. [Create Sandbox Tool](#create-sandbox-tool)
+6. [Launch Sandbox and Access Dashboard](#launch-sandbox-and-access-dashboard)
+7. [Persistent Storage](#persistent-storage)
+8. [Logs and Debugging](#logs-and-debugging)
+9. [FAQ](#faq)
+
+---
+
+## Architecture
 
 ```
-浏览器
+Browser
   │
-  ├─ http://localhost:3001           ←── localproxy 管理界面（创建/连接/停止沙箱）
+  ├─ http://localhost:3001           ←── localproxy management UI (create/connect/stop sandbox)
   │
-  └─ http://localhost:3001/sandbox/  ←── localproxy 反向代理（仅沙箱 running 时可用）
-       │  自动注入 X-Access-Token Header
+  └─ http://localhost:3001/sandbox/  ←── localproxy reverse proxy (available only when sandbox is running)
+       │  Automatically injects X-Access-Token header
        ▼
-  AGS 鉴权网关（<region>.tencentags.com）
-       │  验证 X-Access-Token
+  AGS Auth Gateway (<region>.tencentags.com)
+       │  Validates X-Access-Token
        ▼
-  OpenClaw Gateway:8080（直接对外，无 nginx 层）
+  OpenClaw Gateway:8080 (directly exposed, no nginx layer)
 ```
 
-**容器内部结构：**
+**Container processes:**
 
-| 进程 | 端口 | 作用 |
-|------|------|------|
-| `envd` | 49983 | AGS 沙箱管理守护进程（健康探针、命令执行） |
-| `node openclaw.mjs gateway` | 8080 | OpenClaw Gateway，`--bind lan` 直接监听所有网络接口 |
+| Process | Port | Purpose |
+|---------|------|---------|
+| `envd` | 49983 | AGS sandbox management daemon (health probe, command execution) |
+| `node openclaw.mjs gateway` | 8080 | OpenClaw Gateway, `--bind lan` listens on all network interfaces |
 
 ---
 
-## 前置准备
+## Prerequisites
 
-### 工具依赖
+### Tool Dependencies
 
-| 工具 | 用途 | 安装方式 |
-|------|------|----------|
-| `podman` 或 `docker` | 构建/推送镜像 | [podman.io](https://podman.io) / [docker.com](https://docker.com) |
-| `Node.js >= 20` | 运行本地代理 | [nodejs.org](https://nodejs.org) |
-| `pnpm` | 包管理器 | `npm install -g pnpm` |
+| Tool | Purpose | Installation |
+|------|---------|-------------|
+| `podman` or `docker` | Build/push images | [podman.io](https://podman.io) / [docker.com](https://docker.com) |
+| `Node.js >= 20` | Run local proxy | [nodejs.org](https://nodejs.org) |
+| `pnpm` | Package manager | `npm install -g pnpm` |
 
-### 凭据准备
+### Credentials
 
-localproxy 使用腾讯云 AGS SDK 管理沙箱，需要以下凭据：
+localproxy uses the Tencent Cloud AGS SDK to manage sandboxes. The following credentials are required:
 
-| 凭据 | 说明 | 获取方式 |
-|------|------|----------|
-| `TENCENTCLOUD_SECRET_ID` | 腾讯云 API 密钥 ID | [API 密钥管理](https://console.cloud.tencent.com/cam/capi) |
-| `TENCENTCLOUD_SECRET_KEY` | 腾讯云 API 密钥 Key | 同上 |
+| Credential | Description | How to Obtain |
+|------------|-------------|---------------|
+| `TENCENTCLOUD_SECRET_ID` | Tencent Cloud API Key ID | [API Key Management](https://console.cloud.tencent.com/cam/capi) |
+| `TENCENTCLOUD_SECRET_KEY` | Tencent Cloud API Key Secret | Same as above |
 
-登录镜像仓库：
+Log in to the image registry:
 
 ```bash
 podman login ccr.ccs.tencentyun.com
@@ -70,45 +70,45 @@ podman login ccr.ccs.tencentyun.com
 
 ---
 
-## 准备 openclaw.json
+## Prepare openclaw.json
 
-`openclaw.json` 是 OpenClaw 的配置文件，**不打包进镜像**，通过 COS 持久化存储。
+`openclaw.json` is the OpenClaw configuration file. It is **not baked into the image** but persisted via COS.
 
-### 存储路径关系
+### Storage Path Mapping
 
-启动参数中设置了 `OPENCLAW_HOME=/openclaw`，OpenClaw 会在启动时读取：
+The startup parameters set `OPENCLAW_HOME=/openclaw`. OpenClaw reads the config at startup:
 
 ```
 $OPENCLAW_HOME/.openclaw/openclaw.json
 = /openclaw/.openclaw/openclaw.json
 ```
 
-COS 挂载配置（在 AGS 控制台或 setup.py 中填写）：
+COS mount configuration (set in AGS console or setup.py):
 
-| 字段 | 示例值 | 说明 |
-|------|--------|------|
-| COS 桶 | `your-bucket` | 存储桶名称 |
-| COS 子路径 | `openclaw-user1` | 桶内的目录前缀 |
-| 容器挂载路径 | `/openclaw` | 即 `OPENCLAW_HOME`，固定值 |
+| Field | Example Value | Description |
+|-------|---------------|-------------|
+| COS Bucket | `your-bucket` | Bucket name |
+| COS Sub-path | `openclaw-user1` | Directory prefix inside the bucket |
+| Container Mount Path | `/openclaw` | i.e. `OPENCLAW_HOME`, fixed value |
 
-挂载后，容器内的路径映射为：
+After mounting, the path mapping inside the container:
 
 ```
-/openclaw/                    ← OPENCLAW_HOME，COS 桶根（子路径）挂载点
+/openclaw/                    ← OPENCLAW_HOME, COS bucket root (sub-path) mount point
 └── .openclaw/
-    ├── openclaw.json         ← 配置文件（需预先上传）
-    ├── canvas/               ← Agent Canvas 数据（运行时自动创建）
-    └── cron/                 ← Cron 任务数据（运行时自动创建）
+    ├── openclaw.json         ← Config file (must be uploaded in advance)
+    ├── canvas/               ← Agent Canvas data (auto-created at runtime)
+    └── cron/                 ← Cron task data (auto-created at runtime)
 ```
 
-### 上传配置文件到 COS
+### Upload Config to COS
 
-在使用前，需将 `openclaw.json` 上传到 COS 对应位置：
+Before use, upload `openclaw.json` to the corresponding COS path:
 
 ```
 cos://your-bucket/openclaw-user1/.openclaw/openclaw.json
                   ^^^^^^^^^^^^^^ ^^^^^^^^^^
-                  COS 子路径      固定为 .openclaw/
+                  COS sub-path    fixed as .openclaw/
 ```
 
 ```json
@@ -140,231 +140,230 @@ cos://your-bucket/openclaw-user1/.openclaw/openclaw.json
 }
 ```
 
-### 关键配置项
+### Key Configuration Items
 
-| 配置路径 | 值 | 说明 |
-|----------|-----|------|
-| `gateway.bind` | `"lan"` | **必须**。让 OpenClaw 监听 `0.0.0.0` 而非 loopback，容器外部才能访问 |
-| `gateway.auth.token` | `"openclaw-sandbox-token"` | OpenClaw 自身的 Bearer Token |
-| `gateway.controlUi.dangerouslyDisableDeviceAuth` | `true` | **必须**。禁用设备配对检查 |
-| `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` | `true` | **必须**。适配 AGS 域名访问方式 |
+| Config Path | Value | Description |
+|-------------|-------|-------------|
+| `gateway.bind` | `"lan"` | **Required**. Makes OpenClaw listen on `0.0.0.0` instead of loopback, so it's accessible from outside the container |
+| `gateway.auth.token` | `"openclaw-sandbox-token"` | OpenClaw's own Bearer Token |
+| `gateway.controlUi.dangerouslyDisableDeviceAuth` | `true` | **Required**. Disables device pairing check |
+| `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` | `true` | **Required**. Adapts to AGS domain access |
 
 ---
 
-## 构建并推送镜像
+## Build and Push Image
 
-### 目录结构
+### Directory Structure
 
 ```
 openclaw-cookbook/
-├── Dockerfile          # FROM 官方镜像，COPY --from AGS envd 镜像
+├── Dockerfile          # FROM official image, COPY --from AGS envd image
 ├── Makefile
 ├── .gitignore
-├── openclaw.json       # 上传到 COS 的配置文件模板
-└── localproxy/         # 本地管理工具（创建/连接/停止沙箱 + 反向代理）
-    ├── server.ts       # 主服务：Express + 状态机 + SSE + 内嵌 Web UI
-    ├── index.ts        # 旧版 CLI 纯代理脚本（已弃用）
+├── openclaw.json       # Config file template to upload to COS
+└── localproxy/         # Local management tool (create/connect/stop sandbox + reverse proxy)
+    ├── server.ts       # Main service: Express + state machine + SSE + embedded Web UI
     ├── package.json
-    ├── .env.example    # 环境变量模板
-    └── .env            # 本地配置（不提交 Git）
+    ├── .env.example    # Environment variable template
+    └── .env            # Local config (not committed to Git)
 ```
 
-### 构建与推送
+### Build and Push
 
-> ⚠️ **重要**：AGS 运行环境为 `linux/amd64`，必须构建 amd64 镜像。Makefile 已默认指定 `--platform linux/amd64`，在 Apple Silicon Mac 上构建时会自动交叉编译。
+> ⚠️ **Important**: The AGS runtime is `linux/amd64`. You must build an amd64 image. The Makefile defaults to `--platform linux/amd64`, which cross-compiles automatically on Apple Silicon Macs.
 
 ```bash
 cd openclaw-cookbook
 
-# 修改 Makefile 中的 DOCKER_REGISTRY
+# Edit DOCKER_REGISTRY in Makefile
 # DOCKER_REGISTRY ?= ccr.ccs.tencentyun.com/your-namespace
 
-# 构建并推送（同时推送 latest 和 hash 两个 tag）
+# Build and push (pushes both latest and hash tags)
 make push
-# 输出示例：
+# Example output:
 # Pushed: ccr.ccs.tencentyun.com/your-namespace/sandbox-openclaw:latest
 # Pushed: ccr.ccs.tencentyun.com/your-namespace/sandbox-openclaw:73f17f45ddf3
 ```
 
 ---
 
-## 创建沙箱工具
+## Create Sandbox Tool
 
-在 [AGS 控制台](https://console.cloud.tencent.com/ags) 创建沙箱工具时，填写以下配置：
+When creating a sandbox tool in the [AGS Console](https://console.cloud.tencent.com/ags), fill in the following:
 
-### 基本配置
+### Basic Configuration
 
-> ⚠️ **重要**：AGS 运行沙箱时会忽略镜像内的 `CMD`/`ENTRYPOINT`，必须在控制台手动填写启动命令和启动参数。
+> ⚠️ **Important**: AGS ignores `CMD`/`ENTRYPOINT` in the image when running sandboxes. You must manually set the startup command and parameters in the console.
 
-| 字段 | 值 |
-|------|----|
-| 工具名称 | `my-openclaw-official` |
-| 工具类型 | 自定义镜像 |
-| 镜像地址 | `ccr.ccs.tencentyun.com/your-namespace/sandbox-openclaw:<hash>` |
-| 镜像仓库类型 | 个人版 |
-| 启动命令 | `/bin/bash` |
-| 启动参数 | `-l` `-c` `/usr/bin/envd > /tmp/envd.log 2>&1 & while true; do su -s /bin/bash node -c 'OPENCLAW_HOME=/openclaw node /app/openclaw.mjs gateway --port 8080 --bind lan --allow-unconfigured'; echo '[restart] openclaw exited ($?), restarting in 1s...'; sleep 1; done` |
-| CPU | 4 核 |
-| 内存 | 8 GiB |
-| 探针路径 | `/health` |
-| 探针端口 | `49983` |
-| 就绪超时 | `30000` ms |
-| 探针周期 | `3000` ms |
-| 失败阈值 | `100` |
-| 网络策略 | 公网 |
+| Field | Value |
+|-------|-------|
+| Tool Name | `my-openclaw-official` |
+| Tool Type | Custom Image |
+| Image Address | `ccr.ccs.tencentyun.com/your-namespace/sandbox-openclaw:<hash>` |
+| Image Registry Type | Personal |
+| Startup Command | `/bin/bash` |
+| Startup Parameters | `-l` `-c` `/usr/bin/envd > /tmp/envd.log 2>&1 & while true; do su -s /bin/bash node -c 'OPENCLAW_HOME=/openclaw node /app/openclaw.mjs gateway --port 8080 --bind lan --allow-unconfigured'; echo '[restart] openclaw exited ($?), restarting in 1s...'; sleep 1; done` |
+| CPU | 4 cores |
+| Memory | 8 GiB |
+| Probe Path | `/health` |
+| Probe Port | `49983` |
+| Ready Timeout | `30000` ms |
+| Probe Interval | `3000` ms |
+| Failure Threshold | `100` |
+| Network Policy | Public |
 
-### 存储挂载配置
+### Storage Mount Configuration
 
-| 挂载项 | COS 路径 | 容器内挂载路径 |
-|--------|----------|---------------|
-| OpenClaw 数据 | `cos://your-bucket/user1/` | `/openclaw` |
+| Mount Item | COS Path | Container Mount Path |
+|------------|----------|---------------------|
+| OpenClaw Data | `cos://your-bucket/user1/` | `/openclaw` |
 
-> ⚠️ **注意**：COS 挂载路径为 `/openclaw`，启动参数中已设置 `OPENCLAW_HOME=/openclaw`，openclaw 会读取 `/openclaw/.openclaw/openclaw.json` 作为配置文件并将所有运行时数据写入该目录。需预先在 COS 的 `user1/.openclaw/openclaw.json` 上传配置文件（可参考 `openclaw.json`）。
+> ⚠️ **Note**: COS mount path is `/openclaw`. The startup parameters set `OPENCLAW_HOME=/openclaw`. OpenClaw reads `/openclaw/.openclaw/openclaw.json` as its config and writes all runtime data to that directory. You must upload the config file to `user1/.openclaw/openclaw.json` in COS beforehand (refer to `openclaw.json`).
 
-> ⚠️ **注意**：更新工具镜像后约 3 分钟内新建沙箱可能返回 502，属正常现象，稍后重试即可。
+> ⚠️ **Note**: After updating the tool image, new sandboxes may return 502 for about 3 minutes. This is normal — just retry later.
 
 ---
 
-## 启动沙箱并访问 Dashboard
+## Launch Sandbox and Access Dashboard
 
-### 配置本地代理
+### Configure Local Proxy
 
-复制环境变量模板：
+Copy the environment variable template:
 
 ```bash
 cp localproxy/.env.example localproxy/.env
 ```
 
-编辑 `localproxy/.env`，填入以下环境变量：
+Edit `localproxy/.env` with the following:
 
 ```bash
-# 腾讯云 API 凭据（必须）
+# Tencent Cloud API Credentials (required)
 TENCENTCLOUD_SECRET_ID=your_secret_id_here
 TENCENTCLOUD_SECRET_KEY=your_secret_key_here
-TENCENTCLOUD_REGION=ap-shanghai          # AGS 所在地域
+TENCENTCLOUD_REGION=ap-shanghai          # AGS region
 
-# AGS 配置（必须）
-TOOL_NAME=my-openclaw-official           # AGS 控制台创建的沙箱工具名称
+# AGS Configuration (required)
+TOOL_NAME=my-openclaw-official           # Sandbox tool name created in AGS console
 
-# COS 挂载（可选，不填则使用工具配置的默认挂载）
-MOUNT_NAME=cos                           # 指定挂载项名称，用于传递 subpath 等参数
+# COS Mount (optional, uses tool default mount if not set)
+MOUNT_NAME=cos                           # Mount item name, used to pass subpath etc.
 ```
 
-安装依赖并启动：
+Install dependencies and start:
 
 ```bash
-# 在 openclaw-cookbook 根目录下执行
-make setup   # 安装 localproxy 依赖
-make run     # 启动 localproxy 管理服务
+# Run from the openclaw-cookbook root directory
+make setup   # Install localproxy dependencies
+make run     # Start localproxy management service
 ```
 
-### 使用流程
+### Usage Flow
 
-1. 打开管理界面 **http://localhost:3001**
-2. 点击 **Start Sandbox** 创建新沙箱（或在输入框填入已有沙箱 ID 后点击 **Connect**）
-3. 等待状态流转：`Idle → Starting → Connecting → Running`
-4. Running 后，点击 **Open Dashboard** 访问 OpenClaw Dashboard（地址为 `http://localhost:3001/sandbox/__openclaw__`）
+1. Open the management UI at **http://localhost:3001**
+2. Click **Start Sandbox** to create a new sandbox (or enter an existing sandbox ID and click **Connect**)
+3. Wait for state transitions: `Idle → Starting → Connecting → Running`
+4. Once Running, click **Open Dashboard** to access OpenClaw Dashboard (at `http://localhost:3001/sandbox/__openclaw__`)
 
-> ⚠️ 首次访问 Dashboard 需要填写 OpenClaw Token，默认为 `openclaw-sandbox-token`（即 `openclaw.json` 中配置的值）。
+> ⚠️ On first visit to the Dashboard, you'll need to enter the OpenClaw Token. The default is `openclaw-sandbox-token` (as configured in `openclaw.json`).
 
 ---
 
-## 持久化存储
+## Persistent Storage
 
-OpenClaw 通过 `OPENCLAW_HOME` 环境变量决定配置和运行时数据的存储位置。启动参数中已设置：
+OpenClaw uses the `OPENCLAW_HOME` environment variable to determine where config and runtime data are stored. The startup parameters set:
 
 ```
 OPENCLAW_HOME=/openclaw
 ```
 
-openclaw 会读取 `$OPENCLAW_HOME/.openclaw/openclaw.json` 作为配置文件，并将所有运行时数据写入 `$OPENCLAW_HOME/.openclaw/`。因此只需将 COS 桶挂载到容器的 `/openclaw` 路径即可实现持久化：
+OpenClaw reads `$OPENCLAW_HOME/.openclaw/openclaw.json` as its config and writes all runtime data to `$OPENCLAW_HOME/.openclaw/`. Simply mount the COS bucket to `/openclaw` in the container for persistence:
 
-| COS 路径 | 容器内挂载路径 | 内容 |
-|----------|---------------|------|
-| `cos://your-bucket/user1/` | `/openclaw` | openclaw 的配置和所有运行时数据 |
+| COS Path | Container Mount Path | Content |
+|----------|---------------------|---------|
+| `cos://your-bucket/user1/` | `/openclaw` | OpenClaw config and all runtime data |
 
-openclaw 会读写 `/openclaw/.openclaw/`，包含：
+OpenClaw reads/writes `/openclaw/.openclaw/`, which contains:
 
-| 路径 | 内容 |
-|------|------|
-| `/openclaw/.openclaw/openclaw.json` | 配置文件（**必须**预先上传到 COS） |
-| `/openclaw/.openclaw/canvas/` | Canvas 数据 |
-| `/openclaw/.openclaw/cron/` | Cron 任务 |
+| Path | Content |
+|------|---------|
+| `/openclaw/.openclaw/openclaw.json` | Config file (**must** be uploaded to COS beforehand) |
+| `/openclaw/.openclaw/canvas/` | Canvas data |
+| `/openclaw/.openclaw/cron/` | Cron tasks |
 
-> ⚠️ **注意**：`/openclaw/.openclaw/openclaw.json` 必须预先上传到 COS，COS 未挂载或文件不存在时 openclaw 将无法正常启动。不提供默认 fallback，以便快速发现配置问题。
+> ⚠️ **Note**: `/openclaw/.openclaw/openclaw.json` must be uploaded to COS beforehand. OpenClaw will fail to start if COS is not mounted or the file doesn't exist. No default fallback is provided so configuration issues can be caught quickly.
 
-如需按用户/会话隔离，可在 localproxy 管理界面的 **Mount subpath** 输入框中填写子路径（如 `user-123`），创建沙箱时会自动将该子路径传递给 AGS 存储挂载：
+To isolate by user/session, enter a sub-path (e.g. `user-123`) in the **Mount subpath** input field of the localproxy management UI. The sub-path will be automatically passed to the AGS storage mount when creating the sandbox:
 
 ```
-COS 挂载效果：
+COS mount effect:
 cos://your-bucket/user-123/         → /openclaw
-cos://your-bucket/user-123/.openclaw/openclaw.json  → 该用户的配置文件
+cos://your-bucket/user-123/.openclaw/openclaw.json  → config file for this user
 ```
 
 ---
 
-## 日志与调试
+## Logs and Debugging
 
-使用 ags-cli 登录沙箱：
+Log in to the sandbox using ags-cli:
 
 ```bash
 ags instance login <sandbox_id> --user root
 ```
 
-常用调试命令：
+Common debugging commands:
 
 ```bash
-# 查看进程状态
+# Check process status
 ps aux | grep -E 'node|envd' | grep -v grep
 
-# OpenClaw 启动日志（stdout 直接输出，通过 AGS 控制台或 ags-cli 查看）
+# OpenClaw startup logs (stdout output, view via AGS console or ags-cli)
 
-# OpenClaw 详细会话日志
+# OpenClaw detailed session logs
 cat /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log
 
-# envd 守护进程日志
+# envd daemon logs
 cat /tmp/envd.log
 ```
 
 ---
 
-## 常见问题
+## FAQ
 
-### Q1：Dashboard 打开后显示 401
+### Q1: Dashboard shows 401
 
-**原因**：`openclaw.json` 未正确读取，OpenClaw 以默认 loopback 模式启动。
+**Cause**: `openclaw.json` was not read correctly. OpenClaw started in default loopback mode.
 
-**解决**：确认 COS 已挂载到 `/openclaw`，且 `/openclaw/.openclaw/openclaw.json` 存在并包含 `"bind": "lan"`。
+**Solution**: Verify that COS is mounted at `/openclaw` and that `/openclaw/.openclaw/openclaw.json` exists and contains `"bind": "lan"`.
 
-### Q2：沙箱创建时报 `ENOENT` 或配置读取失败
+### Q2: `ENOENT` or config read failure when creating sandbox
 
-**原因**：COS 挂载的目录为空，`openclaw.json` 未上传。
+**Cause**: The COS-mounted directory is empty; `openclaw.json` was not uploaded.
 
-**解决**：在 COS 桶的 `openclaw-config/` 目录下上传 `openclaw.json`。
+**Solution**: Upload `openclaw.json` to the `openclaw-config/` directory in the COS bucket.
 
-### Q3：favicon 404
+### Q3: favicon 404
 
-**原因**：官方镜像的 OpenClaw 在 `/__openclaw__/` 路径下引用 `./favicon.svg`，但实际 favicon 在根路径 `/favicon.svg`，无 nginx 时无法 rewrite。
+**Cause**: The official OpenClaw image references `./favicon.svg` under the `/__openclaw__/` path, but the actual favicon is at `/favicon.svg`. Without nginx, there's no rewrite.
 
-**说明**：这是已知问题，仅影响浏览器 tab 图标，不影响 Dashboard 功能，如需正常显示图标，移除路径前缀/__openclaw__即可。
+**Note**: This is a known issue that only affects the browser tab icon and does not impact Dashboard functionality. To display the icon correctly, remove the `/__openclaw__` path prefix.
 
-### Q4：WebSocket 连接被拦截
+### Q4: WebSocket connection intercepted
 
-**解决**：必须通过 `localproxy` 本地代理访问，不要直接访问 AGS 外部 URL。
+**Solution**: You must access via `localproxy` local proxy. Do not access the AGS external URL directly.
 
-### Q5：如何更新 OpenClaw 版本
+### Q5: How to update OpenClaw version
 
 ```bash
 cd openclaw-cookbook
-make push   # 重新拉取 ghcr.io/openclaw/openclaw:latest 并推送
+make push   # Re-pulls ghcr.io/openclaw/openclaw:latest and pushes
 ```
 
-然后在 AGS 控制台更新工具镜像为新的 hash tag。
+Then update the tool image in the AGS console with the new hash tag.
 
 ---
 
-## 待办事项
+## TODO
 
-- [ ] 监控方案
-- [ ] 暂停/恢复后的会话和记忆完整性验证
-- [ ] 暂停/恢复耗时的性能基准测试
+- [ ] Monitoring solution
+- [ ] Session and memory integrity verification after pause/resume
+- [ ] Performance benchmarks for pause/resume duration

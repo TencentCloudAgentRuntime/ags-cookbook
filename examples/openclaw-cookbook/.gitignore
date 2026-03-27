@@ -10,6 +10,5 @@ localproxy/dist/
 localproxy/.env
 localproxy/package-lock.json
 
-# Python (if any leftover)
-.venv/
-__pycache__/
+# Override root-level *.json ignore
+!openclaw.json

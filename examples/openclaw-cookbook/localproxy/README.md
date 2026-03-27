@@ -140,7 +140,6 @@ paused ──resume──▶ resuming ──▶ running
 ```
 localproxy/
 ├── server.ts        # 全部逻辑：Express 服务、状态机、SSE、内嵌 UI
-├── index.ts         # 旧版 CLI 纯代理脚本（已弃用）
 ├── package.json
 ├── .env.example     # 环境变量模板
 └── .env             # 本地配置（不提交）
