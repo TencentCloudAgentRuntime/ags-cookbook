@@ -172,6 +172,8 @@ openclaw-cookbook/
 
 > ⚠️ **重要**：AGS 运行环境为 `linux/amd64`，必须构建 amd64 镜像。Makefile 已默认指定 `--platform linux/amd64`，在 Apple Silicon Mac 上构建时会自动交叉编译。
 
+> 💡 Makefile 默认使用 `podman`。Docker 用户可通过 `make push CONTAINER_ENGINE=docker` 覆盖。
+
 ```bash
 cd openclaw-cookbook
 

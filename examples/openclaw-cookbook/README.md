@@ -172,6 +172,8 @@ openclaw-cookbook/
 
 > ⚠️ **Important**: The AGS runtime is `linux/amd64`. You must build an amd64 image. The Makefile defaults to `--platform linux/amd64`, which cross-compiles automatically on Apple Silicon Macs.
 
+> 💡 The Makefile defaults to `podman`. Docker users can override via `make push CONTAINER_ENGINE=docker`.
+
 ```bash
 cd openclaw-cookbook
 

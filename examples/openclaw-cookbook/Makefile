@@ -3,7 +3,7 @@ VERSION ?= latest
 DOCKER_REGISTRY ?= ccr.ccs.tencentyun.com/ags-test-image
 IMAGE_LATEST = $(DOCKER_REGISTRY)/$(APP_NAME):$(VERSION)
 
-CONTAINER_ENGINE := podman
+CONTAINER_ENGINE ?= podman
 
 .PHONY: setup build push run run-local stop
 
