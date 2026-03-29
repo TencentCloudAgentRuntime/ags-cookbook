@@ -336,7 +336,7 @@ cat /tmp/envd.log
 
 ### Q1: Dashboard shows 401
 
-**Cause**: `openclaw.json` was not read correctly. OpenClaw started in default loopback mode.
+**Cause**: `openclaw.json` was not read correctly. Because `--allow-unconfigured` is set, OpenClaw does not crash but silently falls back to default loopback mode (`127.0.0.1`), making the gateway unreachable from outside the container.
 
 **Solution**: Verify that COS is mounted at `/openclaw` and that `/openclaw/.openclaw/openclaw.json` exists and contains `"bind": "lan"`.
 

@@ -336,7 +336,7 @@ cat /tmp/envd.log
 
 ### Q1：Dashboard 打开后显示 401
 
-**原因**：`openclaw.json` 未正确读取，OpenClaw 以默认 loopback 模式启动。
+**原因**：`openclaw.json` 未正确读取。由于启动参数包含 `--allow-unconfigured`，OpenClaw 不会崩溃，而是静默回退到默认 loopback 模式（仅监听 `127.0.0.1`），导致从容器外部无法访问网关。
 
 **解决**：确认 COS 已挂载到 `/openclaw`，且 `/openclaw/.openclaw/openclaw.json` 存在并包含 `"bind": "lan"`。
 
