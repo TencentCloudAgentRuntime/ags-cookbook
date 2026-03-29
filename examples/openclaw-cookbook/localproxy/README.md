@@ -1,114 +1,114 @@
 # LocalProxy
 
-OpenClaw 沙箱本地管理工具。通过浏览器 UI 一键创建/连接/暂停/恢复沙箱，并将沙箱内的 OpenClaw 服务代理到本地。
+Local management tool for OpenClaw sandboxes. Create, connect, pause, and resume sandboxes via a browser UI, with the in-sandbox OpenClaw service reverse-proxied to localhost.
 
 ---
 
-## 架构
+## Architecture
 
 ```
 pnpm dev / pnpm start
   └─ tsx server.ts
        └─ Express :3001
-            ├── GET /              管理界面（内嵌 HTML + CSS + JS，无构建步骤）
-            ├── GET /api/status    当前状态快照
-            ├── GET /api/events    SSE 实时推送
-            ├── POST /api/start    创建新沙箱
-            ├── POST /api/stop     停止并销毁沙箱
-            ├── POST /api/pause    暂停沙箱
-            ├── POST /api/resume   恢复沙箱
-            └── POST /api/connect  连接已有沙箱
+            ├── GET /              Management UI (embedded HTML + CSS + JS, no build step)
+            ├── GET /api/status    Current state snapshot
+            ├── GET /api/events    SSE real-time push
+            ├── POST /api/start    Create new sandbox
+            ├── POST /api/stop     Stop and destroy sandbox
+            ├── POST /api/pause    Pause sandbox
+            ├── POST /api/resume   Resume sandbox
+            └── POST /api/connect  Connect to existing sandbox
 
-http://localhost:3001/sandbox/  →  反向代理到沙箱内 OpenClaw（仅 running 时可用）
+http://localhost:3001/sandbox/  →  Reverse proxy to in-sandbox OpenClaw (available only when running)
 ```
 
-整个工程是**单文件**（`server.ts`）——HTML、CSS、客户端 JS 全部内嵌，无需构建步骤，`tsx server.ts` 直接运行。
+The entire project is a **single file** (`server.ts`) — HTML, CSS, and client-side JS are all embedded. No build step needed; just run `tsx server.ts`.
 
 ---
 
-## 快速开始
+## Quick Start
 
-### 前置条件
+### Prerequisites
 
 - Node.js >= 20
 - pnpm
-- 腾讯云 API 密钥（SecretId / SecretKey）
+- Tencent Cloud API credentials (SecretId / SecretKey)
 
-### 安装
+### Install
 
 ```bash
 pnpm install
 ```
 
-### 配置
+### Configure
 
-复制并编辑 `.env`：
+Copy and edit `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
 ```env
-# 腾讯云 API 凭据（必须）
+# Tencent Cloud API credentials (required)
 TENCENTCLOUD_SECRET_ID=your_secret_id_here
 TENCENTCLOUD_SECRET_KEY=your_secret_key_here
 TENCENTCLOUD_REGION=ap-shanghai
 
-# AGS 配置（必须）
+# AGS configuration (required)
 TOOL_NAME=my-openclaw-official
 
-# COS 挂载（可选，不填则使用工具配置的默认挂载）
+# COS mount (optional, uses tool default mount if not set)
 MOUNT_NAME=cos
 ```
 
-### 运行
+### Run
 
 ```bash
-# 开发模式（文件变更自动重启）
+# Development mode (auto-restart on file changes)
 pnpm dev
 
-# 生产模式
+# Production mode
 pnpm start
 ```
 
-启动后访问 **http://localhost:3001**。
+Then open **http://localhost:3001**.
 
 ---
 
-## 使用流程
+## Usage
 
-### 创建新沙箱
+### Create a New Sandbox
 
-1. 打开 http://localhost:3001
-2. （可选）在 **Mount subpath** 输入框填写 COS 子路径
-3. 点击 **Start Sandbox**
-4. 状态流转：`Idle → Starting → Connecting → Running`
-5. Running 后，点击 **Open Dashboard** 访问 OpenClaw（地址为 `http://localhost:3001/sandbox/__openclaw__`）
-6. 点击 **Stop Sandbox** 停止并销毁沙箱
+1. Open http://localhost:3001
+2. (Optional) Enter a COS sub-path in the **Mount subpath** field
+3. Click **Start Sandbox**
+4. State transitions: `Idle → Starting → Connecting → Running`
+5. Once Running, click **Open Dashboard** to access OpenClaw (at `http://localhost:3001/sandbox/__openclaw__`)
+6. Click **Stop Sandbox** to stop and destroy the sandbox
 
-### 连接已有沙箱
+### Connect to an Existing Sandbox
 
-1. 在 **Connect to existing sandbox** 输入框中填入 Sandbox ID
-2. 点击 **Connect**（或按 Enter）
-3. 连接成功后进入 Running 状态
-4. Stop 时仅关闭本地代理，**不销毁**远端沙箱
+1. Enter the Sandbox ID in the **Connect to existing sandbox** field
+2. Click **Connect** (or press Enter)
+3. Once connected, the state becomes Running
+4. Stopping only closes the local proxy — the remote sandbox is **not destroyed**
 
-### 暂停 / 恢复
+### Pause / Resume
 
-- Running 状态下点击 **Pause** 暂停沙箱（释放计算资源，保留状态）
-- Paused 状态下点击 **Resume** 恢复沙箱
-
----
-
-## 端口说明
-
-| 端口 | 用途 |
-|------|------|
-| 3001 | 管理界面 + API + OpenClaw 反向代理（`/sandbox/` 路径） |
+- While Running, click **Pause** to pause the sandbox (frees compute resources, preserves state)
+- While Paused, click **Resume** to resume the sandbox
 
 ---
 
-## 状态机
+## Ports
+
+| Port | Purpose |
+|------|---------|
+| 3001 | Management UI + API + OpenClaw reverse proxy (`/sandbox/` path) |
+
+---
+
+## State Machine
 
 ```
 idle ──start──▶ starting ──▶ connecting ──▶ running ──pause──▶ pausing ──▶ paused
@@ -122,38 +122,38 @@ idle ──connect──▶ connecting ──▶ running
 paused ──resume──▶ resuming ──▶ running
 ```
 
-| 状态 | 含义 |
-|------|------|
-| `idle` | 无沙箱，等待操作 |
-| `starting` | 正在创建沙箱 |
-| `connecting` | 沙箱已创建/指定，等待 OpenClaw 就绪 |
-| `running` | 代理已启动，服务可用 |
-| `pausing` | 正在暂停沙箱 |
-| `paused` | 沙箱已暂停 |
-| `resuming` | 正在恢复沙箱 |
-| `stopping` | 正在关闭代理并（视模式）销毁沙箱 |
+| State | Meaning |
+|-------|---------|
+| `idle` | No sandbox, waiting for action |
+| `starting` | Creating sandbox |
+| `connecting` | Sandbox created/specified, waiting for OpenClaw to be ready |
+| `running` | Proxy started, service available |
+| `pausing` | Pausing sandbox |
+| `paused` | Sandbox paused |
+| `resuming` | Resuming sandbox |
+| `stopping` | Closing proxy and (depending on mode) destroying sandbox |
 
 ---
 
-## 项目结构
+## Project Structure
 
 ```
 localproxy/
-├── server.ts        # 全部逻辑：Express 服务、状态机、SSE、内嵌 UI
+├── server.ts        # All logic: Express server, state machine, SSE, embedded UI
 ├── package.json
-├── .env.example     # 环境变量模板
-└── .env             # 本地配置（不提交）
+├── .env.example     # Environment variable template
+└── .env             # Local config (not committed)
 ```
 
 ---
 
-## 依赖
+## Dependencies
 
-| 包 | 用途 |
-|----|------|
-| `tencentcloud-sdk-nodejs-ags` | 腾讯云 AGS SDK（创建/停止/暂停/恢复沙箱） |
-| `express` | HTTP 服务器 |
-| `cors` | 跨域头 |
-| `dotenv` | 环境变量加载 |
-| `http-proxy` | 反向代理 |
-| `tsx` | 直接运行 TypeScript，无需编译 |
+| Package | Purpose |
+|---------|---------|
+| `tencentcloud-sdk-nodejs-ags` | Tencent Cloud AGS SDK (create/stop/pause/resume sandbox) |
+| `express` | HTTP server |
+| `cors` | CORS headers |
+| `dotenv` | Environment variable loading |
+| `http-proxy` | Reverse proxy |
+| `tsx` | Run TypeScript directly, no compilation needed |
