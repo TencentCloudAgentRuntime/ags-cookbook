@@ -174,6 +174,7 @@ openclaw-cookbook/
     ├── README_zh.md    # LocalProxy documentation (Chinese)
     ├── package.json
     ├── pnpm-lock.yaml
+    ├── create-tool.ts  # Script to create sandbox tool via AGS SDK
     └── server.ts       # Main service: Express + state machine + SSE + embedded Web UI
 ```
 
@@ -200,6 +201,29 @@ make push
 
 ## Create Sandbox Tool
 
+### Option A: Create via CLI
+
+Instead of filling in the console manually, you can create the sandbox tool with a single command. First, uncomment and fill in the `Create sandbox tool` section in `localproxy/.env`:
+
+| Variable | Required | Format / Example | Description |
+|----------|----------|------------------|-------------|
+| `IMAGE_ADDRESS` | Yes | `ccr.ccs.tencentyun.com/<namespace>/<image>:<tag>` | Full container image address including tag |
+| `IMAGE_REGISTRY_TYPE` | No | `personal` (default) or `enterprise` | `personal` = CCR, `enterprise` = TCR |
+| `COS_ENDPOINT` | Yes | `<bucket-name>.cos.<region>.myqcloud.com` | COS bucket access domain (see COS console → Bucket → Overview) |
+| `COS_BUCKET_NAME` | Yes | `<name>-<appid>` e.g. `my-bucket-1250000000` | COS bucket name **including the APPID suffix** |
+| `COS_BUCKET_PATH` | Yes | `/` or `/<sub-path>` | Sub-path inside the bucket to mount. **The path must already exist in the bucket.** |
+| `ROLE_ARN` | Yes | `qcs::cam::uin/<owner-uin>:roleName/<role-name>` | CAM role ARN that AGS assumes to pull the image and access COS. The role must have CCR pull + COS read/write permissions. [Manage roles](https://console.cloud.tencent.com/cam/role) |
+
+Then run:
+
+```bash
+make create_sandbox_tool
+```
+
+This calls `CreateSandboxTool` via the AGS SDK with all the parameters documented below (startup command, probe, resources, COS mount, etc.) pre-configured.
+
+### Option B: Create via AGS Console
+
 When creating a sandbox tool in the [AGS Console](https://console.cloud.tencent.com/ags), fill in the following:
 
 ### Basic Configuration
@@ -213,7 +237,10 @@ When creating a sandbox tool in the [AGS Console](https://console.cloud.tencent.
 | Image Address | `ccr.ccs.tencentyun.com/your-namespace/sandbox-openclaw:<hash>` |
 | Image Registry Type | Personal |
 | Startup Command | `/bin/bash` |
-| Startup Parameters | `-l` `-c` `/usr/bin/envd > /tmp/envd.log 2>&1 & while true; do su -s /bin/bash node -c 'OPENCLAW_HOME=/openclaw node /app/openclaw.mjs gateway --port 8080 --bind lan --allow-unconfigured'; echo '[restart] openclaw exited ($?), restarting in 1s...'; sleep 1; done` |
+| Startup Parameters | 3 items total, each in its own **separate input box** (click "Add" to create more input boxes): |
+| | Item 1: `-l` |
+| | Item 2: `-c` |
+| | Item 3: `/usr/bin/envd > /tmp/envd.log 2>&1 & while true; do su -s /bin/bash node -c 'OPENCLAW_HOME=/openclaw node /app/openclaw.mjs gateway --port 8080 --bind lan --allow-unconfigured'; echo '[restart] openclaw exited ($?), restarting in 1s...'; sleep 1; done` |
 | CPU | 4 cores |
 | Memory | 8 GiB |
 | Probe Path | `/health` |

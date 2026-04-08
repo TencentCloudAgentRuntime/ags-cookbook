@@ -174,6 +174,7 @@ openclaw-cookbook/
     ├── README_zh.md    # LocalProxy 文档（中文）
     ├── package.json
     ├── pnpm-lock.yaml
+    ├── create-tool.ts  # 通过 AGS SDK 创建沙箱工具的脚本
     └── server.ts       # 主服务：Express + 状态机 + SSE + 内嵌 Web UI
 ```
 
@@ -200,6 +201,29 @@ make push
 
 ## 创建沙箱工具
 
+### 方式 A：通过命令行创建
+
+无需手动在控制台填写，只需一条命令即可创建沙箱工具。首先在 `localproxy/.env` 中取消注释并填写 `Create sandbox tool` 部分：
+
+| 变量 | 必填 | 格式 / 示例 | 说明 |
+|------|------|-------------|------|
+| `IMAGE_ADDRESS` | 是 | `ccr.ccs.tencentyun.com/<namespace>/<image>:<tag>` | 完整的容器镜像地址（含 tag） |
+| `IMAGE_REGISTRY_TYPE` | 否 | `personal`（默认）或 `enterprise` | `personal` = CCR 个人版，`enterprise` = TCR 企业版 |
+| `COS_ENDPOINT` | 是 | `<bucket-name>.cos.<region>.myqcloud.com` | COS 桶访问域名（在 COS 控制台 → 存储桶 → 概览 中查看） |
+| `COS_BUCKET_NAME` | 是 | `<name>-<appid>` 如 `my-bucket-1250000000` | COS 桶名称，**必须包含 APPID 后缀** |
+| `COS_BUCKET_PATH` | 是 | `/` 或 `/<sub-path>` | 桶内挂载的子路径，**该路径在桶中必须已存在** |
+| `ROLE_ARN` | 是 | `qcs::cam::uin/<owner-uin>:roleName/<role-name>` | AGS 拉取镜像和访问 COS 时扮演的 CAM 角色 ARN。该角色需有 CCR 拉取 + COS 读写权限。[管理角色](https://console.cloud.tencent.com/cam/role) |
+
+然后执行：
+
+```bash
+make create_sandbox_tool
+```
+
+该命令通过 AGS SDK 调用 `CreateSandboxTool`，自动填入下方文档中的所有参数（启动命令、探针、资源规格、COS 挂载等）。
+
+### 方式 B：通过 AGS 控制台创建
+
 在 [AGS 控制台](https://console.cloud.tencent.com/ags) 创建沙箱工具时，填写以下配置：
 
 ### 基本配置
@@ -213,7 +237,10 @@ make push
 | 镜像地址 | `ccr.ccs.tencentyun.com/your-namespace/sandbox-openclaw:<hash>` |
 | 镜像仓库类型 | 个人版 |
 | 启动命令 | `/bin/bash` |
-| 启动参数 | `-l` `-c` `/usr/bin/envd > /tmp/envd.log 2>&1 & while true; do su -s /bin/bash node -c 'OPENCLAW_HOME=/openclaw node /app/openclaw.mjs gateway --port 8080 --bind lan --allow-unconfigured'; echo '[restart] openclaw exited ($?), restarting in 1s...'; sleep 1; done` |
+| 启动参数 | 共 3 项，每项填写在**单独的输入框**中（点击「新增」添加更多输入框）：|
+| | 第 1 项：`-l` |
+| | 第 2 项：`-c` |
+| | 第 3 项：`/usr/bin/envd > /tmp/envd.log 2>&1 & while true; do su -s /bin/bash node -c 'OPENCLAW_HOME=/openclaw node /app/openclaw.mjs gateway --port 8080 --bind lan --allow-unconfigured'; echo '[restart] openclaw exited ($?), restarting in 1s...'; sleep 1; done` |
 | CPU | 4 核 |
 | 内存 | 8 GiB |
 | 探针路径 | `/health` |

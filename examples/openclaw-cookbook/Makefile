@@ -6,7 +6,7 @@ IMAGE_LATEST = $(DOCKER_REGISTRY)/$(APP_NAME):$(VERSION)
 
 CONTAINER_ENGINE ?= podman
 
-.PHONY: setup build push run run-local stop
+.PHONY: setup build push run run-local stop create_sandbox_tool
 
 setup:
 	@test -f localproxy/.env || (cp .env.example localproxy/.env && echo "📝 Created localproxy/.env from .env.example — please edit it with your credentials")
@@ -42,3 +42,6 @@ run-local:
 
 stop:
 	$(CONTAINER_ENGINE) stop $(APP_NAME)
+
+create_sandbox_tool:
+	cd localproxy && pnpm run create-tool
