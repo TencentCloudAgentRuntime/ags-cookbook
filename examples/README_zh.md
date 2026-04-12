@@ -14,6 +14,7 @@
 
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
+- `mini-swe-agent` —— 基于 AGS SWE Sandbox 和 SWE-ReX runtime 运行 SWE-bench 评测
 - `mobile-use` —— 在 AGS 中运行 Android / Appium 自动化
 - `openclaw-cookbook` —— 基于官方镜像在 AGS 中运行 OpenClaw，含本地管理界面与 COS 持久化
 - `shop-assistant` —— 浏览器购物流程自动化，支持无 Cookie 的 guest 模式
@@ -43,6 +44,7 @@
 | `html-processing` | 入门 | Python + 浏览器/代码双沙箱 | `make run` | 适合作为双沙箱协作的直观起点 |
 | `hybrid-cookbook` | 入门 | Go | `make run` | 最小 Go 集成路径 |
 | `mini-rl` | 入门 | Python + 代码沙箱 | `make run` | 最小 Python 示例 |
+| `mini-swe-agent` | 进阶 | Python + SWE 沙箱 + LLM | `make run` | 使用 AGS SWE Sandbox 运行 SWE-bench Verified 评测 |
 | `mobile-use` | 进阶 | Python + 移动端沙箱 + Appium | `make run` | 运行时依赖较重，且流程较长 |
 | `openclaw-cookbook` | 进阶 | Node.js + 自定义镜像 + COS | `make run` | 基于官方镜像在 AGS 中运行 OpenClaw；含本地管理界面 |
 | `osworld-ags` | 重型 | Python 3.10 + OSWorld overlay | `make setup` 后 `make run` | 需要外部 checkout 与模板 / 工具准备 |

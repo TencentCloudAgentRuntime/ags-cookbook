@@ -14,6 +14,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
+- `mini-swe-agent` — SWE-bench evaluation with AGS SWE sandbox and SWE-ReX runtime
 - `mobile-use` — Android / Appium automation in AGS
 - `openclaw-cookbook` — run OpenClaw in AGS with official image, local management UI and COS persistence
 - `shop-assistant` — browser shopping-flow automation with optional cookies
@@ -43,6 +44,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `html-processing` | starter | Python + browser/code sandboxes | `make run` | Good visual intro to dual-sandbox flow |
 | `hybrid-cookbook` | starter | Go | `make run` | Minimal Go integration path |
 | `mini-rl` | starter | Python + code sandbox | `make run` | Smallest Python example |
+| `mini-swe-agent` | advanced | Python + SWE sandbox + LLM | `make run` | SWE-bench evaluation; requires mini-swe-agent and SWE-ReX repos |
 | `mobile-use` | advanced | Python + mobile sandbox + Appium | `make run` | Heavy runtime dependencies and long-running device flow |
 | `openclaw-cookbook` | advanced | Node.js + custom image + COS | `make run` | Run OpenClaw in AGS with official image; includes local management UI |
 | `osworld-ags` | heavy | Python 3.10 + OSWorld overlay | `make setup` then `make run` | External checkout and template/tool requirements |

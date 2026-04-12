@@ -72,6 +72,7 @@ make example-run EXAMPLE=mini-rl
 | `html-processing` | Python + Browser/Code 双沙箱 | HTML 协作处理 |
 | `hybrid-cookbook` | Go | 最小控制面 + 数据面流程 |
 | `mini-rl` | Python + 代码沙箱 | 最小 RL Tool Calling 示例 |
+| `mini-swe-agent` | Python + SWE 沙箱 + LLM | 使用 AGS SWE 沙箱运行 SWE-bench 评测 |
 | `mobile-use` | Python + 移动端沙箱 + Appium | Android 自动化 |
 | `openclaw-cookbook` | Node.js + 自定义镜像 + COS | 基于官方镜像在 AGS 中运行 OpenClaw |
 | `osworld-ags` | Python 3.10 + OSWorld overlay | 依赖重，且需要可用的 OSWorld 工具 |
