@@ -169,6 +169,7 @@ uv run sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other par
 | `enable_gms` | Enable Google Play Services | None |
 | `get_device_logs` | Get device logs | None |
 | `shell` | Execute ADB shell command | `--shell-cmd` |
+| `push_image` | Push local image to device Pictures directory | `--image-path`, `--remote-path`(optional) |
 
 ### Usage Examples
 
@@ -216,6 +217,18 @@ python sandbox_connect.py --sandbox-id abc123 \
 **Execute ADB shell command:**
 ```bash
 python sandbox_connect.py --sandbox-id abc123 --action shell --shell-cmd "pm list packages"
+```
+
+**Push image to device:**
+```bash
+# Push to /sdcard/Pictures/<filename> (default)
+python sandbox_connect.py --sandbox-id abc123 --action push_image \
+    --image-path /path/to/photo.png
+
+# Push to a custom remote path
+python sandbox_connect.py --sandbox-id abc123 --action push_image \
+    --image-path /path/to/photo.png \
+    --remote-path /sdcard/DCIM/Camera/photo.png
 ```
 
 **Uninstall app:**

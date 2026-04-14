@@ -65,6 +65,23 @@ export LONG_RUN_RESERVE_SECONDS=0
 uv run sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [其他参数]
 ```
 
+### 部分常用 action 及所需参数
+
+| Action | 说明 | 必要参数 |
+|--------|------|----------|
+| `device_info` | 获取设备信息 | — |
+| `screenshot` | 截图 | — |
+| `tap_screen` | 点击屏幕坐标 | `--tap-x`, `--tap-y` |
+| `click_element` | 点击 UI 元素 | `--element-text` 或 `--element-id` |
+| `input_text` | 输入文本 | `--text` |
+| `dump_ui` | 获取 UI 层级 XML | — |
+| `shell` | 执行 ADB shell 命令 | `--shell-cmd` |
+| `push_image` | 推送本地图片到设备图片目录 | `--image-path`，`--remote-path`（可选） |
+| `set_location` | 设置 GPS 位置 | `--latitude`, `--longitude` |
+| `upload_app` | 上传 APK 到设备 | `--app-name` |
+| `install_app` | 安装已上传的 APK | `--app-name` |
+| `launch_app` | 启动应用 | `--app-name` |
+
 例如：
 
 ```bash
@@ -72,6 +89,8 @@ uv run sandbox_connect.py --sandbox-id abc123 --action device_info
 uv run sandbox_connect.py --sandbox-id abc123 --action screenshot
 uv run sandbox_connect.py --sandbox-id abc123 --action tap_screen --tap-x 500 --tap-y 1000
 uv run sandbox_connect.py --sandbox-id abc123 --action click_element --element-text "登录"
+uv run sandbox_connect.py --sandbox-id abc123 --action push_image --image-path /path/to/photo.png
+uv run sandbox_connect.py --sandbox-id abc123 --action push_image --image-path /path/to/photo.png --remote-path /sdcard/DCIM/Camera/photo.png
 ```
 
 ## 常见失败提示

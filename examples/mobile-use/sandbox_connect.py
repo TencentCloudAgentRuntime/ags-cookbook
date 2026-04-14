@@ -1170,6 +1170,67 @@ class SandboxClient:
             print()
             return None
     
+    def push_image(self, image_path: str, remote_path: str = None) -> bool:
+        """Push a local image file to the Android device's Pictures directory"""
+        print(f"[Action: push_image] Pushing image to device...")
+
+        local_path = Path(image_path)
+        if not local_path.exists():
+            print(f"✗ Image file not found: {local_path}")
+            print()
+            return False
+
+        if remote_path is None:
+            remote_path = f"/sdcard/Pictures/{local_path.name}"
+
+        file_size = local_path.stat().st_size
+        print(f"  - Local path:  {local_path}")
+        print(f"  - Remote path: {remote_path}")
+        print(f"  - File size:   {file_size / 1024:.2f} KB")
+
+        try:
+            # Ensure target directory exists
+            remote_dir = str(Path(remote_path).parent)
+            self.driver.execute_script('mobile: shell', {
+                'command': 'mkdir', 'args': ['-p', remote_dir]
+            })
+
+            # Push file (Appium push_file requires base64-encoded content)
+            print(f"  - Pushing file...")
+            with open(local_path, 'rb') as f:
+                img_b64 = base64.b64encode(f.read()).decode('utf-8')
+            self.driver.push_file(remote_path, img_b64)
+
+            # Verify
+            result = self.driver.execute_script('mobile: shell', {
+                'command': 'ls', 'args': ['-la', remote_path]
+            })
+            if not result or 'No such file' in str(result):
+                print(f"✗ File verification failed")
+                print()
+                return False
+
+            print(f"  - Verified: {result.strip()}")
+
+            # Notify media scanner so the image appears in Gallery
+            self.driver.execute_script('mobile: shell', {
+                'command': 'am',
+                'args': [
+                    'broadcast', '-a',
+                    'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+                    '-d', f'file://{remote_path}'
+                ]
+            })
+            print(f"  - Media scanner notified")
+            print(f"✓ Image pushed successfully to {remote_path}")
+            print()
+            return True
+
+        except Exception as e:
+            print(f"✗ Push failed: {e}")
+            print()
+            return False
+
     def execute_shell(self, command: str, args: List[str] = None) -> str:
         """
         Execute ADB shell command
@@ -1260,6 +1321,7 @@ Supported actions:
     disable_gms             - Disable Google Play Services
     enable_gms              - Enable Google Play Services
     shell                   - Execute ADB shell command (requires --shell-cmd)
+    push_image              - Push local image to device (requires --image-path, optional --remote-path)
 
 Usage examples:
     %(prog)s --sandbox-id <id> --action device_info
@@ -1271,6 +1333,8 @@ Usage examples:
     %(prog)s --sandbox-id <id> --action set_location --latitude 22.5431 --longitude 113.9298
     %(prog)s --sandbox-id <id> --action upload_app,install_app,launch_app --app-name yyb
     %(prog)s --sandbox-id <id> --action shell --shell-cmd "pm list packages"
+    %(prog)s --sandbox-id <id> --action push_image --image-path /path/to/photo.png
+    %(prog)s --sandbox-id <id> --action push_image --image-path /path/to/photo.png --remote-path /sdcard/Pictures/myphoto.png
         """
     )
     
@@ -1291,6 +1355,8 @@ Usage examples:
     parser.add_argument('--dpi', type=int, default=None, help='Screen DPI')
     parser.add_argument('--url', type=str, default=None, help='Browser URL')
     parser.add_argument('--shell-cmd', type=str, default=None, help='ADB shell command')
+    parser.add_argument('--image-path', type=str, default=None, help='Local image file path for push_image')
+    parser.add_argument('--remote-path', type=str, default=None, help='Remote path on device for push_image (default: /sdcard/Pictures/<filename>)')
     parser.add_argument('--list-actions', action='store_true', help='List all available actions')
     
     return parser.parse_args()
@@ -1457,6 +1523,13 @@ def execute_actions(client: SandboxClient, actions: List[str], args):
                     cmd = parts[0] if parts else ''
                     cmd_args = parts[1:] if len(parts) > 1 else []
                     results[action] = client.shell(cmd, cmd_args) is not None
+
+            elif action == 'push_image':
+                if args.image_path is None:
+                    print(f"✗ push_image requires --image-path parameter")
+                    results[action] = False
+                else:
+                    results[action] = client.push_image(args.image_path, args.remote_path)
             
             else:
                 print(f"✗ Unknown action: {action}")
