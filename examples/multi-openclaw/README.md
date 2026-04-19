@@ -146,13 +146,13 @@ proxy.ws(req, socket, head)  ──▶  wss://<sandbox-a-host>/
 ```bash
 # 方式一：使用 Makefile（推荐）
 make setup    # 安装依赖 + 创建 .env
+make run      # 生产模式运行（等同于 setup + pnpm start）
 make dev      # 开发模式（文件变更自动重启）
-make start    # 生产模式
 
 # 方式二：手动
 pnpm install
 cp .env.example .env
-# 编辑 .env，填入 API 密钥和 OpenClaw Token
+# 编辑 .env，填入 API 密钥
 pnpm dev
 ```
 

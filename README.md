@@ -76,6 +76,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `hybrid-cookbook` | Go | Minimal control-plane + data-plane flow |
 | `mini-rl` | Python + code sandbox | Minimal RL tool-calling example |
 | `mobile-use` | Python + mobile sandbox + Appium | Android automation |
+| `multi-openclaw` | Node.js + custom image + AGS | Multi-user sandbox router for OpenClaw |
 | `openclaw-cookbook` | Node.js + custom image + COS | Run OpenClaw in AGS with official image |
 | `osworld-ags` | Python 3.10 + OSWorld overlay | Heavy setup; requires an OSWorld-capable tool |
 | `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |

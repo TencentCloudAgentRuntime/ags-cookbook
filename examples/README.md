@@ -15,6 +15,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - `mobile-use` — Android / Appium automation in AGS
+- `multi-openclaw` — multi-user sandbox router for OpenClaw with admin dashboard and per-user chat UI
 - `openclaw-cookbook` — run OpenClaw in AGS with official image, local management UI and COS persistence
 - `shop-assistant` — browser shopping-flow automation with optional cookies
 - `custom-image-go-sdk` — custom-image startup and data-plane execution in Go
