@@ -68,6 +68,7 @@ make example-run EXAMPLE=mini-rl
 |---|---|---|
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
+| `deploy-custom-image` | Python + Dockerfile + CCR | 一键将任意 Docker 镜像部署为 AGS 自定义沙箱工具 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
 | `html-processing` | Python + Browser/Code 双沙箱 | HTML 协作处理 |
 | `hybrid-cookbook` | Go | 最小控制面 + 数据面流程 |

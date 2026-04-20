@@ -71,6 +71,7 @@ You can also enter an example directory directly and run its local `make setup` 
 |---|---|---|
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
+| `deploy-custom-image` | Python + Dockerfile + CCR | One-click deploy any Docker image as AGS custom tool |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
 | `html-processing` | Python + browser/code sandboxes | Dual-sandbox HTML pipeline |
 | `hybrid-cookbook` | Go | Minimal control-plane + data-plane flow |
