@@ -206,11 +206,9 @@ python sandbox_connect.py --sandbox-id abc123 --action set_location --latitude 2
 python sandbox_connect.py --sandbox-id abc123 --action dump_ui
 ```
 
-**Batch operations (comma-separated):**
+**Upload, install, grant permissions, and launch app (comma-separated batch operations):**
 ```bash
-python sandbox_connect.py --sandbox-id abc123 \
-    --action upload_app,install_app,grant_app_permissions,launch_app \
-    --app-name yyb
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name yyb
 ```
 
 **Execute ADB shell command:**

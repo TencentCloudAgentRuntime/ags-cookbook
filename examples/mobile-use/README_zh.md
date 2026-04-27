@@ -34,8 +34,8 @@ make run
 额外脚本：
 
 ```bash
-uv run batch.py
-uv run sandbox_connect.py --help
+python batch.py
+python sandbox_connect.py --help
 ```
 
 ## 必要环境变量
@@ -62,16 +62,22 @@ export LONG_RUN_RESERVE_SECONDS=0
 常见用法：
 
 ```bash
-uv run sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [其他参数]
+python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [其他参数]
 ```
 
 例如：
 
 ```bash
-uv run sandbox_connect.py --sandbox-id abc123 --action device_info
-uv run sandbox_connect.py --sandbox-id abc123 --action screenshot
-uv run sandbox_connect.py --sandbox-id abc123 --action tap_screen --tap-x 500 --tap-y 1000
-uv run sandbox_connect.py --sandbox-id abc123 --action click_element --element-text "登录"
+python sandbox_connect.py --sandbox-id abc123 --action device_info
+python sandbox_connect.py --sandbox-id abc123 --action screenshot
+python sandbox_connect.py --sandbox-id abc123 --action tap_screen --tap-x 500 --tap-y 1000
+python sandbox_connect.py --sandbox-id abc123 --action click_element --element-text "登录"
+```
+
+上传、安装、授权并打开应用宝（逗号分隔批量操作）：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name yyb
 ```
 
 ## 常见失败提示
