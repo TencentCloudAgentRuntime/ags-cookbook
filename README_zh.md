@@ -77,6 +77,7 @@ make example-run EXAMPLE=mini-rl
 | `openclaw-cookbook` | Node.js + 自定义镜像 + COS | 基于官方镜像在 AGS 中运行 OpenClaw |
 | `osworld-ags` | Python 3.10 + OSWorld overlay | 依赖重，且需要可用的 OSWorld 工具 |
 | `shop-assistant` | Python + 浏览器沙箱 | 搜索 / 加购演示 |
+| `skills-hello-world` | Python + AGS 沙箱 + 腾讯云 SDK | 最小 Skills 集成示例；标准参考实现 |
 
 详见 `examples/README_zh.md`，其中包含各示例的使用说明与推荐阅读顺序。
 

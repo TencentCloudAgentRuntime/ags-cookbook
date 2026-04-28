@@ -1,0 +1,10 @@
+[project]
+name = "skill-data-analysis"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "e2b-code-interpreter>=2.4.1",
+    "tencentcloud-sdk-python>=3.0.0",
+    "pandas>=2.2.0",
+    "matplotlib>=3.9.0",
+]

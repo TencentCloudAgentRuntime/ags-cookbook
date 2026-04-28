@@ -9,6 +9,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `mini-rl` — minimal code-sandbox tool-calling flow
 - `hybrid-cookbook` — minimal Go control-plane + data-plane flow
 - `html-processing` — dual-sandbox collaboration with visible output artifacts
+- `skills-hello-world` — minimum viable Skills integration (canonical reference for new Skills examples)
 
 ### Advanced
 
@@ -49,6 +50,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `openclaw-cookbook` | advanced | Node.js + custom image + COS | `make run` | Run OpenClaw in AGS with official image; includes local management UI |
 | `osworld-ags` | heavy | Python 3.10 + OSWorld overlay | `make setup` then `make run` | External checkout and template/tool requirements |
 | `shop-assistant` | advanced | Python + browser sandbox | `make run` | Cookie-free guest mode now supported |
+| `skills-hello-world` | starter | Python + AGS sandbox + Tencent Cloud SDK | `make run` | Canonical reference for Skills integration; see `SKILLS_STANDARD.md` |
 
 From the repository root, you can use:
 
