@@ -1,0 +1,10 @@
+[project]
+name = "skill-browser-action"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "e2b>=2.9.0",
+    "e2b-code-interpreter>=2.4.1",
+    "tencentcloud-sdk-python>=3.0.0",
+    "playwright>=1.57.0",
+]
