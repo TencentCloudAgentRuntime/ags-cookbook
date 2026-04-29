@@ -19,23 +19,33 @@
 ## 前置条件
 
 - Python >= 3.12
-- `uv`
 - `E2B_API_KEY`
 - `SANDBOX_TEMPLATE`
 - 必填 `E2B_DOMAIN`（例如 `ap-guangzhou.tencentags.com`）
 
-## 本地命令
+## 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+或使用 make：
 
 ```bash
 make setup
+```
+
+## 本地命令
+
+```bash
 make run
 ```
 
 额外脚本：
 
 ```bash
-uv run batch.py
-uv run sandbox_connect.py --help
+python batch.py
+python sandbox_connect.py --help
 ```
 
 ## 必要环境变量
@@ -62,17 +72,69 @@ export LONG_RUN_RESERVE_SECONDS=0
 常见用法：
 
 ```bash
-uv run sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [其他参数]
+python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [其他参数]
 ```
 
 例如：
 
 ```bash
-uv run sandbox_connect.py --sandbox-id abc123 --action device_info
-uv run sandbox_connect.py --sandbox-id abc123 --action screenshot
-uv run sandbox_connect.py --sandbox-id abc123 --action tap_screen --tap-x 500 --tap-y 1000
-uv run sandbox_connect.py --sandbox-id abc123 --action click_element --element-text "登录"
+python sandbox_connect.py --sandbox-id abc123 --action device_info
+python sandbox_connect.py --sandbox-id abc123 --action screenshot
+python sandbox_connect.py --sandbox-id abc123 --action tap_screen --tap-x 500 --tap-y 1000
+python sandbox_connect.py --sandbox-id abc123 --action click_element --element-text "登录"
 ```
+
+上传、安装、授权并打开应用宝（逗号分隔批量操作）：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name yyb
+```
+
+## 批量工具
+
+批量工具统一通过 `sandboxes.yaml` 配置文件传入沙箱 ID：
+
+```yaml
+sandbox_ids:
+  - sandbox_id_1
+  - sandbox_id_2
+  - sandbox_id_3
+```
+
+### 批量获取 logcat 日志
+
+从现有沙箱批量获取全量 logcat 日志，按沙箱 ID 分目录保存，不会删除沙箱：
+
+```bash
+# 使用默认 sandboxes.yaml
+python batch_dump_logcat.py
+
+# 指定配置文件和并发数
+python batch_dump_logcat.py --config my_sandboxes.yaml --concurrency 10
+
+# 自定义输出目录
+python batch_dump_logcat.py --output-dir /tmp/logcat
+```
+
+### 批量销毁沙箱
+
+销毁沙箱前会列出所有目标并要求手动确认（输入 y/yes 确认，n/no 取消）：
+
+```bash
+# 使用默认 sandboxes.yaml，需确认
+python batch_sandbox_kill.py
+
+# 跳过确认
+python batch_sandbox_kill.py --yes
+```
+
+### 批量创建沙箱
+
+```bash
+python batch_sandbox_create.py
+```
+
+创建的沙箱 ID 会保存到 `output/batch_create_output/`。
 
 ## 常见失败提示
 
@@ -84,4 +146,16 @@ uv run sandbox_connect.py --sandbox-id abc123 --action click_element --element-t
 
 - 在 AGS 中运行 Android 设备并通过 Appium 远程控制
 - quickstart、batch 与 sandbox_connect 三种不同使用路径
+- 批量工具：logcat 日志获取、沙箱创建与销毁
 - 屏幕操作、元素点击、位置模拟与批量执行等移动端自动化能力
+
+## 脚本一览
+
+| 脚本 | 说明 |
+|------|------|
+| `quickstart.py` | 快速入门示例，演示基本移动端自动化功能 |
+| `batch.py` | 批量操作脚本，支持高并发沙箱测试 |
+| `sandbox_connect.py` | 单沙箱连接工具，通过 CLI 操作已有沙箱 |
+| `batch_dump_logcat.py` | 批量获取 logcat 日志，按沙箱 ID 分目录输出 |
+| `batch_sandbox_kill.py` | 批量销毁沙箱，执行前需手动确认 |
+| `batch_sandbox_create.py` | 批量创建沙箱 |

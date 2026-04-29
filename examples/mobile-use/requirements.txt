@@ -1,0 +1,8 @@
+# Core dependencies for mobile-use examples
+e2b
+Appium-Python-Client
+requests
+PyYAML
+
+# Optional: auto-load .env files (manual fallback is built-in)
+python-dotenv

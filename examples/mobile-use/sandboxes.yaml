@@ -1,0 +1,10 @@
+# Sandbox IDs for batch logcat dump
+#
+# Usage:
+#   python batch_dump_logcat.py --config sandboxes.yaml
+#
+# Fill in actual sandbox IDs below:
+sandbox_ids:
+  - sandbox_1
+  - sandbox_2
+  - sandbox_3
