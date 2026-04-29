@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-One-time script: batch create 1500 sandboxes (create only, no operations).
+Batch create sandboxes (create only, no Android operations).
 
-Hardcoded:
-    - Total: 1500
-    - Concurrency: 25
-    - Sleep between batches: 5s
-
-Requires E2B_API_KEY, E2B_DOMAIN, SANDBOX_TEMPLATE in .env file.
+All configuration is read from .env file:
+    - SANDBOX_COUNT: Total number of sandboxes to create (default: 10)
+    - THREAD_POOL_SIZE: Concurrency per batch (default: 5)
+    - BATCH_SLEEP_INTERVAL: Sleep seconds between batches (default: 10)
+    - SANDBOX_TIMEOUT: Sandbox creation timeout in seconds (default: 300)
+    - E2B_API_KEY, E2B_DOMAIN, SANDBOX_TEMPLATE: Required
 """
 
 from __future__ import annotations
@@ -24,13 +24,6 @@ import asyncio
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
-
-# ── Hardcoded config ──────────────────────────────────────────────
-TOTAL = 10
-CONCURRENCY = 5
-SLEEP_INTERVAL = 10
-# ──────────────────────────────────────────────────────────────────
-
 
 def _load_env_file() -> None:
     """Load .env file from script directory."""
@@ -173,6 +166,9 @@ def main() -> None:
     api_key = os.getenv("E2B_API_KEY", "")
     template = os.getenv("SANDBOX_TEMPLATE", "")
     timeout = int(os.getenv("SANDBOX_TIMEOUT", "300"))
+    total = int(os.getenv("SANDBOX_COUNT", "10"))
+    concurrency = int(os.getenv("THREAD_POOL_SIZE", "5"))
+    sleep_interval = float(os.getenv("BATCH_SLEEP_INTERVAL", "10"))
 
     if not domain:
         print("Error: E2B_DOMAIN not set", file=sys.stderr)
@@ -191,9 +187,9 @@ def main() -> None:
     print()
 
     created_ids, results = asyncio.run(batch_create(
-        total=TOTAL,
-        concurrency=CONCURRENCY,
-        sleep_interval=SLEEP_INTERVAL,
+        total=total,
+        concurrency=concurrency,
+        sleep_interval=sleep_interval,
         template=template,
         timeout=timeout,
     ))
