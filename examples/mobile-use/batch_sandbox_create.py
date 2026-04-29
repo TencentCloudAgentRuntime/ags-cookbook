@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
 # ── Hardcoded config ──────────────────────────────────────────────
-TOTAL = 1500
+TOTAL = 10
 CONCURRENCY = 5
 SLEEP_INTERVAL = 10
 # ──────────────────────────────────────────────────────────────────

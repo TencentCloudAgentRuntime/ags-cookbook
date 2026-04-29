@@ -2,42 +2,53 @@
 """
 Batch kill sandboxes by ID list with concurrency control.
 
+Reads sandbox IDs from a YAML config file (default: sandboxes.yaml),
+asks for manual confirmation before executing, then kills all listed sandboxes.
+
 Usage:
-    # Kill from command line arguments
-    python batch_kill.py sandbox_id_1 sandbox_id_2 sandbox_id_3 ...
+    # Kill sandboxes listed in default sandboxes.yaml
+    python batch_sandbox_kill.py
 
-    # Kill from a text file (one sandbox ID per line)
-    python batch_kill.py --file sandbox_ids.txt
-
-    # Kill from a CSV file (auto-detects 'instance_id' or first column)
-    python batch_kill.py --csv sandhub_sql_result_20260424211013.csv
+    # Kill sandboxes from a specific YAML config
+    python batch_sandbox_kill.py --config my_sandboxes.yaml
 
     # Customize concurrency (default 50)
-    python batch_kill.py --concurrency 20 sandbox_id_1 sandbox_id_2
+    python batch_sandbox_kill.py --concurrency 20
 
     # Customize sleep interval between batches in seconds (default 1)
-    python batch_kill.py --sleep 2 sandbox_id_1 sandbox_id_2
+    python batch_sandbox_kill.py --sleep 2
+
+    # Skip confirmation prompt
+    python batch_sandbox_kill.py --yes
+
+YAML config format:
+    sandbox_ids:
+      - sandbox_id_1
+      - sandbox_id_2
+      - sandbox_id_3
 
 Requires E2B_API_KEY and E2B_DOMAIN in environment or .env file.
 """
 
 import os
 import sys
-import csv
 import time
 import asyncio
 import argparse
 from pathlib import Path
 from typing import List, Tuple
 
+# Script directory
+SCRIPT_DIR = Path(__file__).parent
+
 
 def _load_env_file() -> None:
     """Load .env file from script directory."""
     try:
         from dotenv import load_dotenv
-        load_dotenv(Path(__file__).parent.absolute() / ".env")
+        load_dotenv(SCRIPT_DIR / ".env")
     except ImportError:
-        env_file = Path(__file__).parent.absolute() / ".env"
+        env_file = SCRIPT_DIR / ".env"
         if env_file.exists():
             with open(env_file, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -45,6 +56,58 @@ def _load_env_file() -> None:
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
                         os.environ[key.strip()] = value.strip()
+
+
+def load_sandbox_ids_from_yaml(yaml_path: str) -> List[str]:
+    """Load sandbox IDs from a YAML config file.
+
+    Expected YAML format:
+        sandbox_ids:
+          - sandbox_id_1
+          - sandbox_id_2
+
+    Args:
+        yaml_path: Path to the YAML file.
+
+    Returns:
+        Deduplicated list of sandbox IDs.
+    """
+    import yaml
+
+    config_path = Path(yaml_path)
+    if not config_path.exists():
+        print(f"Error: YAML config file not found: {yaml_path}", file=sys.stderr)
+        sys.exit(1)
+
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+
+    if not isinstance(config, dict):
+        print(f"Error: YAML root must be a mapping, got {type(config).__name__}", file=sys.stderr)
+        sys.exit(1)
+
+    raw_ids = config.get('sandbox_ids', [])
+    if not isinstance(raw_ids, list):
+        print(f"Error: 'sandbox_ids' must be a list, got {type(raw_ids).__name__}", file=sys.stderr)
+        sys.exit(1)
+
+    # Convert to strings, strip whitespace, skip empty
+    sandbox_ids: List[str] = []
+    for item in raw_ids:
+        sid = str(item).strip()
+        if sid:
+            sandbox_ids.append(sid)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_ids = []
+    for sid in sandbox_ids:
+        if sid not in seen:
+            seen.add(sid)
+            unique_ids.append(sid)
+
+    print(f"Loaded {len(unique_ids)} sandbox IDs from {yaml_path}")
+    return unique_ids
 
 
 async def kill_batch(sandbox_ids: List[str], concurrency: int = 50, sleep_interval: float = 2.0) -> Tuple[int, int]:
@@ -122,66 +185,63 @@ async def kill_batch(sandbox_ids: List[str], concurrency: int = 50, sleep_interv
     return success_count, fail_count
 
 
+def confirm_kill(sandbox_ids: List[str]) -> bool:
+    """Show sandbox list and ask for manual confirmation.
+
+    Args:
+        sandbox_ids: List of sandbox IDs to be killed.
+
+    Returns:
+        True if user confirmed, False otherwise.
+    """
+    print()
+    print("The following sandboxes will be KILLED:")
+    print("-" * 60)
+    for i, sid in enumerate(sandbox_ids, 1):
+        print(f"  {i:4d}. {sid}")
+    print("-" * 60)
+    print(f"Total: {len(sandbox_ids)} sandboxes")
+    print()
+
+    try:
+        answer = input("Are you sure you want to kill all of them? (y/yes to confirm, n/no to cancel): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nAborted.")
+        return False
+
+    return answer in ('y', 'yes')
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Batch kill sandboxes by ID")
-    parser.add_argument("sandbox_ids", nargs="*", help="Sandbox IDs to kill")
-    parser.add_argument("--file", "-f", type=str, help="Text file with sandbox IDs (one per line)")
-    parser.add_argument("--csv", type=str, help="CSV file with sandbox IDs (auto-detects 'instance_id' or uses first column)")
+    parser = argparse.ArgumentParser(
+        description="Batch kill sandboxes by ID from YAML config",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+YAML config format:
+    sandbox_ids:
+      - sandbox_id_1
+      - sandbox_id_2
+
+Usage examples:
+    %(prog)s
+    %(prog)s --config my_sandboxes.yaml
+    %(prog)s --concurrency 20 --sleep 2
+    %(prog)s --yes
+        """,
+    )
+    parser.add_argument("--config", type=str, default=str(SCRIPT_DIR / "sandboxes.yaml"),
+                        help="YAML config file containing sandbox_ids list (default: sandboxes.yaml)")
     parser.add_argument("--concurrency", "-c", type=int, default=50, help="Concurrency per batch (default: 50)")
     parser.add_argument("--sleep", "-s", type=float, default=1.0, help="Sleep seconds between batches (default: 1.0)")
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     args = parser.parse_args()
 
-    # Collect sandbox IDs
-    sandbox_ids: List[str] = []
-
-    if args.csv:
-        csv_path = Path(args.csv)
-        if not csv_path.exists():
-            print(f"Error: CSV file not found: {args.csv}", file=sys.stderr)
-            sys.exit(1)
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            # Try 'instance_id' column, fallback to first column
-            fieldnames = reader.fieldnames or []
-            if 'instance_id' in fieldnames:
-                col = 'instance_id'
-            elif fieldnames:
-                col = fieldnames[0]
-            else:
-                print(f"Error: CSV file has no columns", file=sys.stderr)
-                sys.exit(1)
-            print(f"Reading column '{col}' from {args.csv}")
-            for row in reader:
-                val = row.get(col, '').strip()
-                if val:
-                    sandbox_ids.append(val)
-
-    if args.file:
-        file_path = Path(args.file)
-        if not file_path.exists():
-            print(f"Error: file not found: {args.file}", file=sys.stderr)
-            sys.exit(1)
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    sandbox_ids.append(line)
-
-    sandbox_ids.extend(args.sandbox_ids)
+    # Load sandbox IDs from YAML
+    sandbox_ids = load_sandbox_ids_from_yaml(args.config)
 
     if not sandbox_ids:
-        print("Error: no sandbox IDs provided. Use positional args or --file.", file=sys.stderr)
-        parser.print_help()
+        print("Error: no sandbox IDs found in YAML config file.", file=sys.stderr)
         sys.exit(1)
-
-    # Deduplicate while preserving order
-    seen = set()
-    unique_ids = []
-    for sid in sandbox_ids:
-        if sid not in seen:
-            seen.add(sid)
-            unique_ids.append(sid)
-    sandbox_ids = unique_ids
 
     # Load env
     _load_env_file()
@@ -200,6 +260,12 @@ def main() -> None:
     os.environ["E2B_API_KEY"] = api_key
 
     print(f"E2B_DOMAIN: {domain}")
+
+    # Confirmation
+    if not args.yes:
+        if not confirm_kill(sandbox_ids):
+            print("Cancelled.")
+            sys.exit(0)
     print()
 
     success, fail = asyncio.run(kill_batch(sandbox_ids, concurrency=args.concurrency, sleep_interval=args.sleep))
