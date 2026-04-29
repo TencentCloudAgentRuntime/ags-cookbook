@@ -28,10 +28,14 @@ mobile-use/
 ├── README.md                  # English documentation
 ├── README_zh.md               # Chinese documentation
 ├── .env.example               # Environment configuration example
-├── pyproject.toml             # Python dependencies
+├── requirements.txt           # Python dependencies
+├── sandboxes.yaml             # Sandbox IDs config (for batch tools)
 ├── quickstart.py              # Quick start example
 ├── batch.py                   # Batch operations script (multi-process + async)
 ├── sandbox_connect.py         # Single sandbox connection tool (CLI)
+├── batch_dump_logcat.py       # Batch dump logcat logs from existing sandboxes
+├── batch_sandbox_kill.py      # Batch kill sandboxes with confirmation
+├── batch_sandbox_create.py    # Batch create sandboxes
 ├── apk/                       # APK files directory
 └── output/                    # Screenshots and logs output
 ```
@@ -43,10 +47,19 @@ mobile-use/
 | `quickstart.py` | Quick start example demonstrating basic mobile automation features |
 | `batch.py` | Batch operations script for high-concurrency sandbox testing (multi-process + async) |
 | `sandbox_connect.py` | Single sandbox connection tool for connecting to existing sandboxes via CLI |
+| `batch_dump_logcat.py` | Batch dump full logcat logs from existing sandboxes, organized by sandbox ID |
+| `batch_sandbox_kill.py` | Batch kill sandboxes from YAML config with manual confirmation |
+| `batch_sandbox_create.py` | Batch create sandboxes with concurrency control |
 
 ## Quick Start
 
 ### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Or using make:
 
 ```bash
 make setup
@@ -93,6 +106,67 @@ export LONG_RUN_RESERVE_SECONDS=0
 
 Use them when you want a smoke-like local run instead of waiting through the full long-running demo phase.
 
+## Batch Tools
+
+The batch tools use a shared `sandboxes.yaml` config file for sandbox IDs:
+
+```yaml
+sandbox_ids:
+  - sandbox_id_1
+  - sandbox_id_2
+  - sandbox_id_3
+```
+
+### Batch Dump Logcat
+
+Dump full logcat logs from existing sandboxes without killing them:
+
+```bash
+# Use default sandboxes.yaml
+python batch_dump_logcat.py
+
+# Specify config and concurrency
+python batch_dump_logcat.py --config my_sandboxes.yaml --concurrency 10
+
+# Custom output directory
+python batch_dump_logcat.py --output-dir /tmp/logcat
+```
+
+Output structure:
+```
+output/batch_dump_logcat_output/
+├── <sandbox_id_1>/
+│   └── logcat_YYYYMMDD_HHMMSS.txt
+├── <sandbox_id_2>/
+│   └── logcat_YYYYMMDD_HHMMSS.txt
+└── summary_YYYYMMDD_HHMMSS.json
+```
+
+### Batch Kill Sandboxes
+
+Kill sandboxes with manual confirmation before execution:
+
+```bash
+# Use default sandboxes.yaml (requires y/yes confirmation)
+python batch_sandbox_kill.py
+
+# Skip confirmation
+python batch_sandbox_kill.py --yes
+
+# Custom concurrency and sleep interval
+python batch_sandbox_kill.py --concurrency 20 --sleep 2
+```
+
+### Batch Create Sandboxes
+
+Batch create sandboxes with concurrency control:
+
+```bash
+python batch_sandbox_create.py
+```
+
+Created sandbox IDs are saved to `output/batch_create_output/`.
+
 ## Sandbox Connect Tool
 
 `sandbox_connect.py` is a CLI tool for connecting to an existing sandbox and executing mobile automation operations on demand.
@@ -104,6 +178,9 @@ Use them when you want a smoke-like local run instead of waiting through the ful
 | `quickstart.py` | Creates a new sandbox and runs a complete demo flow |
 | `batch.py` | Batch testing of multiple scenarios |
 | `sandbox_connect.py` | Connects to an existing single sandbox and executes specified operations |
+| `batch_dump_logcat.py` | Batch dump logcat logs from multiple existing sandboxes |
+| `batch_sandbox_kill.py` | Batch kill sandboxes with confirmation |
+| `batch_sandbox_create.py` | Batch create sandboxes |
 
 ### Basic Usage
 
@@ -264,10 +341,10 @@ Screenshots and logs are saved to the `output/` directory:
 
 ```
 output/
-├── quickstart_output/          # quickstart.py output
+├── quickstart_output/              # quickstart.py output
 │   ├── mobile_screenshot_*.png
 │   └── screenshot_before_exit_*.png
-├── batch_output/               # batch.py output
+├── batch_output/                   # batch.py output
 │   └── {count}_{timestamp}/
 │       ├── console.log
 │       ├── summary.json
@@ -276,10 +353,17 @@ output/
 │           ├── screenshot_1.png
 │           ├── screenshot_2.png
 │           └── ...
-└── sandbox_connect_output/     # sandbox_connect.py output
-    ├── screenshot_*.png
-    ├── ui_dump.xml
-    └── device_logs_*.txt
+├── sandbox_connect_output/         # sandbox_connect.py output
+│   ├── screenshot_*.png
+│   ├── ui_dump.xml
+│   └── device_logs_*.txt
+├── batch_dump_logcat_output/       # batch_dump_logcat.py output
+│   ├── <sandbox_id>/
+│   │   └── logcat_*.txt
+│   └── summary_*.json
+└── batch_create_output/            # batch_sandbox_create.py output
+    ├── sandbox_ids_*.txt
+    └── details_*.json
 ```
 
 ## Supported Apps
@@ -361,12 +445,17 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 
 ## Dependencies
 
-- Python >= 3.8
-- e2b >= 2.9.0
-- Appium-Python-Client >= 3.1.0
-- requests >= 2.28.0
-- python-dotenv >= 1.0.0 (optional)
-- pytest >= 7.0.0 (for testing)
+All dependencies are listed in `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+- **e2b** - Sandbox creation/connection/management
+- **Appium-Python-Client** - Android device automation via Appium
+- **requests** - HTTP requests (health checks, chunked upload, etc.)
+- **PyYAML** - YAML config parsing (for batch tools)
+- **python-dotenv** - Optional, auto-load `.env` files (manual fallback built-in)
 
 ## Notes
 
