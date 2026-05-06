@@ -69,6 +69,7 @@ make example-run EXAMPLE=mini-rl
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
+| `hermes-cookbook` | Node.js + 自定义镜像 + CFS | 基于官方镜像在 AGS 中运行 Hermes Agent |
 | `html-processing` | Python + Browser/Code 双沙箱 | HTML 协作处理 |
 | `hybrid-cookbook` | Go | 最小控制面 + 数据面流程 |
 | `mini-rl` | Python + 代码沙箱 | 最小 RL Tool Calling 示例 |
