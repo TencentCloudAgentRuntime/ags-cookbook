@@ -16,6 +16,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - `mini-swe-agent` — SWE-bench evaluation with AGS SWE sandbox and SWE-ReX runtime
 - `mobile-use` — Android / Appium automation in AGS
+- `multi-tenant-apikey` — multi-tenant API key management via AGS CredentialProvider (unhosted Agent)
 - `openclaw-cookbook` — run OpenClaw in AGS with official image, local management UI and COS persistence
 - `shop-assistant` — browser shopping-flow automation with optional cookies
 - `custom-image-go-sdk` — custom-image startup and data-plane execution in Go
@@ -46,6 +47,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `mini-rl` | starter | Python + code sandbox | `make run` | Smallest Python example |
 | `mini-swe-agent` | advanced | Python + SWE sandbox + LLM | `make run` | SWE-bench evaluation; requires mini-swe-agent and SWE-ReX repos |
 | `mobile-use` | advanced | Python + mobile sandbox + Appium | `make run` | Heavy runtime dependencies and long-running device flow |
+| `multi-tenant-apikey` | advanced | Python + AGS Credential API | `make run` | Multi-tenant API key management for unhosted Agent scenarios |
 | `openclaw-cookbook` | advanced | Node.js + custom image + COS | `make run` | Run OpenClaw in AGS with official image; includes local management UI |
 | `osworld-ags` | heavy | Python 3.10 + OSWorld overlay | `make setup` then `make run` | External checkout and template/tool requirements |
 | `shop-assistant` | advanced | Python + browser sandbox | `make run` | Cookie-free guest mode now supported |
