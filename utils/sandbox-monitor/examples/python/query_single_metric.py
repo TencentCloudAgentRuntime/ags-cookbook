@@ -8,7 +8,7 @@
     export TENCENTCLOUD_SECRET_KEY="<你的 SecretKey>"
 
 使用方式：
-    python query_single_metric.py --region ap-guangzhou --tool-id sdt-xxx --instance-id xxx --metric SandboxCpuUsagePercent
+    python query_single_metric.py --region ap-guangzhou --instance-id xxx --metric SandboxCpuUsagePercent
 """
 import argparse
 import json
@@ -38,7 +38,6 @@ ALL_METRICS = [
 
 def query_sandbox_metric(
     region: str,
-    tool_id: str,
     instance_id: str,
     metric_name: str,
     start_time: str = None,
@@ -50,7 +49,6 @@ def query_sandbox_metric(
 
     Args:
         region: 地域，如 "ap-guangzhou"
-        tool_id: 沙箱工具 ID，如 "sdt-0h5n0fil"
         instance_id: 沙箱实例 ID
         metric_name: 指标名，如 "SandboxCpuUsagePercent"
         start_time: 开始时间 (ISO 8601)，默认 1 小时前
@@ -91,7 +89,6 @@ def query_sandbox_metric(
         "Instances": [
             {
                 "Dimensions": [
-                    {"Name": "tool_id", "Value": tool_id},
                     {"Name": "instance_id", "Value": instance_id},
                 ]
             }
@@ -111,10 +108,12 @@ def query_sandbox_metric(
 def main():
     parser = argparse.ArgumentParser(description="查询沙箱监控指标")
     parser.add_argument("--region", required=True, help="地域，如 ap-guangzhou")
-    parser.add_argument("--tool-id", required=True, help="沙箱工具 ID，如 sdt-0h5n0fil")
     parser.add_argument("--instance-id", required=True, help="沙箱实例 ID")
-    parser.add_argument("--metric", default="SandboxCpuUsagePercent",
-                        help="指标名，传 all 查询全部 10 个指标")
+    parser.add_argument(
+        "--metric",
+        default="SandboxCpuUsagePercent",
+        help="指标名，传 all 查询全部 10 个指标",
+    )
     parser.add_argument("--period", type=int, default=60, help="统计周期（秒），默认 60")
     parser.add_argument("--start", default=None, help="开始时间 (ISO 8601)，默认 1 小时前")
     parser.add_argument("--end", default=None, help="结束时间 (ISO 8601)，默认当前时间")
@@ -126,7 +125,6 @@ def main():
         for metric_name in metrics:
             result = query_sandbox_metric(
                 region=args.region,
-                tool_id=args.tool_id,
                 instance_id=args.instance_id,
                 metric_name=metric_name,
                 start_time=args.start,
@@ -138,7 +136,10 @@ def main():
             data_points = result.get("DataPoints", [])
             if data_points and data_points[0].get("Values"):
                 values = data_points[0]["Values"]
-                print(f"[{metric_name}] count={len(values)}, avg={sum(values)/len(values):.4f}, max={max(values):.4f}")
+                print(
+                    f"[{metric_name}] count={len(values)}, "
+                    f"avg={sum(values)/len(values):.4f}, max={max(values):.4f}"
+                )
             else:
                 print(f"[{metric_name}] 当前时间范围内无数据")
 

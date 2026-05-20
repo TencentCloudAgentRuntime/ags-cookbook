@@ -5,7 +5,7 @@
 //   export TENCENTCLOUD_SECRET_KEY="<你的 SecretKey>"
 //
 // 运行：
-//   go run main.go --region ap-guangzhou --tool-id sdt-0h5n0fil --instance-id xxx
+//   go run main.go --region ap-guangzhou --instance-id xxx
 
 package main
 
@@ -51,7 +51,7 @@ func createClient(region string) (*monitor.Client, error) {
 	return monitor.NewClient(cred, region, cpf)
 }
 
-func querySandboxMetric(client *monitor.Client, toolID, instanceID, metricName, startTime, endTime string) (string, error) {
+func querySandboxMetric(client *monitor.Client, instanceID, metricName, startTime, endTime string) (string, error) {
 	req := monitor.NewGetMonitorDataRequest()
 	req.Namespace = common.StringPtr("QCE/AGS")
 	req.MetricName = common.StringPtr(metricName)
@@ -61,10 +61,6 @@ func querySandboxMetric(client *monitor.Client, toolID, instanceID, metricName, 
 	req.Instances = []*monitor.Instance{
 		{
 			Dimensions: []*monitor.Dimension{
-				{
-					Name:  common.StringPtr("tool_id"),
-					Value: common.StringPtr(toolID),
-				},
 				{
 					Name:  common.StringPtr("instance_id"),
 					Value: common.StringPtr(instanceID),
@@ -86,13 +82,12 @@ func querySandboxMetric(client *monitor.Client, toolID, instanceID, metricName, 
 
 func main() {
 	region := flag.String("region", "ap-guangzhou", "地域")
-	toolID := flag.String("tool-id", "", "沙箱工具 ID (必填)")
 	instanceID := flag.String("instance-id", "", "沙箱实例 ID (必填)")
 	metric := flag.String("metric", "SandboxCpuUsagePercent", "指标名，传 all 查询全部")
 	flag.Parse()
 
-	if *toolID == "" || *instanceID == "" {
-		fmt.Fprintf(os.Stderr, "错误: --tool-id 和 --instance-id 为必填参数\n")
+	if *instanceID == "" {
+		fmt.Fprintf(os.Stderr, "错误: --instance-id 为必填参数\n")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -104,7 +99,6 @@ func main() {
 
 	fmt.Printf("查询参数:\n")
 	fmt.Printf("  Region:      %s\n", *region)
-	fmt.Printf("  Tool ID:     %s\n", *toolID)
 	fmt.Printf("  Instance ID: %s\n", *instanceID)
 	fmt.Printf("  Metric:      %s\n", *metric)
 	fmt.Printf("  时间范围:    %s ~ %s\n", startTime, endTime)
@@ -124,7 +118,7 @@ func main() {
 	}
 
 	for _, m := range metrics {
-		result, err := querySandboxMetric(client, *toolID, *instanceID, m, startTime, endTime)
+		result, err := querySandboxMetric(client, *instanceID, m, startTime, endTime)
 		if err != nil {
 			fmt.Printf("[%s] 查询失败: %v\n", m, err)
 		} else {
