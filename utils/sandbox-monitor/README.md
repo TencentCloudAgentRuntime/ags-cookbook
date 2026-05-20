@@ -43,14 +43,12 @@
 
 | 维度名 | 必填 | 示例 | 说明 |
 |---|:---:|---|---|
-| `tool_id` | 是 | `sdt-ggdjgpcl` | 沙箱工具 ID |
 | `instance_id` | 是 | `3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs` | 沙箱实例 ID |
 
 `Dimensions` 标准 JSON 格式：
 
 ```json
 [
-  {"Name": "tool_id", "Value": "sdt-ggdjgpcl"},
   {"Name": "instance_id", "Value": "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"}
 ]
 ```
@@ -94,7 +92,6 @@
   "Instances": [
     {
       "Dimensions": [
-        {"Name": "tool_id", "Value": "sdt-ggdjgpcl"},
         {"Name": "instance_id", "Value": "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"}
       ]
     }
@@ -112,7 +109,7 @@
 | `Namespace` | 是 | String | 固定为 `QCE/AGS` |
 | `MetricName` | 是 | String | 指标名，见上方指标列表 |
 | `Instances` | 是 | Array | 查询对象数组，单次最多 50 个实例 |
-| `Instances[].Dimensions` | 是 | Array | 只传 `tool_id` 和 `instance_id` |
+| `Instances[].Dimensions` | 是 | Array | 只传 `instance_id` |
 | `Period` | 否 | Integer | 统计周期，单位秒，建议 `60` |
 | `StartTime` | 否 | String | ISO 8601 时间，必须带时区（如 `+08:00`） |
 | `EndTime` | 否 | String | ISO 8601 时间，必须带时区 |
@@ -127,8 +124,7 @@
     "DataPoints": [
       {
         "Dimensions": [
-          {"Name": "instance_id", "Value": "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"},
-          {"Name": "tool_id", "Value": "sdt-ggdjgpcl"}
+          {"Name": "instance_id", "Value": "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"}
         ],
         "Timestamps": [1747634400, 1747634460, 1747634520],
         "Values": [0.12, 0.08, 0.15]
@@ -152,8 +148,7 @@
     "DataPoints": [
       {
         "Dimensions": [
-          {"Name": "instance_id", "Value": "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"},
-          {"Name": "tool_id", "Value": "sdt-ggdjgpcl"}
+          {"Name": "instance_id", "Value": "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"}
         ],
         "Timestamps": [],
         "Values": []
@@ -226,7 +221,6 @@ from tencentcloud.monitor.v20180724 import monitor_client, models
 
 def query_sandbox_metric(
     region: str,
-    tool_id: str,
     instance_id: str,
     metric_name: str,
     start_time: str = None,
@@ -238,7 +232,6 @@ def query_sandbox_metric(
 
     Args:
         region: 地域，如 "ap-guangzhou"
-        tool_id: 沙箱工具 ID，如 "sdt-ggdjgpcl"
         instance_id: 沙箱实例 ID
         metric_name: 指标名，如 "SandboxCpuUsagePercent"
         start_time: 开始时间 (ISO 8601)，默认 1 小时前
@@ -282,7 +275,6 @@ def query_sandbox_metric(
         "Instances": [
             {
                 "Dimensions": [
-                    {"Name": "tool_id", "Value": tool_id},
                     {"Name": "instance_id", "Value": instance_id},
                 ]
             }
@@ -304,7 +296,6 @@ if __name__ == "__main__":
     try:
         result = query_sandbox_metric(
             region="ap-guangzhou",
-            tool_id="sdt-ggdjgpcl",
             instance_id="3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs",
             metric_name="SandboxCpuUsagePercent",
         )
@@ -334,7 +325,6 @@ import time
 for metric in ALL_METRICS:
     result = query_sandbox_metric(
         region="ap-guangzhou",
-        tool_id="sdt-ggdjgpcl",
         instance_id="3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs",
         metric_name=metric,
     )
@@ -382,7 +372,7 @@ import (
 	monitor "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/monitor/v20180724"
 )
 
-func querySandboxMetric(region, toolID, instanceID, metricName string) (string, error) {
+func querySandboxMetric(region, instanceID, metricName string) (string, error) {
 	// 构造凭证
 	cred := common.NewCredential(
 		os.Getenv("TENCENTCLOUD_SECRET_ID"),
@@ -414,10 +404,6 @@ func querySandboxMetric(region, toolID, instanceID, metricName string) (string, 
 		{
 			Dimensions: []*monitor.Dimension{
 				{
-					Name:  common.StringPtr("tool_id"),
-					Value: common.StringPtr(toolID),
-				},
-				{
 					Name:  common.StringPtr("instance_id"),
 					Value: common.StringPtr(instanceID),
 				},
@@ -439,11 +425,10 @@ func querySandboxMetric(region, toolID, instanceID, metricName string) (string, 
 
 func main() {
 	region := "ap-guangzhou"
-	toolID := "sdt-ggdjgpcl"
 	instanceID := "3vixj4szpniara3tu7wyhg35nbr27w4d7223wexs"
 	metricName := "SandboxCpuUsagePercent"
 
-	result, err := querySandboxMetric(region, toolID, instanceID, metricName)
+	result, err := querySandboxMetric(region, instanceID, metricName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "查询失败: %v\n", err)
 		os.Exit(1)
@@ -476,9 +461,9 @@ var allMetrics = []string{
 	"SandboxNetworkTxBytesPerSecond",
 }
 
-func queryAllMetrics(region, toolID, instanceID string) {
+func queryAllMetrics(region, instanceID string) {
 	for _, metric := range allMetrics {
-		result, err := querySandboxMetric(region, toolID, instanceID, metric)
+		result, err := querySandboxMetric(region, instanceID, metric)
 		if err != nil {
 			fmt.Printf("[%s] 查询失败: %v\n", metric, err)
 		} else {

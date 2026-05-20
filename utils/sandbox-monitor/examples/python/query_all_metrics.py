@@ -8,7 +8,7 @@
     export TENCENTCLOUD_SECRET_KEY="<你的 SecretKey>"
 
 使用方式：
-    python query_all_metrics.py --region ap-guangzhou --tool-id sdt-xxx --instance-id xxx
+    python query_all_metrics.py --region ap-guangzhou --instance-id xxx
 """
 import argparse
 import json
@@ -57,7 +57,6 @@ def create_monitor_client(region: str) -> monitor_client.MonitorClient:
 
 def query_metric(
     client: monitor_client.MonitorClient,
-    tool_id: str,
     instance_id: str,
     metric_name: str,
     start_time: str,
@@ -71,7 +70,6 @@ def query_metric(
         "Instances": [
             {
                 "Dimensions": [
-                    {"Name": "tool_id", "Value": tool_id},
                     {"Name": "instance_id", "Value": instance_id},
                 ]
             }
@@ -96,35 +94,31 @@ def format_iso_time(dt: datetime) -> str:
 def main():
     parser = argparse.ArgumentParser(description="批量查询沙箱全部监控指标")
     parser.add_argument("--region", required=True, help="地域，如 ap-guangzhou")
-    parser.add_argument("--tool-id", required=True, help="沙箱工具 ID，如 sdt-0h5n0fil")
     parser.add_argument("--instance-id", required=True, help="沙箱实例 ID")
     args = parser.parse_args()
 
-    REGION = args.region
-    TOOL_ID = args.tool_id
-    INSTANCE_ID = args.instance_id
+    region = args.region
+    instance_id = args.instance_id
 
     now = datetime.now().astimezone()
     start = now - timedelta(hours=1)
     start_time = format_iso_time(start)
     end_time = format_iso_time(now)
 
-    print(f"查询参数:")
-    print(f"  Region:      {REGION}")
-    print(f"  Tool ID:     {TOOL_ID}")
-    print(f"  Instance ID: {INSTANCE_ID}")
+    print("查询参数:")
+    print(f"  Region:      {region}")
+    print(f"  Instance ID: {instance_id}")
     print(f"  时间范围:    {start_time} ~ {end_time}")
-    print(f"  统计周期:    60s")
+    print("  统计周期:    60s")
     print("=" * 70)
 
-    client = create_monitor_client(REGION)
+    client = create_monitor_client(region)
 
     for metric in ALL_METRICS:
         try:
             result = query_metric(
                 client=client,
-                tool_id=TOOL_ID,
-                instance_id=INSTANCE_ID,
+                instance_id=instance_id,
                 metric_name=metric,
                 start_time=start_time,
                 end_time=end_time,
