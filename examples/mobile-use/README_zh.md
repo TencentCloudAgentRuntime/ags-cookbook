@@ -108,6 +108,30 @@ python sandbox_connect.py --sandbox-id abc123 --action dump_ui
 python sandbox_connect.py --sandbox-id abc123 --action get_device_logs
 ```
 
+设置 GPS 位置（深圳）：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action set_location --latitude 22.5431 --longitude 113.9298
+```
+
+执行 ADB shell 命令：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action shell --shell-cmd "pm list packages"
+```
+
+卸载应用：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action uninstall_app --app-name yyb
+```
+
+获取应用状态：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_app_state --app-name yyb
+```
+
 ## 批量工具
 
 批量工具统一通过 `sandboxes.yaml` 配置文件传入沙箱 ID：

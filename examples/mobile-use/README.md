@@ -288,6 +288,16 @@ python sandbox_connect.py --sandbox-id abc123 --action dump_ui
 python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name yyb
 ```
 
+**Upload, install, grant permissions, and launch QQ Browser:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name qqbrowser
+```
+
+**Get device logs (full logcat):**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_device_logs
+```
+
 **Execute ADB shell command:**
 ```bash
 python sandbox_connect.py --sandbox-id abc123 --action shell --shell-cmd "pm list packages"
@@ -378,6 +388,7 @@ The example includes configurations for common Android apps. You can customize `
 
 **sandbox_connect.py:**
 - **应用宝** (`yyb`): Tencent App Store
+- **QQ Browser** (`qqbrowser`): Tencent QQ Browser
 
 ## Example Usage
 
