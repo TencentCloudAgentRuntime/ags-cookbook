@@ -20,6 +20,7 @@ Usage examples:
     python sandbox_connect.py --sandbox-id <id> --action input_text --text "Hello World"
     python sandbox_connect.py --sandbox-id <id> --action click_element --element-id "com.example:id/button"
     python sandbox_connect.py --sandbox-id <id> --action launch_app --app-name yyb
+    python sandbox_connect.py --sandbox-id <id> --action upload_app,install_app,grant_app_permissions,launch_app --app-name qqbrowser
     python sandbox_connect.py --sandbox-id <id> --action set_location --latitude 22.5431 --longitude 113.9298
     python sandbox_connect.py --sandbox-id <id> --action shell --shell-cmd "pm list packages"
 """
@@ -62,6 +63,20 @@ APP_CONFIGS = {
             'android.permission.ACCESS_COARSE_LOCATION',
             'android.permission.READ_EXTERNAL_STORAGE',
             'android.permission.WRITE_EXTERNAL_STORAGE',
+        ]
+    },
+    'qqbrowser': {
+        'name': 'QQ Browser',
+        'package': 'com.tencent.mtt',
+        'activity': 'com.tencent.mtt.x86.MainActivity',
+        'apk_name': 'qqbrowser_6.1.4.1740_x86_release_10369.apk',
+        'remote_path': '/data/local/tmp/qqbrowser.apk',
+        'permissions': [
+            'android.permission.ACCESS_FINE_LOCATION',
+            'android.permission.ACCESS_COARSE_LOCATION',
+            'android.permission.READ_EXTERNAL_STORAGE',
+            'android.permission.WRITE_EXTERNAL_STORAGE',
+            'android.permission.READ_CONTACTS',
         ]
     }
 }
@@ -332,7 +347,29 @@ class SandboxClient:
             return False
             
         except Exception as e:
-            print(f"✗ Installation failed: {e}")
+            err_str = str(e)
+            # Fallback: if ABI mismatch, retry with --abi x86 to force install on x86_64 emulator
+            if 'NO_MATCHING_ABIS' in err_str:
+                print(f"  ⚠ ABI mismatch detected, retrying with --abi x86...")
+                try:
+                    result = self.driver.execute_script('mobile: shell', {
+                        'command': 'pm',
+                        'args': ['install', '-r', '-g', '--abi', 'x86', config['remote_path']]
+                    })
+                    if result and ('Success' in str(result) or 'success' in str(result).lower()):
+                        print(f"✓ {config['name']} installed successfully (--abi x86)")
+                        print()
+                        return True
+                    time.sleep(2)
+                    if self._is_app_installed(config['package']):
+                        print(f"✓ {config['name']} installed successfully (--abi x86, verified)")
+                        print()
+                        return True
+                    print(f"✗ Installation failed even with --abi x86")
+                except Exception as e2:
+                    print(f"✗ Retry failed: {e2}")
+            else:
+                print(f"✗ Installation failed: {e}")
             print()
             return False
     
@@ -356,7 +393,25 @@ class SandboxClient:
             return True
             
         except Exception as e:
-            print(f"✗ Launch failed: {e}")
+            # Fallback: use am start with explicit activity when activate_app fails
+            if config.get('activity'):
+                print(f"  ⚠ activate_app failed, retrying with am start -n {config['activity']}...")
+                try:
+                    self.driver.execute_script('mobile: shell', {
+                        'command': 'am',
+                        'args': ['start', '-n', f"{config['package']}/{config['activity']}"]
+                    })
+                    time.sleep(3)
+                    app_state = self.driver.query_app_state(config['package'])
+                    if app_state in (3, 4):
+                        print(f"✓ {config['name']} launched (am start)")
+                        print()
+                        return True
+                    print(f"✗ App did not start (state={app_state})")
+                except Exception as e2:
+                    print(f"✗ am start also failed: {e2}")
+            else:
+                print(f"✗ Launch failed: {e}")
             print()
             return False
     
@@ -1276,7 +1331,7 @@ Usage examples:
     
     parser.add_argument('--sandbox-id', type=str, required=True, help='Sandbox ID')
     parser.add_argument('--action', type=str, required=True, help='Action to execute, multiple actions separated by comma')
-    parser.add_argument('--app-name', type=str, default=None, help='App name (yyb)')
+    parser.add_argument('--app-name', type=str, default=None, help='App name (yyb, qqbrowser)')
     parser.add_argument('--apk-path', type=str, default=None, help='APK file path')
     parser.add_argument('--tap-x', type=int, default=None, help='Tap X coordinate')
     parser.add_argument('--tap-y', type=int, default=None, help='Tap Y coordinate')

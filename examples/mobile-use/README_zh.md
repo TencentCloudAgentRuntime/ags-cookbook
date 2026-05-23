@@ -90,6 +90,24 @@ python sandbox_connect.py --sandbox-id abc123 --action click_element --element-t
 python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name yyb
 ```
 
+上传、安装、授权并打开 QQ 浏览器：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name qqbrowser
+```
+
+获取当前界面 UI 层级（XML）：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action dump_ui
+```
+
+拉取全量 logcat 日志：
+
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_device_logs
+```
+
 ## 批量工具
 
 批量工具统一通过 `sandboxes.yaml` 配置文件传入沙箱 ID：
