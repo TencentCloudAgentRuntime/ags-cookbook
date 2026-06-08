@@ -4,6 +4,7 @@ Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox /
 
 ## What this repo contains
 
+- **Skills**: reference Agent Skill example for AGS; see [`skills/README.md`](./skills/README.md)
 - **Tutorials**: SDK and notebook-based onboarding
 - **Examples**: runnable browser, code, mobile, Go, and OSWorld demos
 - **Benchmarks**: k6 stress scripts
@@ -23,8 +24,21 @@ Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox /
 
 - Most Python examples in `examples/` require **Python >= 3.12**
 - `examples/osworld-ags` currently requires **Python 3.10**
+- `uv` can manage both interpreters.
 
-`uv` can manage both interpreters.
+### agr CLI
+
+The `ags` reference Skill example uses the `agr` CLI:
+
+```bash
+# One-line install (macOS / Linux)
+curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | sh
+
+# Or via go install
+go install github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@latest
+
+agr version -o json
+```
 
 ## Common environment variables
 
@@ -82,6 +96,22 @@ You can also enter an example directory directly and run its local `make setup` 
 | `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |
 
 See `examples/README.md` for per-example details and a starter/advanced/heavy picker.
+
+## Skills overview
+
+The **`ags`** skill is a reference Agent Skill example for AGS. It demonstrates CLI-first AGS workflows with `agr`.
+
+| Skill | Path | What it covers |
+|---|---|---|
+| `ags` | [`skills/ags/SKILL.md`](./skills/ags/SKILL.md) | CLI-first AGS workflows with `agr`: tools, instances, code/shell execution, files, browser/mobile, storage mounts, API keys, debug instances, tool fork, and raw API fallback. |
+
+Add from GitHub with the `skills` CLI:
+
+```bash
+npx skills add TencentCloudAgentRuntime/ags-cookbook --skill ags
+```
+
+See [`skills/README.md`](./skills/README.md) for the skill index and the progressive disclosure structure.
 
 ## Important DX notes
 

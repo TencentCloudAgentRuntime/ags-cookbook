@@ -4,6 +4,7 @@
 
 ## 仓库内容
 
+- **skills/**：AGS 的参考 Agent Skill 示例；详见 [`skills/README.md`](./skills/README.md)
 - **tutorials/**：SDK / Notebook 教程
 - **examples/**：可运行的浏览器、代码、移动端、Go、OSWorld 示例
 - **benchmarks/**：k6 压测脚本
@@ -23,8 +24,21 @@
 
 - `examples/` 下多数 Python 示例要求 **Python >= 3.12**
 - `examples/osworld-ags` 当前要求 **Python 3.10**
+- 建议统一使用 `uv` 管理解释器。
 
-建议统一使用 `uv` 管理解释器。
+### agr CLI
+
+`ags` 参考 Skill 示例使用 `agr` CLI：
+
+```bash
+# 一键安装（macOS / Linux）
+curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | sh
+
+# 或通过 go install
+go install github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@latest
+
+agr version -o json
+```
 
 ## 常用环境变量
 
@@ -79,6 +93,22 @@ make example-run EXAMPLE=mini-rl
 | `shop-assistant` | Python + 浏览器沙箱 | 搜索 / 加购演示 |
 
 详见 `examples/README_zh.md`，其中包含各示例的使用说明与推荐阅读顺序。
+
+## Skills 概览
+
+**`ags`** 是 AGS 的参考 Agent Skill 示例，展示基于 `agr` 的 CLI-first AGS 工作流。
+
+| Skill | 路径 | 覆盖范围 |
+|---|---|---|
+| `ags` | [`skills/ags/SKILL.md`](./skills/ags/SKILL.md) | CLI-first AGS 工作流：工具、实例、代码/Shell 执行、文件传输、浏览器/移动端、存储挂载、API Key、调试实例、工具复制、原始 API 透传 |
+
+通过 `skills` CLI 从 GitHub 添加：
+
+```bash
+npx skills add TencentCloudAgentRuntime/ags-cookbook --skill ags
+```
+
+索引与渐进式披露结构见 [`skills/README.md`](./skills/README.md)。
 
 ## 重要 DX 说明
 
