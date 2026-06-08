@@ -1,20 +1,28 @@
 """
-Multi-Tenant API Key CredentialProvider — Complete Demo
+Multi-Tenant ManagedSecret CredentialProvider — Complete Demo
 
-Demonstrates the end-to-end workflow for managing multi-tenant static API keys
-through AGS CredentialProvider, covering all four phases:
+Demonstrates the end-to-end workflow for managing multi-tenant managed
+secrets through AGS CredentialProvider, covering all four phases:
 
   Phase 1: One-time setup
-           CreateWorkloadIdentity + CreateCredentialProvider (API_KEY_MULTI_USER)
+           CreateWorkloadIdentity + CreateCredentialProvider (SecretMultiUser)
 
-  Phase 2: Key management
-           Set / List / Rotate API keys per user
+  Phase 2: ManagedSecret management
+           Set / List / Rotate managed secrets per user (with Scope + Metadata)
 
   Phase 3: Runtime — WAT issuance
            CreateWorkloadAccessTokenForUserId
 
-  Phase 4: Runtime — Agent retrieves API key
-           GetAPIKeyFromCredentialProvider (WAT → plaintext API key)
+  Phase 4: Runtime — Agent retrieves managed secret
+           GetManagedSecret (WAT + Scope → plaintext secret)
+
+Concepts:
+    - Scope:    REQUIRED for Set / Get; optional for Delete / List filter.
+                A non-empty string used to namespace secrets per user (e.g.
+                "openai", "github"). One user can own multiple secrets, one
+                per Scope.
+    - Metadata: optional list of {Name, Value} entries attached to the
+                secret (e.g. email, client_id). Returned by Get / List.
 """
 
 import json
@@ -52,6 +60,11 @@ if not SECRET_ID or not SECRET_KEY:
 
 _API_VERSION = "2025-09-20"
 _SERVICE = "ags"
+
+# Demo-wide Scope. ManagedSecret requires a non-empty Scope for Set/Get.
+# In a real platform you would choose a Scope per target API
+# (e.g. "openai", "anthropic", "github") so one user can own multiple secrets.
+DEMO_SCOPE = "openai"
 
 
 def _random_suffix(n: int = 6) -> str:
@@ -93,7 +106,7 @@ def call_api(action: str, params: dict) -> dict:
 
 
 def phase1_setup() -> tuple[str, str]:
-    """Create WorkloadIdentity and CredentialProvider (API_KEY_MULTI_USER)."""
+    """Create WorkloadIdentity and CredentialProvider (SecretMultiUser)."""
     print("=" * 60)
     print("Phase 1: One-time Setup")
     print("=" * 60)
@@ -111,13 +124,13 @@ def phase1_setup() -> tuple[str, str]:
         print("  Failed to create WorkloadIdentity")
         sys.exit(1)
 
-    # Step 2: Create CredentialProvider (API_KEY_MULTI_USER)
-    print("\n[2/2] Creating CredentialProvider (API_KEY_MULTI_USER)...")
+    # Step 2: Create CredentialProvider (SecretMultiUser)
+    print("\n[2/2] Creating CredentialProvider (SecretMultiUser)...")
     cp_resp = call_api("CreateCredentialProvider", {
         "Name": f"demo-customer-keys-{suffix}",
-        "Type": "API_KEY_MULTI_USER",
-        "Description": "Multi-tenant API keys for demo agent",
-        "Config": [{"Key": "description", "Value": "per-user api keys"}],
+        "Type": "SecretMultiUser",
+        "Description": "Multi-tenant managed secrets for demo agent",
+        "Config": [{"Key": "description", "Value": "per-user managed secrets"}],
     })
     cp_id = cp_resp.get("ProviderId", "")
     if cp_id:
@@ -128,67 +141,92 @@ def phase1_setup() -> tuple[str, str]:
 
     print(f"\n  Record these IDs for later use:")
     print(f"    WorkloadIdentityId   = {wi_id}")
-    print(f"    CredentialProviderId  = {cp_id}")
+    print(f"    CredentialProviderId = {cp_id}")
     return wi_id, cp_id
 
 
 # ===========================================================================
-# Phase 2: Key Management
+# Phase 2: ManagedSecret Management
 # ===========================================================================
 
 
 def phase2_manage_keys(cp_id: str):
-    """Demonstrate setting, listing, and rotating API keys per user."""
+    """Demonstrate setting, listing, and rotating managed secrets per user."""
     print("\n" + "=" * 60)
-    print("Phase 2: Key Management")
+    print("Phase 2: ManagedSecret Management")
     print("=" * 60)
 
-    # Set API Key for customer-001
-    print("\n[1/4] Setting API Key for customer-001...")
-    call_api("SetAPIKeyToCredentialProvider", {
+    # Set ManagedSecret for customer-001
+    print("\n[1/4] Setting ManagedSecret for customer-001 (scope=%s)..." % DEMO_SCOPE)
+    call_api("SetManagedSecret", {
         "CredentialProviderId": cp_id,
         "UserId": "customer-001",
-        "APIKey": "sk-demo-key-for-customer-001",
+        "Secret": "sk-demo-key-for-customer-001",
+        "Scope": DEMO_SCOPE,
         "OverwriteAllowed": False,
+        # Optional Metadata: arbitrary KVs returned by Get / List.
+        "Metadata": [
+            {"Name": "email", "Value": "customer-001@example.com"},
+            {"Name": "plan", "Value": "pro"},
+        ],
     })
     print("  Done.")
 
-    # Set API Key for customer-002
-    print("\n[2/4] Setting API Key for customer-002...")
-    call_api("SetAPIKeyToCredentialProvider", {
+    # Set ManagedSecret for customer-002
+    print("\n[2/4] Setting ManagedSecret for customer-002 (scope=%s)..." % DEMO_SCOPE)
+    call_api("SetManagedSecret", {
         "CredentialProviderId": cp_id,
         "UserId": "customer-002",
-        "APIKey": "sk-demo-key-for-customer-002",
+        "Secret": "sk-demo-key-for-customer-002",
+        "Scope": DEMO_SCOPE,
         "OverwriteAllowed": False,
+        "Metadata": [
+            {"Name": "email", "Value": "customer-002@example.com"},
+        ],
     })
     print("  Done.")
 
-    # List all API keys (masked)
-    print("\n[3/4] Listing API Keys (masked)...")
-    list_resp = call_api("DescribeCredentialProviderAPIKeyList", {
+    # List all ManagedSecrets (masked) — filter by scope
+    print("\n[3/4] Listing ManagedSecrets (masked, scope=%s)..." % DEMO_SCOPE)
+    list_resp = call_api("DescribeManagedSecretList", {
         "CredentialProviderId": cp_id,
         "Offset": 0,
         "Limit": 20,
+        "Filters": [
+            {"Name": "scope", "Values": [DEMO_SCOPE]},
+        ],
     })
     total = list_resp.get("TotalCount", 0)
-    keys = list_resp.get("APIKeySet", [])
+    secrets = list_resp.get("ManagedSecretSet", [])
     print(f"  TotalCount: {total}")
-    for item in keys:
+    for item in secrets:
+        meta_pairs = [
+            f"{m['Name']}={m['Value']}" for m in item.get("Metadata", [])
+        ]
+        meta_str = ", ".join(meta_pairs) if meta_pairs else "<none>"
         print(
             f"    UserId={item['UserId']}  "
-            f"MaskedKey={item['MaskedAPIKey']}  "
-            f"CreatedAt={item['CreatedAt']}"
+            f"Scope={item.get('Scope', '')}  "
+            f"MaskedSecret={item['MaskedSecret']}  "
+            f"CreatedAt={item['CreatedAt']}  "
+            f"Metadata=[{meta_str}]"
         )
 
-    # Rotate: overwrite API Key for customer-001
-    print("\n[4/4] Rotating API Key for customer-001 (OverwriteAllowed=true)...")
-    call_api("SetAPIKeyToCredentialProvider", {
+    # Rotate: overwrite ManagedSecret for customer-001
+    print("\n[4/4] Rotating ManagedSecret for customer-001 (OverwriteAllowed=true)...")
+    call_api("SetManagedSecret", {
         "CredentialProviderId": cp_id,
         "UserId": "customer-001",
-        "APIKey": "sk-rotated-key-for-customer-001",
+        "Secret": "sk-rotated-key-for-customer-001",
+        "Scope": DEMO_SCOPE,
         "OverwriteAllowed": True,
+        "Metadata": [
+            {"Name": "email", "Value": "customer-001@example.com"},
+            {"Name": "plan", "Value": "pro"},
+            {"Name": "rotated", "Value": "true"},
+        ],
     })
-    print("  Done. Next GetAPIKey call will return the new key.")
+    print("  Done. Next GetManagedSecret call will return the new secret.")
 
 
 # ===========================================================================
@@ -217,35 +255,41 @@ def phase3_issue_wat(wi_id: str, user_id: str) -> str:
 
 
 # ===========================================================================
-# Phase 4: Runtime — Agent Retrieves API Key
+# Phase 4: Runtime — Agent Retrieves ManagedSecret
 # ===========================================================================
 
 
-def phase4_get_apikey(cp_id: str, wat: str) -> str:
+def phase4_get_secret(cp_id: str, wat: str) -> str:
     """
-    Use the WAT to retrieve the plaintext API key.
+    Use the WAT to retrieve the plaintext managed secret.
 
     In production, this call is made by the Agent runtime using a
-    least-privilege sub-account AKSK that only has GetAPIKey permission.
-    The service extracts UserId from the WAT JWT claims, so the Agent
-    cannot forge another user's identity.
+    least-privilege sub-account AKSK that only has GetManagedSecret
+    permission. The service extracts UserId from the WAT JWT claims, so
+    the Agent cannot forge another user's identity.
     """
     print("\n" + "=" * 60)
-    print("Phase 4: Agent Retrieves API Key via WAT")
+    print("Phase 4: Agent Retrieves ManagedSecret via WAT")
     print("=" * 60)
 
-    print("\n  Calling GetAPIKeyFromCredentialProvider...")
-    resp = call_api("GetAPIKeyFromCredentialProvider", {
+    print("\n  Calling GetManagedSecret (scope=%s)..." % DEMO_SCOPE)
+    resp = call_api("GetManagedSecret", {
         "CredentialProviderId": cp_id,
         "WorkloadIdentityToken": wat,
+        "Scope": DEMO_SCOPE,
     })
-    api_key = resp.get("APIKey", "")
-    if api_key:
-        masked = api_key[:7] + "****" + api_key[-4:] if len(api_key) > 11 else "****"
-        print(f"  Retrieved API Key (masked): {masked}")
+    secret = resp.get("Secret", "")
+    if secret:
+        masked = secret[:7] + "****" + secret[-4:] if len(secret) > 11 else "****"
+        print(f"  Retrieved Secret (masked): {masked}")
+        meta = resp.get("Metadata", [])
+        if meta:
+            print("  Metadata:")
+            for entry in meta:
+                print(f"    {entry['Name']}={entry['Value']}")
     else:
-        print("  Failed to retrieve API Key")
-    return api_key
+        print("  Failed to retrieve managed secret")
+    return secret
 
 
 # ===========================================================================
@@ -254,14 +298,14 @@ def phase4_get_apikey(cp_id: str, wat: str) -> str:
 
 
 def main():
-    print("Multi-Tenant API Key CredentialProvider — Complete Demo")
+    print("Multi-Tenant ManagedSecret CredentialProvider — Complete Demo")
     print("=" * 60)
     print()
     print("This demo walks through 4 phases:")
     print("  1. One-time setup   (create WorkloadIdentity + CredentialProvider)")
-    print("  2. Key management   (set / list / rotate API keys per user)")
+    print("  2. Secret management (set / list / rotate managed secrets per user)")
     print("  3. WAT issuance     (create Workload Access Token for a user)")
-    print("  4. Get API key      (Agent retrieves plaintext key via WAT)")
+    print("  4. Get secret       (Agent retrieves plaintext secret via WAT)")
     print()
 
     # Phase 1
@@ -277,25 +321,26 @@ def main():
         sys.exit(1)
 
     # Phase 4
-    api_key = phase4_get_apikey(cp_id, wat)
+    secret = phase4_get_secret(cp_id, wat)
 
     # Summary
     print("\n" + "=" * 60)
     print("Demo Complete")
     print("=" * 60)
     print()
-    if api_key:
-        masked = api_key[:7] + "****" + api_key[-4:] if len(api_key) > 11 else "****"
-        print(f"  Retrieved API Key: {masked}")
+    if secret:
+        masked = secret[:7] + "****" + secret[-4:] if len(secret) > 11 else "****"
+        print(f"  Retrieved Secret: {masked}")
         print()
-        print("  In production the Agent uses this key to call the target API:")
+        print("  In production the Agent uses this secret to call the target API:")
         print(f"    Authorization: Bearer {masked}")
         print("    POST https://api.example.com/v1/chat/completions")
     else:
-        print("  API Key retrieval failed — see error messages above.")
+        print("  ManagedSecret retrieval failed — see error messages above.")
     print()
     print(f"  WorkloadIdentityId:   {wi_id}")
     print(f"  CredentialProviderId: {cp_id}")
+    print(f"  Scope:                {DEMO_SCOPE}")
 
 
 if __name__ == "__main__":
