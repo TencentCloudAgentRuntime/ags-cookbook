@@ -94,7 +94,7 @@ wheels = [
 ]
 
 [[package]]
-name = "multi-tenant-apikey"
+name = "multi-user-secret"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
