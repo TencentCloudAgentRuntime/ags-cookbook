@@ -327,12 +327,25 @@ def load_sandbox_ids_from_yaml(yaml_path: str) -> List[str]:
         print(f"Error: 'sandbox_ids' must be a list, got {type(raw_ids).__name__}", file=sys.stderr)
         sys.exit(1)
 
-    # Convert to strings, strip whitespace, skip empty
+    # Strictly accept non-empty string IDs only
     sandbox_ids: List[str] = []
-    for item in raw_ids:
-        sid = str(item).strip()
+    invalid_items: List[str] = []
+    for idx, item in enumerate(raw_ids, 1):
+        if not isinstance(item, str):
+            invalid_items.append(f"#{idx}:{type(item).__name__}")
+            continue
+
+        sid = item.strip()
         if sid:
             sandbox_ids.append(sid)
+
+    if invalid_items:
+        print(
+            f"Error: 'sandbox_ids' contains non-string items ({', '.join(invalid_items[:10])}). "
+            "Please keep all sandbox IDs as strings.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Deduplicate while preserving order
     seen = set()
@@ -348,6 +361,10 @@ def load_sandbox_ids_from_yaml(yaml_path: str) -> List[str]:
 
 def main() -> None:
     args = parse_arguments()
+    if args.concurrency < 1:
+        print("Error: --concurrency must be >= 1", file=sys.stderr)
+        sys.exit(1)
+
     sandbox_ids = load_sandbox_ids_from_yaml(args.config)
 
     if not sandbox_ids:

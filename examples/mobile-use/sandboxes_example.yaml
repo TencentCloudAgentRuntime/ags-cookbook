@@ -5,6 +5,6 @@
 #
 # Fill in actual sandbox IDs below:
 sandbox_ids:
-  - sandbox_1
-  - sandbox_2
-  - sandbox_3
+  - sandbox_id_1
+  - sandbox_id_2
+  - sandbox_id_3

@@ -91,12 +91,26 @@ def load_sandbox_ids_from_yaml(yaml_path: str) -> List[str]:
         print(f"Error: 'sandbox_ids' must be a list, got {type(raw_ids).__name__}", file=sys.stderr)
         sys.exit(1)
 
-    # Convert to strings, strip whitespace, skip empty
+    # Strictly accept non-empty string IDs only
     sandbox_ids: List[str] = []
-    for item in raw_ids:
-        sid = str(item).strip()
+    invalid_items: List[Tuple[int, str]] = []
+    for idx, item in enumerate(raw_ids, 1):
+        if not isinstance(item, str):
+            invalid_items.append((idx, type(item).__name__))
+            continue
+
+        sid = item.strip()
         if sid:
             sandbox_ids.append(sid)
+
+    if invalid_items:
+        details = ", ".join([f"#{i}:{t}" for i, t in invalid_items[:10]])
+        print(
+            f"Error: 'sandbox_ids' contains non-string items ({details}). "
+            "Please keep all sandbox IDs as strings.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Deduplicate while preserving order
     seen = set()
@@ -144,13 +158,15 @@ async def kill_batch(sandbox_ids: List[str], concurrency: int = 50, sleep_interv
 
         async def _kill_one(sid: str) -> Tuple[str, bool, str]:
             try:
-                result = await AsyncSandbox.kill(sid)
-                if result:
-                    return (sid, True, "killed")
-                else:
-                    return (sid, True, "not_found")  # 404 = already gone, treat as success
+                await AsyncSandbox.kill(sid)
+                return (sid, True, "killed")
             except Exception as e:
-                return (sid, False, str(e)[:120])
+                err = str(e)
+                err_lower = err.lower()
+                # 404/not found is treated as idempotent success for kill operations
+                if "404" in err_lower or "not found" in err_lower:
+                    return (sid, True, "not_found")
+                return (sid, False, err[:120])
 
         results = await asyncio.gather(*[_kill_one(sid) for sid in batch])
 
@@ -235,6 +251,13 @@ Usage examples:
     parser.add_argument("--sleep", "-s", type=float, default=1.0, help="Sleep seconds between batches (default: 1.0)")
     parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     args = parser.parse_args()
+
+    if args.concurrency < 1:
+        print("Error: --concurrency must be >= 1", file=sys.stderr)
+        sys.exit(1)
+    if args.sleep < 0:
+        print("Error: --sleep must be >= 0", file=sys.stderr)
+        sys.exit(1)
 
     # Load sandbox IDs from YAML
     sandbox_ids = load_sandbox_ids_from_yaml(args.config)

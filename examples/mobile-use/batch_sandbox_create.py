@@ -45,6 +45,34 @@ def format_timestamp() -> str:
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
 
+def _parse_positive_int(name: str, default: str) -> int:
+    raw = os.getenv(name, default)
+    try:
+        value = int(raw)
+    except ValueError:
+        print(f"Error: {name} must be an integer, got: {raw}", file=sys.stderr)
+        sys.exit(1)
+
+    if value < 1:
+        print(f"Error: {name} must be >= 1, got: {value}", file=sys.stderr)
+        sys.exit(1)
+    return value
+
+
+def _parse_non_negative_float(name: str, default: str) -> float:
+    raw = os.getenv(name, default)
+    try:
+        value = float(raw)
+    except ValueError:
+        print(f"Error: {name} must be a number, got: {raw}", file=sys.stderr)
+        sys.exit(1)
+
+    if value < 0:
+        print(f"Error: {name} must be >= 0, got: {value}", file=sys.stderr)
+        sys.exit(1)
+    return value
+
+
 async def batch_create(
     total: int,
     concurrency: int,
@@ -165,10 +193,10 @@ def main() -> None:
     domain = os.getenv("E2B_DOMAIN", "")
     api_key = os.getenv("E2B_API_KEY", "")
     template = os.getenv("SANDBOX_TEMPLATE", "")
-    timeout = int(os.getenv("SANDBOX_TIMEOUT", "300"))
-    total = int(os.getenv("SANDBOX_COUNT", "10"))
-    concurrency = int(os.getenv("THREAD_POOL_SIZE", "5"))
-    sleep_interval = float(os.getenv("BATCH_SLEEP_INTERVAL", "10"))
+    timeout = _parse_positive_int("SANDBOX_TIMEOUT", "300")
+    total = _parse_positive_int("SANDBOX_COUNT", "10")
+    concurrency = _parse_positive_int("THREAD_POOL_SIZE", "5")
+    sleep_interval = _parse_non_negative_float("BATCH_SLEEP_INTERVAL", "10")
 
     if not domain:
         print("Error: E2B_DOMAIN not set", file=sys.stderr)

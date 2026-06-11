@@ -194,15 +194,19 @@ class SandboxClient:
         options.set_capability('adbExecTimeout', 300000)
         options.set_capability('androidInstallTimeout', 300000)
         
-        AppiumConnection.extra_headers['X-Access-Token'] = self.sandbox._envd_access_token
-        
+        access_token = self.sandbox._envd_access_token
+
+        class IsolatedConnection(AppiumConnection):
+            extra_headers = {'X-Access-Token': access_token}
+
         appium_url = f"https://{self.sandbox.get_host(4723)}"
         client_config = AppiumClientConfig(
             remote_server_addr=appium_url,
             timeout=300
         )
-        
-        return webdriver.Remote(options=options, client_config=client_config)
+        executor = IsolatedConnection(client_config=client_config)
+
+        return webdriver.Remote(command_executor=executor, options=options)
     
     def _get_app_config(self, app_name: str) -> dict:
         """Get app configuration"""

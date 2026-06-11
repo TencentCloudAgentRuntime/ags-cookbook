@@ -134,7 +134,17 @@ python sandbox_connect.py --sandbox-id abc123 --action get_app_state --app-name 
 
 ## 批量工具
 
-批量工具统一通过 `sandboxes.yaml` 配置文件传入沙箱 ID：
+批量工具统一通过 `sandboxes.yaml` 配置文件传入沙箱 ID。
+
+先从模板复制一份本地配置：
+
+```bash
+cp sandboxes_example.yaml sandboxes.yaml
+```
+
+`sandboxes.yaml` 仅用于本地运行，已被 git 忽略。
+
+然后在 `sandboxes.yaml` 中填写：
 
 ```yaml
 sandbox_ids:
@@ -151,7 +161,7 @@ sandbox_ids:
 # 使用默认 sandboxes.yaml
 python batch_dump_logcat.py
 
-# 指定配置文件和并发数
+# 指定配置文件和并发数（并发必须 >= 1）
 python batch_dump_logcat.py --config my_sandboxes.yaml --concurrency 10
 
 # 自定义输出目录
@@ -168,6 +178,9 @@ python batch_sandbox_kill.py
 
 # 跳过确认
 python batch_sandbox_kill.py --yes
+
+# 指定并发（必须 >= 1）和批次间隔（必须 >= 0）
+python batch_sandbox_kill.py --concurrency 20 --sleep 2
 ```
 
 ### 批量创建沙箱

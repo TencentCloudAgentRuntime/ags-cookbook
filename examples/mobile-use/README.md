@@ -29,7 +29,7 @@ mobile-use/
 ├── README_zh.md               # Chinese documentation
 ├── .env.example               # Environment configuration example
 ├── requirements.txt           # Python dependencies
-├── sandboxes.yaml             # Sandbox IDs config (for batch tools)
+├── sandboxes_example.yaml     # Sandbox IDs template (copy to sandboxes.yaml for local use)
 ├── quickstart.py              # Quick start example
 ├── batch.py                   # Batch operations script (multi-process + async)
 ├── sandbox_connect.py         # Single sandbox connection tool (CLI)
@@ -108,7 +108,17 @@ Use them when you want a smoke-like local run instead of waiting through the ful
 
 ## Batch Tools
 
-The batch tools use a shared `sandboxes.yaml` config file for sandbox IDs:
+The batch tools use a shared `sandboxes.yaml` config file for sandbox IDs.
+
+First copy the template file locally:
+
+```bash
+cp sandboxes_example.yaml sandboxes.yaml
+```
+
+`sandboxes.yaml` is local-only and ignored by git.
+
+Then fill `sandbox_ids` in `sandboxes.yaml`:
 
 ```yaml
 sandbox_ids:
@@ -125,7 +135,7 @@ Dump full logcat logs from existing sandboxes without killing them:
 # Use default sandboxes.yaml
 python batch_dump_logcat.py
 
-# Specify config and concurrency
+# Specify config and concurrency (must be >= 1)
 python batch_dump_logcat.py --config my_sandboxes.yaml --concurrency 10
 
 # Custom output directory
@@ -153,7 +163,7 @@ python batch_sandbox_kill.py
 # Skip confirmation
 python batch_sandbox_kill.py --yes
 
-# Custom concurrency and sleep interval
+# Custom concurrency (must be >= 1) and sleep interval (must be >= 0)
 python batch_sandbox_kill.py --concurrency 20 --sleep 2
 ```
 
