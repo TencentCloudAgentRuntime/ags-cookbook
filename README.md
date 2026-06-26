@@ -94,6 +94,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `openclaw-cookbook` | Node.js + custom image + COS | Run OpenClaw in AGS with official image |
 | `osworld-ags` | Python 3.10 + OSWorld overlay | Heavy setup; requires an OSWorld-capable tool |
 | `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |
+| `waa-ags` | Python + Windows sandbox + LLM | Run Windows Agent Arena on AGS via a small overlay |
 
 See `examples/README.md` for per-example details and a starter/advanced/heavy picker.
 
