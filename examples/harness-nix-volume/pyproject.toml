@@ -1,0 +1,8 @@
+[project]
+name = "harness-nix-volume"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "tencentcloud-sdk-python-common>=3.1.32",
+    "tencentcloud-sdk-python-ags>=3.1.32",
+]

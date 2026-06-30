@@ -1,0 +1,6 @@
+.env
+.venv/
+.state/
+dist/
+result
+nix/result
