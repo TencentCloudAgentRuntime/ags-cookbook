@@ -13,6 +13,7 @@
 ### 进阶
 
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
+- `local-service-tunnel` —— custom 沙箱内 workload 通过用户侧 WebSocket tunnel 访问本地或内网服务
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
 - `mini-swe-agent` —— 基于 AGS SWE Sandbox 和 SWE-ReX runtime 运行 SWE-bench 评测
 - `mobile-use` —— 在 AGS 中运行 Android / Appium 自动化
@@ -39,6 +40,7 @@
 | 示例 | 分类 | 主要技术栈 | 主命令 | 说明 |
 |---|---|---|---|---|
 | `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
+| `local-service-tunnel` | 进阶 | Go/Python + custom 沙箱 + 镜像卷 | `make run` | 服务凭据留在本地，沙箱 workload 流量经用户侧 WebSocket tunnel 转发 |
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
 | `html-processing` | 入门 | Python + 浏览器/代码双沙箱 | `make run` | 适合作为双沙箱协作的直观起点 |

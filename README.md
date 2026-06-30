@@ -84,6 +84,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | Example | Stack | Notes |
 |---|---|---|
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
+| `local-service-tunnel` | Go/Python + custom sandbox + image volume | Let sandbox workloads call a user-managed local or private service through a WebSocket tunnel |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
 | `html-processing` | Python + browser/code sandboxes | Dual-sandbox HTML pipeline |
