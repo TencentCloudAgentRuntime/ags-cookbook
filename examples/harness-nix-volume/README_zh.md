@@ -71,6 +71,8 @@ MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-main:20260630
 HARNESS_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-volume:20260630
 ```
 
+这里必须填写 AGS 可以拉取的镜像仓库地址。本地 `localhost/...` 这类 tag 只适合本地 Docker 检查，不能被 AGS 沙箱使用。
+
 `MAIN_IMAGE_REGISTRY_TYPE` 和 `HARNESS_VOLUME_IMAGE_REGISTRY_TYPE` 默认是 `personal`。
 
 ## 构建并推送镜像
@@ -80,6 +82,8 @@ make build-images
 docker push "$MAIN_IMAGE_REF"
 docker push "$HARNESS_VOLUME_IMAGE_REF"
 ```
+
+执行 `make run` 前，两张镜像都必须已经推送完成。`MAIN_IMAGE_REF` 是沙箱的自定义主镜像，`HARNESS_VOLUME_IMAGE_REF` 会作为只读 `/nix` 镜像卷挂载进沙箱。
 
 `scripts/build-harness-volume.sh` 会使用 Linux `nixos/nix` builder 容器构建，生成的 closure 匹配沙箱里的 `x86_64-linux` 环境。用户本机不需要安装 Nix。
 
@@ -127,8 +131,8 @@ make run
 {
   "ok": true,
   "claude": "1.4.0",
-  "python": "3.12.x",
-  "node": "v22.x.x"
+  "python": "3.12.7",
+  "node": "v22.10.0"
 }
 ```
 

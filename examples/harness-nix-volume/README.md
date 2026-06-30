@@ -71,6 +71,8 @@ MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-main:20260630
 HARNESS_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-volume:20260630
 ```
 
+Use registry image references that AGS can pull. Local-only tags such as `localhost/...` are useful for local Docker checks, but they cannot be used by the AGS sandbox.
+
 `MAIN_IMAGE_REGISTRY_TYPE` and `HARNESS_VOLUME_IMAGE_REGISTRY_TYPE` default to `personal`.
 
 ## Build And Push Images
@@ -80,6 +82,8 @@ make build-images
 docker push "$MAIN_IMAGE_REF"
 docker push "$HARNESS_VOLUME_IMAGE_REF"
 ```
+
+Both images must be pushed before `make run`. `MAIN_IMAGE_REF` is the sandbox's custom main image, and `HARNESS_VOLUME_IMAGE_REF` is mounted as the read-only `/nix` image volume.
 
 `scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container, so the generated closure matches the sandbox's `x86_64-linux` environment. Users do not need to install Nix on the host machine.
 
@@ -127,8 +131,8 @@ Expected `.state/runtime-report.json`:
 {
   "ok": true,
   "claude": "1.4.0",
-  "python": "3.12.x",
-  "node": "v22.x.x"
+  "python": "3.12.7",
+  "node": "v22.10.0"
 }
 ```
 
