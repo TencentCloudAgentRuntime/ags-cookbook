@@ -1,6 +1,10 @@
 # 本地服务隧道
 
-这个示例提供一个通用 AGS 能力：沙箱内 workload 访问 `http://127.0.0.1:18080`，请求通过 WebSocket tunnel 转发到用户本机或内网 HTTP 服务。沙箱可以保持 `NETWORK_MODE=SANDBOX`，真实上游地址和凭据都留在沙箱外。一个用户侧 `ags-tunnel-client.py` 进程可以同时管理多个沙箱连接，所有连接共用同一份白名单策略。
+这个示例解决的问题是：沙箱里的程序需要访问你本机或内网里的 HTTP 服务，但沙箱网络不能直接连过去。
+
+运行这个示例后，沙箱里的程序只需要请求 `http://127.0.0.1:18080`。请求会经过沙箱内的 `ags-tunnel-server`，再通过 WebSocket 连接转发到你本机运行的 `ags-tunnel-client.py`，最后由本机 client 访问真正的内网服务。这样可以把模型网关、工具服务、reward service 等服务和访问凭据继续留在内网，沙箱仍然使用 `NETWORK_MODE=SANDBOX`。
+
+一个本机 `ags-tunnel-client.py` 进程可以同时连接多个沙箱。多个连接共用同一份白名单策略。
 
 Claude Code 只是本目录里的演示 workload，隧道能力本身不绑定 Claude Code。
 
@@ -224,7 +228,7 @@ PROMPT='分析今天的天气和股票表现，最后输出 local-service-tunnel
 make run
 ```
 
-这个权限模式只用于隔离的 AGS 演示沙箱。客户自己的 workload 只需要访问 `http://127.0.0.1:18080`。
+上面的权限参数只是为了让本示例里的 Claude Code demo 少一点交互确认。实际接入自己的程序时，不需要关心 Claude Code；程序把原本要发往内网服务的 HTTP 请求发到 `http://127.0.0.1:18080` 即可。
 
 ## 安全边界
 
