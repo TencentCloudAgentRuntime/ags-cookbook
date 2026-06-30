@@ -56,6 +56,7 @@ SAFE_REQUEST_HEADER_PREFIXES = ("anthropic-",)
 DEFAULT_ALLOWED_UPSTREAM_HOSTS = "api.deepseek.com,api.anthropic.com"
 DEFAULT_ALLOWED_UPSTREAM_PORTS = "443"
 DEFAULT_ALLOWED_UPSTREAM_PATHS = "/v1/messages,/v1/messages/count_tokens,/v1/models"
+DEFAULT_REMOTE_TUNNEL_PORT = 18081
 
 
 def split_csv(value: str) -> set[str]:
@@ -164,6 +165,25 @@ def default_upstream_base() -> str:
     )
 
 
+def default_gateway_domain() -> str:
+    explicit = os.getenv("AGS_GATEWAY_DOMAIN")
+    if explicit:
+        return explicit
+    region = os.getenv("AGR_REGION") or os.getenv("AGS_REGION") or os.getenv("TENCENTCLOUD_REGION") or "ap-guangzhou"
+    domain = os.getenv("AGR_DOMAIN") or os.getenv("AGS_DOMAIN") or "tencentags.com"
+    return f"{region}.{domain}"
+
+
+def build_control_url(instance_id: str, remote_port: int, gateway_domain: str, scheme: str) -> str:
+    if not instance_id:
+        raise ValueError("--instance-id is required when --control-url is not set")
+    if remote_port <= 0 or remote_port > 65535:
+        raise ValueError("--remote-port must be between 1 and 65535")
+    if scheme not in {"ws", "wss"}:
+        raise ValueError("--control-scheme must be ws or wss")
+    return f"{scheme}://{remote_port}-{instance_id}.{gateway_domain}/ws"
+
+
 def resolve_api_key(api_key_env: str) -> Tuple[str, str]:
     candidates = [api_key_env] if api_key_env else []
     candidates.extend(["DEEPSEEK_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"])
@@ -260,9 +280,18 @@ class TunnelPolicy:
         raise ValueError(f"path is not allowed: {path}")
 
 
+@dataclass
+class TunnelSessionConfig:
+    name: str
+    control_url: str
+    token: str
+    instance_access_token: str
+
+
 class LocalTunnelClient:
     def __init__(
         self,
+        name: str,
         control_url: str,
         upstream_base: str,
         api_key: str,
@@ -273,6 +302,7 @@ class LocalTunnelClient:
         upstream_timeout: float = 120.0,
         chunk_size: int = 64 * 1024,
     ) -> None:
+        self.name = name
         self.control_url = control_url
         self.upstream_base = upstream_base
         self.api_key = api_key
@@ -356,7 +386,11 @@ class LocalTunnelClient:
 
             def on_open(_ws: websocket.WebSocketApp) -> None:
                 connected.set()
-                print(f"local tunnel websocket connected control={self.control_url} upstream={self.upstream_base}", flush=True)
+                print(
+                    f"local tunnel websocket connected session={self.name} "
+                    f"control={self.control_url} upstream={self.upstream_base}",
+                    flush=True,
+                )
 
             def on_message(ws: websocket.WebSocketApp, raw: str) -> None:
                 try:
@@ -369,10 +403,13 @@ class LocalTunnelClient:
                 threading.Thread(target=self._forward_request, args=(ws, payload), daemon=True).start()
 
             def on_error(_ws: websocket.WebSocketApp, error: object) -> None:
-                print(f"local tunnel websocket error: {error}", file=sys.stderr)
+                print(f"local tunnel websocket error session={self.name}: {error}", file=sys.stderr)
 
             def on_close(_ws: websocket.WebSocketApp, status: Optional[int], message: Optional[str]) -> None:
-                print(f"local tunnel websocket closed status={status} message={message}", file=sys.stderr)
+                print(
+                    f"local tunnel websocket closed session={self.name} status={status} message={message}",
+                    file=sys.stderr,
+                )
 
             ws = websocket.WebSocketApp(
                 self.control_url,
@@ -384,6 +421,24 @@ class LocalTunnelClient:
             )
             ws.run_forever(ping_interval=20, ping_timeout=10, http_proxy_host=None)
             time.sleep(reconnect_sleep)
+
+
+class TunnelDaemon:
+    def __init__(self, clients: list[LocalTunnelClient]) -> None:
+        if not clients:
+            raise ValueError("at least one tunnel session is required")
+        self.clients = clients
+
+    def run_forever(self) -> None:
+        if len(self.clients) == 1:
+            self.clients[0].run_forever()
+            return
+        for client in self.clients:
+            thread = threading.Thread(target=client.run_forever, name=f"tunnel-{client.name}", daemon=True)
+            thread.start()
+        print(f"local tunnel daemon started sessions={len(self.clients)}", flush=True)
+        while True:
+            time.sleep(3600)
 
 
 def policy_value(config: dict[str, Any], key: str, fallback: Any) -> Any:
@@ -408,6 +463,105 @@ def make_policy(args: argparse.Namespace, config: dict[str, Any]) -> TunnelPolic
     )
 
 
+SESSION_KEYS = {
+    "name",
+    "control_url",
+    "instance_id",
+    "remote_port",
+    "gateway_domain",
+    "control_scheme",
+    "token_env",
+    "instance_access_token_env",
+    "access_token_env",
+}
+POLICY_KEYS = {
+    "upstream_base",
+    "allow_insecure_upstream",
+    "allowed_upstream_hosts",
+    "allowed_upstream_ports",
+    "allowed_ip_cidrs",
+    "allowed_paths",
+    "allowed_path_prefixes",
+    "allowed_methods",
+}
+
+
+def config_string(config: dict[str, Any], key: str, default: str = "") -> str:
+    value = config.get(key, default)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def config_int(config: dict[str, Any], key: str, default: int) -> int:
+    value = config.get(key, default)
+    return int(value)
+
+
+def secret_from_config(config: dict[str, Any], direct_keys: tuple[str, ...], env_keys: tuple[str, ...], default: str) -> str:
+    for key in direct_keys:
+        value = config.get(key)
+        if value:
+            return str(value)
+    for key in env_keys:
+        env_name = config.get(key)
+        if env_name:
+            value = os.getenv(str(env_name))
+            if value:
+                return value
+            raise ValueError(f"environment variable is not set: {env_name}")
+    return default
+
+
+def session_from_config(args: argparse.Namespace, item: dict[str, Any], index: int) -> TunnelSessionConfig:
+    disallowed = (set(item) - SESSION_KEYS) | (set(item) & POLICY_KEYS)
+    if disallowed:
+        raise ValueError(
+            "sessions may only contain connection fields; configure allowlist policy at top level: "
+            + ", ".join(sorted(disallowed))
+        )
+    name = config_string(item, "name", f"session-{index + 1}")
+    remote_port = config_int(item, "remote_port", args.remote_port)
+    gateway_domain = config_string(item, "gateway_domain", args.gateway_domain)
+    control_scheme = config_string(item, "control_scheme", args.control_scheme)
+    instance_id = config_string(item, "instance_id", args.instance_id)
+    control_url = config_string(item, "control_url", args.control_url)
+    if not control_url:
+        control_url = build_control_url(
+            instance_id=instance_id,
+            remote_port=remote_port,
+            gateway_domain=gateway_domain,
+            scheme=control_scheme,
+        )
+    token = secret_from_config(item, (), ("token_env",), args.token)
+    instance_access_token = secret_from_config(
+        item,
+        (),
+        ("instance_access_token_env", "access_token_env"),
+        args.instance_access_token,
+    )
+    return TunnelSessionConfig(
+        name=name,
+        control_url=control_url,
+        token=token,
+        instance_access_token=instance_access_token,
+    )
+
+
+def make_sessions(args: argparse.Namespace, config: dict[str, Any]) -> list[TunnelSessionConfig]:
+    raw = config.get("sessions")
+    if raw is None:
+        return [session_from_config(args, {}, 0)]
+    if not isinstance(raw, list):
+        raise ValueError("sessions must be a list")
+    sessions: list[TunnelSessionConfig] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError("each session must be a YAML mapping")
+        sessions.append(session_from_config(args, item, index))
+    return sessions
+
+
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the local side of the AGS WebSocket HTTP tunnel.")
     parser.add_argument(
@@ -415,7 +569,23 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=os.getenv("AGS_TUNNEL_POLICY_FILE", ""),
         help="YAML policy file containing upstream and allowlist settings.",
     )
-    parser.add_argument("--control-url", default=os.getenv("AGS_TUNNEL_CONTROL_URL", "ws://127.0.0.1:18081/ws"))
+    parser.add_argument(
+        "--control-url",
+        default=os.getenv("AGS_TUNNEL_CONTROL_URL", ""),
+        help="Direct WebSocket URL for the sandbox tunnel server. If omitted, it is built from instance id and remote port.",
+    )
+    parser.add_argument("--instance-id", default=os.getenv("INSTANCE_ID", ""))
+    parser.add_argument(
+        "--remote-port",
+        type=int,
+        default=int(os.getenv("REMOTE_TUNNEL_PORT", str(DEFAULT_REMOTE_TUNNEL_PORT))),
+    )
+    parser.add_argument("--gateway-domain", default=default_gateway_domain())
+    parser.add_argument(
+        "--control-scheme",
+        choices=["ws", "wss"],
+        default=os.getenv("AGS_TUNNEL_CONTROL_SCHEME", "wss"),
+    )
     parser.add_argument("--upstream-base", default=default_upstream_base())
     parser.add_argument(
         "--allowed-upstream-hosts",
@@ -481,22 +651,28 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         api_key_name, api_key = resolve_api_key(args.api_key_env)
         upstream_base = str(policy_value(policy_config, "upstream_base", args.upstream_base))
         policy = make_policy(args, policy_config)
-        client = LocalTunnelClient(
-            control_url=args.control_url,
-            upstream_base=upstream_base,
-            api_key=api_key,
-            policy=policy,
-            token=args.token,
-            instance_access_token=args.instance_access_token,
-            auth_mode=args.auth_mode,
-            upstream_timeout=args.upstream_timeout,
-            chunk_size=args.chunk_size,
-        )
+        sessions = make_sessions(args, policy_config)
+        clients = [
+            LocalTunnelClient(
+                name=session.name,
+                control_url=session.control_url,
+                upstream_base=upstream_base,
+                api_key=api_key,
+                policy=policy,
+                token=session.token,
+                instance_access_token=session.instance_access_token,
+                auth_mode=args.auth_mode,
+                upstream_timeout=args.upstream_timeout,
+                chunk_size=args.chunk_size,
+            )
+            for session in sessions
+        ]
+        daemon = TunnelDaemon(clients)
     except Exception as exc:  # noqa: BLE001 - config error.
         print(f"invalid tunnel client configuration: {exc}", file=sys.stderr)
         return 2
     print(f"using upstream api key from {api_key_name}", flush=True)
-    client.run_forever()
+    daemon.run_forever()
     return 0
 
 

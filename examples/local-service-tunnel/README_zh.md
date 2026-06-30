@@ -1,6 +1,6 @@
 # 本地服务隧道
 
-这个示例提供一个通用 AGS 能力：沙箱内 workload 访问 `http://127.0.0.1:18080`，请求通过 WebSocket tunnel 转发到用户本机或内网 HTTP 服务。沙箱可以保持 `NETWORK_MODE=SANDBOX`，真实上游地址和凭据都留在沙箱外。
+这个示例提供一个通用 AGS 能力：沙箱内 workload 访问 `http://127.0.0.1:18080`，请求通过 WebSocket tunnel 转发到用户本机或内网 HTTP 服务。沙箱可以保持 `NETWORK_MODE=SANDBOX`，真实上游地址和凭据都留在沙箱外。一个用户侧 `ags-tunnel-client.py` 进程可以同时管理多个沙箱连接，所有连接共用同一份白名单策略。
 
 Claude Code 只是本目录里的演示 workload，隧道能力本身不绑定 Claude Code。
 
@@ -16,14 +16,12 @@ flowchart LR
   end
 
   subgraph local["沙箱外：用户本机 / 内网"]
-    proxy["ags-tunnel-proxy.py<br/>注入 X-Access-Token"]
-    client["ags-tunnel-client.py<br/>YAML 白名单 + 凭据注入"]
+    client["ags-tunnel-client.py<br/>沙箱端口访问 + YAML 白名单 + 凭据注入"]
     upstream["内网 HTTP 上游<br/>LLM 网关 / tool service / reward service"]
-    proxy -->|"ws://127.0.0.1:${LOCAL_TUNNEL_PORT}/ws"| client
     client -->|"本机真实凭据"| upstream
   end
 
-  proxy <-->|"沙箱暴露端口 18081<br/>WebSocket /ws"| server
+  client <-->|"沙箱暴露端口 18081<br/>WebSocket /ws<br/>可连接多个沙箱"| server
 ```
 
 ## 沙箱启动配置
@@ -56,13 +54,11 @@ sequenceDiagram
     participant S as ags-tunnel-server
   end
   box 用户本机 / 内网
-    participant P as ags-tunnel-proxy.py
     participant C as ags-tunnel-client.py
     participant U as 内网上游
   end
 
-  C->>P: 建立 WebSocket /ws
-  P->>S: 转发 WebSocket 并注入 X-Access-Token
+  C->>S: 建立 WebSocket /ws 并注入 X-Access-Token
   W->>S: HTTP 127.0.0.1:18080/v1/messages
   S->>C: request frame
   C->>C: 校验 method、path、upstream host/IP、port
@@ -81,9 +77,7 @@ sequenceDiagram
 tunnel/server/              沙箱侧 Go tunnel server
 tunnel/ags-tunnel-client.py 用户侧 tunnel client CLI 入口
 tunnel/ags_tunnel_client.py 可 import 的 Python client 模块
-tunnel/ags-tunnel-proxy.py  沙箱暴露端口 tunnel proxy CLI 入口
-tunnel/ags_tunnel_proxy.py  可 import 的 Python proxy 模块
-scripts/run.py              创建 tool、启动 instance、启动本地 proxy/client
+scripts/run.py              创建 tool、启动 instance、启动本地 client
 scripts/cleanup.py          停止 instance；DELETE_TOOL=1 时删除 tool
 scripts/build-claude-code-dir.sh
                             构建 Linux amd64 Claude Code 演示目录
@@ -137,7 +131,7 @@ Node.js、npm、`node_modules` 只在构建阶段使用，不会复制进 worklo
 make run
 ```
 
-`scripts/run.py` 使用 TencentCloud Python SDK 创建 AGS custom tool、启动 instance、获取沙箱端口访问 token，然后启动本机 proxy 和 tunnel client。默认还会调用一次 `/demo/run`；如果只想保留 tunnel，不跑 demo，可以设置 `RUN_DEMO=0`。
+`scripts/run.py` 使用 TencentCloud Python SDK 创建 AGS custom tool、启动 instance、获取沙箱端口访问 token，然后启动本机 tunnel client。默认还会调用一次 `/demo/run`；如果只想保留 tunnel，不跑 demo，可以设置 `RUN_DEMO=0`。
 
 期望 demo 输出：
 
@@ -175,6 +169,34 @@ allowed_methods:
 ```
 
 如果同时配置 `allowed_upstream_hosts` 和 `allowed_ip_cidrs`，两个条件都必须通过。不要把白名单放宽成通配配置。
+
+如果一个本地 client 需要同时连接多个沙箱，可以在同一个 YAML 中增加 `sessions`。`sessions` 只描述沙箱连接信息，不能定义独立白名单；所有 session 都使用上面的顶层白名单。
+
+```yaml
+upstream_base: "https://example.internal/v1"
+allowed_upstream_hosts:
+  - "example.internal"
+allowed_upstream_ports:
+  - 443
+allowed_ip_cidrs:
+  - "10.0.0.0/8"
+allowed_paths:
+  - "/v1/messages"
+allowed_methods:
+  - "POST"
+
+sessions:
+  - name: "train-a"
+    instance_id: "sandbox-instance-a"
+    remote_port: 18081
+    access_token_env: "SANDBOX_A_ACCESS_TOKEN"
+  - name: "train-b"
+    instance_id: "sandbox-instance-b"
+    remote_port: 18081
+    access_token_env: "SANDBOX_B_ACCESS_TOKEN"
+```
+
+如果需要更复杂的白名单逻辑，直接修改 `tunnel/ags_tunnel_client.py` 里的 `TunnelPolicy`。`sessions` 中写入 `allowed_paths`、`allowed_ip_cidrs` 等策略字段会被拒绝。
 
 ## 白名单验证
 
@@ -235,4 +257,4 @@ make run
 - 沙箱只能通过 tunnel 表达请求意图。
 - 本地 client 丢弃沙箱传来的 auth header，再注入本机凭据。
 - YAML 策略限制上游 host、IP/CIDR、port、path、method 和可转发 header。
-- `ags-tunnel-proxy.py` 默认只监听 `127.0.0.1`，不要绑定到共享网络。
+- 多个沙箱连接共用同一份 YAML 白名单，不支持在 session 内放宽策略。

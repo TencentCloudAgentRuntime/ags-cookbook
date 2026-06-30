@@ -49,7 +49,7 @@ def client() -> ags_client.AgsClient | None:
 
 
 def main() -> int:
-    for name in ["ags-tunnel-client", "ags-tunnel-proxy", "allowlist-upstream", "multi-turn-upstream"]:
+    for name in ["ags-tunnel-client", "allowlist-upstream", "multi-turn-upstream"]:
         stop_pid(name)
 
     c = client()

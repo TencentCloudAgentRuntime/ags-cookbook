@@ -1,6 +1,6 @@
 # Local Service Tunnel
 
-This example shows a reusable AGS pattern: a workload inside a sandbox calls `http://127.0.0.1:18080`, and the request is forwarded through a WebSocket tunnel to a user-local or private HTTP service. The sandbox can keep `NETWORK_MODE=SANDBOX`; the real upstream address and credentials stay outside the sandbox.
+This example shows a reusable AGS pattern: a workload inside a sandbox calls `http://127.0.0.1:18080`, and the request is forwarded through a WebSocket tunnel to a user-local or private HTTP service. The sandbox can keep `NETWORK_MODE=SANDBOX`; the real upstream address and credentials stay outside the sandbox. One user-side `ags-tunnel-client.py` process can manage multiple sandbox connections, and all connections share the same allowlist policy.
 
 Claude Code is only the demo workload in this directory. The tunnel itself is generic.
 
@@ -16,14 +16,12 @@ flowchart LR
   end
 
   subgraph local["Outside sandbox: user machine / private network"]
-    proxy["ags-tunnel-proxy.py<br/>adds X-Access-Token"]
-    client["ags-tunnel-client.py<br/>YAML allowlist + credential injection"]
+    client["ags-tunnel-client.py<br/>sandbox port access + YAML allowlist + credential injection"]
     upstream["private HTTP upstream<br/>LLM gateway / tool service / reward service"]
-    proxy -->|"ws://127.0.0.1:${LOCAL_TUNNEL_PORT}/ws"| client
     client -->|"real local credential"| upstream
   end
 
-  proxy <-->|"sandbox exposed port 18081<br/>WebSocket /ws"| server
+  client <-->|"sandbox exposed port 18081<br/>WebSocket /ws<br/>can connect multiple sandboxes"| server
 ```
 
 ## Sandbox Startup
@@ -56,13 +54,11 @@ sequenceDiagram
     participant S as ags-tunnel-server
   end
   box User machine / private network
-    participant P as ags-tunnel-proxy.py
     participant C as ags-tunnel-client.py
     participant U as Private upstream
   end
 
-  C->>P: Open WebSocket /ws
-  P->>S: Relay WebSocket and add X-Access-Token
+  C->>S: Open WebSocket /ws and add X-Access-Token
   W->>S: HTTP 127.0.0.1:18080/v1/messages
   S->>C: request frame
   C->>C: Validate method, path, upstream host/IP, port
@@ -81,9 +77,7 @@ This is HTTP proxy over WebSocket, not a generic TCP tunnel. HTTP mode is intent
 tunnel/server/              Sandbox-side Go tunnel server
 tunnel/ags-tunnel-client.py CLI entrypoint for the user-side tunnel client
 tunnel/ags_tunnel_client.py Importable Python client module
-tunnel/ags-tunnel-proxy.py  CLI entrypoint for the sandbox exposed-port tunnel proxy
-tunnel/ags_tunnel_proxy.py  Importable Python proxy module
-scripts/run.py              Create tool, start instance, start local proxy/client
+scripts/run.py              Create tool, start instance, start local client
 scripts/cleanup.py          Stop instance and optionally delete tool
 scripts/build-claude-code-dir.sh
                             Build a Linux amd64 Claude Code demo directory
@@ -137,7 +131,7 @@ Run:
 make run
 ```
 
-`scripts/run.py` uses the TencentCloud Python SDK to create the AGS custom tool, start an instance, acquire the sandbox port access token, then start the local proxy and local tunnel client. By default it also calls `/demo/run`; set `RUN_DEMO=0` if you only want to keep the tunnel running.
+`scripts/run.py` uses the TencentCloud Python SDK to create the AGS custom tool, start an instance, acquire the sandbox port access token, then start the local tunnel client. By default it also calls `/demo/run`; set `RUN_DEMO=0` if you only want to keep the tunnel running.
 
 Expected demo output:
 
@@ -175,6 +169,34 @@ allowed_methods:
 ```
 
 If both `allowed_upstream_hosts` and `allowed_ip_cidrs` are set, both checks must pass. Keep the policy narrow; the sandbox is not trusted.
+
+To connect one local client to multiple sandboxes, add `sessions` to the same YAML file. `sessions` only describes sandbox connection details; it cannot define session-specific allowlists. Every session uses the top-level allowlist.
+
+```yaml
+upstream_base: "https://example.internal/v1"
+allowed_upstream_hosts:
+  - "example.internal"
+allowed_upstream_ports:
+  - 443
+allowed_ip_cidrs:
+  - "10.0.0.0/8"
+allowed_paths:
+  - "/v1/messages"
+allowed_methods:
+  - "POST"
+
+sessions:
+  - name: "train-a"
+    instance_id: "sandbox-instance-a"
+    remote_port: 18081
+    access_token_env: "SANDBOX_A_ACCESS_TOKEN"
+  - name: "train-b"
+    instance_id: "sandbox-instance-b"
+    remote_port: 18081
+    access_token_env: "SANDBOX_B_ACCESS_TOKEN"
+```
+
+For more advanced allowlist logic, edit `TunnelPolicy` in `tunnel/ags_tunnel_client.py`. Policy keys such as `allowed_paths` or `allowed_ip_cidrs` are rejected inside `sessions`.
 
 ## Allowlist Verification
 
@@ -235,4 +257,4 @@ This permission mode is only for the isolated demo sandbox. Customer workloads c
 - The sandbox only sends request intent through the tunnel.
 - The local client drops sandbox-provided auth headers and injects local credentials.
 - The YAML policy restricts upstream host, IP/CIDR, port, path, method, and forwarded headers.
-- `ags-tunnel-proxy.py` listens on `127.0.0.1` by default. Do not bind it to a shared network.
+- Multiple sandbox connections share one YAML allowlist; sessions cannot relax the policy.

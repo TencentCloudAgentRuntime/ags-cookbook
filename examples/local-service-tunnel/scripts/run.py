@@ -25,7 +25,6 @@ STATE = ROOT / ".state"
 
 WORKLOAD_TUNNEL_PORT = int(os.getenv("WORKLOAD_TUNNEL_PORT", "18080"))
 REMOTE_TUNNEL_PORT = int(os.getenv("REMOTE_TUNNEL_PORT", "18081"))
-LOCAL_TUNNEL_PORT = int(os.getenv("LOCAL_TUNNEL_PORT", "18081"))
 ENVD_PORT = int(os.getenv("ENVD_PORT", "49983"))
 SANDBOX_TIMEOUT = os.getenv("INSTANCE_TIMEOUT", "30m")
 NETWORK_MODE = os.getenv("NETWORK_MODE", "SANDBOX")
@@ -248,6 +247,20 @@ def acquire_token(client: ags_client.AgsClient, instance_id: str) -> str:
     return resp.Token
 
 
+def gateway_domain() -> str:
+    explicit = os.getenv("AGS_GATEWAY_DOMAIN")
+    if explicit:
+        return explicit
+    region = os.getenv("AGR_REGION") or os.getenv("AGS_REGION") or os.getenv("TENCENTCLOUD_REGION", REGION)
+    domain = os.getenv("AGR_DOMAIN") or os.getenv("AGS_DOMAIN") or "tencentags.com"
+    return f"{region}.{domain}"
+
+
+def sandbox_port_url(instance_id: str, path: str = "") -> str:
+    scheme = os.getenv("AGS_SANDBOX_PORT_SCHEME", "https")
+    return f"{scheme}://{REMOTE_TUNNEL_PORT}-{instance_id}.{gateway_domain()}{path}"
+
+
 def start_process(name: str, args: list[str], env: dict[str, str] | None = None) -> subprocess.Popen[Any]:
     STATE.mkdir(exist_ok=True)
     log = open(STATE / f"{name}.log", "w", encoding="utf-8")
@@ -257,12 +270,18 @@ def start_process(name: str, args: list[str], env: dict[str, str] | None = None)
     return proc
 
 
-def wait_http(url: str, token: str) -> None:
+def wait_http(url: str, tunnel_token_value: str, access_token: str) -> None:
     deadline = time.time() + 30
     last = ""
     while time.time() < deadline:
         try:
-            req = request.Request(url, headers={"Authorization": f"Bearer {token}"})
+            req = request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {tunnel_token_value}",
+                    "X-Access-Token": access_token,
+                },
+            )
             with request.urlopen(req, timeout=2) as resp:
                 if resp.status == 200:
                     return
@@ -486,14 +505,15 @@ curl -sS -i --max-time 30 -H 'content-type: application/json' -d @/tmp/turn2.jso
     print(f"MULTI_TURN_TEST_OUTPUT={STATE / 'multi-turn-output.txt'}")
 
 
-def run_demo() -> None:
+def run_demo(instance_id: str, access_token: str) -> None:
     prompt = os.getenv("PROMPT", "Reply with exactly: local-service-tunnel-ok")
     payload = json.dumps({"prompt": prompt}).encode()
     req = request.Request(
-        f"http://127.0.0.1:{LOCAL_TUNNEL_PORT}/demo/run",
+        sandbox_port_url(instance_id, "/demo/run"),
         data=payload,
         headers={
             "Authorization": f"Bearer {tunnel_token()}",
+            "X-Access-Token": access_token,
             "Content-Type": "application/json",
         },
         method="POST",
@@ -539,24 +559,7 @@ def main() -> int:
     wait_instance(client, instance_id)
     access_token = acquire_token(client, instance_id)
 
-    start_process(
-        "ags-tunnel-proxy",
-        [
-            sys.executable,
-            str(ROOT / "tunnel/ags-tunnel-proxy.py"),
-            "--listen-host",
-            "127.0.0.1",
-            "--listen-port",
-            str(LOCAL_TUNNEL_PORT),
-            "--instance-id",
-            instance_id,
-            "--remote-port",
-            str(REMOTE_TUNNEL_PORT),
-            "--access-token",
-            access_token,
-        ],
-    )
-    wait_http(f"http://127.0.0.1:{LOCAL_TUNNEL_PORT}/healthz", token)
+    wait_http(sandbox_port_url(instance_id, "/healthz"), token, access_token)
     env = os.environ.copy()
     env["AGS_TUNNEL_POLICY_FILE"] = str(policy)
     start_process(
@@ -564,12 +567,16 @@ def main() -> int:
         [
             sys.executable,
             str(ROOT / "tunnel/ags-tunnel-client.py"),
-            "--control-url",
-            f"ws://127.0.0.1:{LOCAL_TUNNEL_PORT}/ws",
+            "--instance-id",
+            instance_id,
+            "--remote-port",
+            str(REMOTE_TUNNEL_PORT),
+            "--gateway-domain",
+            gateway_domain(),
             "--policy-file",
             str(policy),
-            "--token",
-            token,
+            f"--token={token}",
+            f"--instance-access-token={access_token}",
         ],
         env=env,
     )
@@ -580,7 +587,7 @@ def main() -> int:
     elif enabled("RUN_MULTI_TURN_TEST"):
         run_multi_turn_test(instance_id)
     elif enabled("RUN_DEMO", "1"):
-        run_demo()
+        run_demo(instance_id, access_token)
     return 0
 
 
