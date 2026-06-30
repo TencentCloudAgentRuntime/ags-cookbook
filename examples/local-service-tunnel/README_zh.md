@@ -170,33 +170,7 @@ allowed_methods:
 
 如果同时配置 `allowed_upstream_hosts` 和 `allowed_ip_cidrs`，两个条件都必须通过。不要把白名单放宽成通配配置。
 
-如果一个本地 client 需要同时连接多个沙箱，可以在同一个 YAML 中增加 `sessions`。`sessions` 只描述沙箱连接信息，不能定义独立白名单；所有 session 都使用上面的顶层白名单。
-
-```yaml
-upstream_base: "https://example.internal/v1"
-allowed_upstream_hosts:
-  - "example.internal"
-allowed_upstream_ports:
-  - 443
-allowed_ip_cidrs:
-  - "10.0.0.0/8"
-allowed_paths:
-  - "/v1/messages"
-allowed_methods:
-  - "POST"
-
-sessions:
-  - name: "train-a"
-    instance_id: "sandbox-instance-a"
-    remote_port: 18081
-    access_token_env: "SANDBOX_A_ACCESS_TOKEN"
-  - name: "train-b"
-    instance_id: "sandbox-instance-b"
-    remote_port: 18081
-    access_token_env: "SANDBOX_B_ACCESS_TOKEN"
-```
-
-如果需要更复杂的白名单逻辑，直接修改 `tunnel/ags_tunnel_client.py` 里的 `TunnelPolicy`。`sessions` 中写入 `allowed_paths`、`allowed_ip_cidrs` 等策略字段会被拒绝。
+本地 client 支持同时连接多个沙箱，多个连接仍然共用同一份顶层白名单。如果需要更复杂的白名单逻辑，直接修改 `tunnel/ags_tunnel_client.py` 里的 `TunnelPolicy`。
 
 ## 白名单验证
 

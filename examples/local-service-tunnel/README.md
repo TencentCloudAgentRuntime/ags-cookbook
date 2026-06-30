@@ -170,33 +170,7 @@ allowed_methods:
 
 If both `allowed_upstream_hosts` and `allowed_ip_cidrs` are set, both checks must pass. Keep the policy narrow; the sandbox is not trusted.
 
-To connect one local client to multiple sandboxes, add `sessions` to the same YAML file. `sessions` only describes sandbox connection details; it cannot define session-specific allowlists. Every session uses the top-level allowlist.
-
-```yaml
-upstream_base: "https://example.internal/v1"
-allowed_upstream_hosts:
-  - "example.internal"
-allowed_upstream_ports:
-  - 443
-allowed_ip_cidrs:
-  - "10.0.0.0/8"
-allowed_paths:
-  - "/v1/messages"
-allowed_methods:
-  - "POST"
-
-sessions:
-  - name: "train-a"
-    instance_id: "sandbox-instance-a"
-    remote_port: 18081
-    access_token_env: "SANDBOX_A_ACCESS_TOKEN"
-  - name: "train-b"
-    instance_id: "sandbox-instance-b"
-    remote_port: 18081
-    access_token_env: "SANDBOX_B_ACCESS_TOKEN"
-```
-
-For more advanced allowlist logic, edit `TunnelPolicy` in `tunnel/ags_tunnel_client.py`. Policy keys such as `allowed_paths` or `allowed_ip_cidrs` are rejected inside `sessions`.
+The local client can connect to multiple sandboxes at the same time. All connections still share the same top-level allowlist. For more advanced allowlist logic, edit `TunnelPolicy` in `tunnel/ags_tunnel_client.py`.
 
 ## Allowlist Verification
 
