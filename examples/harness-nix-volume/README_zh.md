@@ -29,7 +29,7 @@ flowchart LR
   Process --> Port
 ```
 
-示例里的 Harness 是一个真实 CLI 演示：Nix 镜像卷里包含 Claude Code Linux x64 native binary，以及 demo 服务需要的 Node.js/Python 运行时。沙箱会从挂载进来的 Nix 运行时启动一个 HTTP 服务，并返回 `claude --version`、`node --version` 和 Python 版本。主镜像没有安装 Claude Code 或 Node.js，这些都来自挂载的 `/nix`。
+示例里的 Harness 是一个真实 CLI 演示：Nix 镜像卷里包含完整的 Claude Code npm package、Linux x64 native payload，以及 demo 服务需要的 Node.js/Python 运行时。沙箱会从挂载进来的 Nix 运行时启动一个 HTTP 服务，并返回 `claude --version`、`node --version` 和 Python 版本。主镜像没有安装 Claude Code 或 Node.js，这些都来自挂载的 `/nix`。
 
 ## 文件说明
 
@@ -91,7 +91,7 @@ Harness 镜像卷里包含：
 
 - `/nix/store/...`：Nix closure
 - `/nix/harness/env`：指向构建产物的稳定链接
-- `/nix/harness/bin/claude`：来自 Claude Code Linux x64 npm package
+- `/nix/harness/bin/claude`：来自完整 Claude Code npm package 及其 Linux x64 native payload
 - `/nix/harness/bin/harness-demo`：demo 服务的稳定入口
 
 镜像卷必须挂载到 `/nix`。Nix store 的引用是绝对路径，把同一份文件挂到其他目录会导致很多可执行文件无法运行。
@@ -130,7 +130,7 @@ make run
 ```json
 {
   "ok": true,
-  "claude": "1.4.0",
+  "claude": "2.1.196 (Claude Code)",
   "python": "3.12.7",
   "node": "v22.10.0"
 }

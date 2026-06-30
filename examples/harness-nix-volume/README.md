@@ -29,7 +29,7 @@ flowchart LR
   Process --> Port
 ```
 
-The demo Harness is intentionally concrete: the Nix image volume contains the Claude Code Linux x64 native binary plus the Node.js/Python runtime needed by the wrapper service. The sandbox starts an HTTP service from the mounted Nix runtime and reports `claude --version`, `node --version`, and Python. The main image does not install Claude Code or Node.js; those come from the mounted `/nix` tree.
+The demo Harness is intentionally concrete: the Nix image volume contains the complete Claude Code npm package, its Linux x64 native payload, and the Node.js/Python runtime needed by the wrapper service. The sandbox starts an HTTP service from the mounted Nix runtime and reports `claude --version`, `node --version`, and Python. The main image does not install Claude Code or Node.js; those come from the mounted `/nix` tree.
 
 ## Files
 
@@ -91,7 +91,7 @@ The Harness image volume contains:
 
 - `/nix/store/...` for the Nix closure
 - `/nix/harness/env` symlinked to the built environment
-- `/nix/harness/bin/claude` from the Claude Code Linux x64 npm package
+- `/nix/harness/bin/claude` from the complete Claude Code npm package plus its Linux x64 native payload
 - `/nix/harness/bin/harness-demo` as the stable demo service entrypoint
 
 Mount the image volume at `/nix`. Nix store references are absolute paths, so mounting the same files elsewhere will break many executables.
@@ -130,7 +130,7 @@ Expected `.state/runtime-report.json`:
 ```json
 {
   "ok": true,
-  "claude": "1.4.0",
+  "claude": "2.1.196 (Claude Code)",
   "python": "3.12.7",
   "node": "v22.10.0"
 }

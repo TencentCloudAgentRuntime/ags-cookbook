@@ -1,7 +1,7 @@
 { pkgs ? import <nixpkgs> { } }:
 
 let
-  claudeCode = pkgs.stdenvNoCC.mkDerivation {
+  claudeCodeNative = pkgs.stdenvNoCC.mkDerivation {
     pname = "claude-code-linux-x64";
     version = "2.1.196";
     src = pkgs.fetchurl {
@@ -16,11 +16,39 @@ let
     ];
     dontConfigure = true;
     dontBuild = true;
+    dontStrip = true;
 
     installPhase = ''
-      mkdir -p "$out/bin"
-      cp claude "$out/bin/claude"
-      chmod +x "$out/bin/claude"
+      mkdir -p "$out"
+      cp -a . "$out/"
+      chmod +x "$out/claude"
+    '';
+  };
+
+  claudeCode = pkgs.stdenvNoCC.mkDerivation {
+    pname = "claude-code";
+    version = "2.1.196";
+    src = pkgs.fetchurl {
+      url = "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.196.tgz";
+      hash = "sha512-dcNbagEwy0CGkma3dLD1dFa4sknDtU4+6+027gP+c8OQQwSBINTBR0qVmTF7BtcqB10tGk4v8mF4fsPMkBAGtQ==";
+    };
+    sourceRoot = "package";
+    dontConfigure = true;
+    dontBuild = true;
+
+    installPhase = ''
+      package_dir="$out/lib/node_modules/@anthropic-ai/claude-code"
+      native_dir="$out/lib/node_modules/@anthropic-ai/claude-code-linux-x64"
+
+      mkdir -p "$package_dir" "$native_dir" "$out/bin"
+      cp -a . "$package_dir/"
+      cp -a ${claudeCodeNative}/. "$native_dir/"
+
+      # Mirror the npm install layout: the public package entrypoint is
+      # bin/claude.exe, backed by the platform native payload.
+      cp ${claudeCodeNative}/claude "$package_dir/bin/claude.exe"
+      chmod +x "$package_dir/bin/claude.exe"
+      ln -s "$package_dir/bin/claude.exe" "$out/bin/claude"
     '';
   };
 
