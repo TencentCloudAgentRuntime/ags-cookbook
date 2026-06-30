@@ -23,7 +23,7 @@ build-images: build-main-image build-harness-volume
 build-main-image:
 	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	: "$${MAIN_IMAGE_REF:?set MAIN_IMAGE_REF in .env}"; \
-	ENGINE="$${CONTAINER_ENGINE:-podman}"; \
+	ENGINE="$${CONTAINER_ENGINE:-docker}"; \
 	PLATFORM="$${IMAGE_PLATFORM:-linux/amd64}"; \
 	"$$ENGINE" build --platform "$$PLATFORM" -t "$$MAIN_IMAGE_REF" -f images/main/Dockerfile .
 

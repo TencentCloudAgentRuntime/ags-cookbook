@@ -46,7 +46,7 @@ flowchart LR
 
 ## 前置条件
 
-- 本地容器构建工具：默认 `podman`，也可以设置 `CONTAINER_ENGINE=docker`。
+- Docker，或其他兼容 Docker 命令的容器构建工具。
 - `uv`，用于运行本地 Python SDK 辅助脚本。
 - 可以拉取 `nixos/nix` builder 镜像和 Nix packages。用户本机不需要安装 Nix。
 - 一个 AGS 可以拉取的容器镜像仓库。
@@ -77,21 +77,21 @@ HARNESS_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-volum
 
 ```bash
 make build-images
-podman push "$MAIN_IMAGE_REF"
-podman push "$HARNESS_VOLUME_IMAGE_REF"
-```
-
-如果使用 Docker：
-
-```bash
-CONTAINER_ENGINE=docker make build-images
 docker push "$MAIN_IMAGE_REF"
 docker push "$HARNESS_VOLUME_IMAGE_REF"
 ```
 
+如果使用其他兼容容器引擎：
+
+```bash
+CONTAINER_ENGINE=<engine> make build-images
+<engine> push "$MAIN_IMAGE_REF"
+<engine> push "$HARNESS_VOLUME_IMAGE_REF"
+```
+
 `scripts/build-harness-volume.sh` 会使用 Linux `nixos/nix` builder 容器构建，生成的 closure 匹配沙箱里的 `x86_64-linux` 环境。用户本机不需要安装 Nix。
 
-builder 容器会在本地 `nix.conf` 里设置 `sandbox = false` 和 `filter-syscalls = false`，因为在 podman machine 的 seccomp profile 下，嵌套的 Nix sandbox 初始化可能失败。构建仍然运行在一次性容器里。脚本也默认设置 `CONTAINER_BUILD_SECURITY_OPT=seccomp=unconfined`；如果你的容器运行时不需要或不允许这个构建期参数，可以把它设置为空。
+builder 容器会在本地 `nix.conf` 里设置 `sandbox = false` 和 `filter-syscalls = false`，因为在容器 seccomp profile 下，嵌套的 Nix sandbox 初始化可能失败。构建仍然运行在一次性容器里。如果你的容器运行时需要显式构建安全参数，可以设置 `CONTAINER_BUILD_SECURITY_OPT`，例如 `CONTAINER_BUILD_SECURITY_OPT=seccomp=unconfined`。
 
 Harness 镜像卷里包含：
 
@@ -136,7 +136,7 @@ make run
 ```json
 {
   "ok": true,
-  "claude": "2.1.196 ...",
+  "claude": "1.4.0",
   "python": "3.12.x",
   "node": "v22.x.x"
 }

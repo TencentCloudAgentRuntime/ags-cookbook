@@ -9,6 +9,11 @@ let
       hash = "sha512-n8/1jNHQcYLAUL9hTfjU96r4TTQD5O7QTnqjX8MAvWWlAzvVhy7cAwWrI46V2ntyVJO9CupLMmp9tXufB0QDEg==";
     };
     sourceRoot = "package";
+    nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+    buildInputs = [
+      pkgs.glibc
+      pkgs.stdenv.cc.cc.lib
+    ];
     dontConfigure = true;
     dontBuild = true;
 

@@ -2,12 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENGINE="${CONTAINER_ENGINE:-podman}"
+ENGINE="${CONTAINER_ENGINE:-docker}"
 PLATFORM="${IMAGE_PLATFORM:-linux/amd64}"
 IMAGE_REF="${HARNESS_VOLUME_IMAGE_REF:?set HARNESS_VOLUME_IMAGE_REF in .env}"
 BUILD_DIR="$ROOT_DIR/dist/harness-volume"
 NIX_BUILDER_IMAGE="${NIX_BUILDER_IMAGE:-nixos/nix:2.26.3}"
-BUILD_SECURITY_OPT="${CONTAINER_BUILD_SECURITY_OPT:-seccomp=unconfined}"
+BUILD_SECURITY_OPT="${CONTAINER_BUILD_SECURITY_OPT:-}"
 
 command -v "$ENGINE" >/dev/null 2>&1 || {
   echo "$ENGINE is required to build the image" >&2

@@ -46,7 +46,7 @@ The demo Harness is intentionally concrete: the Nix image volume contains the Cl
 
 ## Prerequisites
 
-- Linux-compatible container build tool: `podman` by default, or set `CONTAINER_ENGINE=docker`.
+- Docker or another Docker-compatible container build tool.
 - `uv` for the local Python SDK helper.
 - Network access to pull the `nixos/nix` builder image and Nix packages. Local Nix installation is not required.
 - A container registry that AGS can pull from.
@@ -77,21 +77,21 @@ HARNESS_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-volum
 
 ```bash
 make build-images
-podman push "$MAIN_IMAGE_REF"
-podman push "$HARNESS_VOLUME_IMAGE_REF"
-```
-
-If you use Docker:
-
-```bash
-CONTAINER_ENGINE=docker make build-images
 docker push "$MAIN_IMAGE_REF"
 docker push "$HARNESS_VOLUME_IMAGE_REF"
 ```
 
+If you use another compatible container engine:
+
+```bash
+CONTAINER_ENGINE=<engine> make build-images
+<engine> push "$MAIN_IMAGE_REF"
+<engine> push "$HARNESS_VOLUME_IMAGE_REF"
+```
+
 `scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container, so the generated closure matches the sandbox's `x86_64-linux` environment. Users do not need to install Nix on the host machine.
 
-The builder container sets `sandbox = false` and `filter-syscalls = false` in its local `nix.conf` because nested Nix sandbox setup can fail under podman machine's seccomp profile. The build still runs inside a disposable container. The script also defaults `CONTAINER_BUILD_SECURITY_OPT=seccomp=unconfined`; set it to an empty value if your container runtime does not need or allow this build-time flag.
+The builder container sets `sandbox = false` and `filter-syscalls = false` in its local `nix.conf` because nested Nix sandbox setup can fail under container seccomp profiles. The build still runs inside a disposable container. If your container runtime requires an explicit build security option, set `CONTAINER_BUILD_SECURITY_OPT`, for example `CONTAINER_BUILD_SECURITY_OPT=seccomp=unconfined`.
 
 The Harness image volume contains:
 
@@ -136,7 +136,7 @@ Expected `.state/runtime-report.json`:
 ```json
 {
   "ok": true,
-  "claude": "2.1.196 ...",
+  "claude": "1.4.0",
   "python": "3.12.x",
   "node": "v22.x.x"
 }
