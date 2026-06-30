@@ -83,8 +83,6 @@ docker push "$HARNESS_VOLUME_IMAGE_REF"
 
 `scripts/build-harness-volume.sh` 会使用 Linux `nixos/nix` builder 容器构建，生成的 closure 匹配沙箱里的 `x86_64-linux` 环境。用户本机不需要安装 Nix。
 
-builder 容器会在本地 `nix.conf` 里设置 `sandbox = false` 和 `filter-syscalls = false`，因为在容器 seccomp profile 下，嵌套的 Nix sandbox 初始化可能失败。构建仍然运行在一次性容器里。
-
 Harness 镜像卷里包含：
 
 - `/nix/store/...`：Nix closure

@@ -83,8 +83,6 @@ docker push "$HARNESS_VOLUME_IMAGE_REF"
 
 `scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container, so the generated closure matches the sandbox's `x86_64-linux` environment. Users do not need to install Nix on the host machine.
 
-The builder container sets `sandbox = false` and `filter-syscalls = false` in its local `nix.conf` because nested Nix sandbox setup can fail under container seccomp profiles. The build still runs inside a disposable container.
-
 The Harness image volume contains:
 
 - `/nix/store/...` for the Nix closure
