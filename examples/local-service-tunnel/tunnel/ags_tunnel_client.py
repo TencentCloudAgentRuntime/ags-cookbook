@@ -107,23 +107,34 @@ def bool_from_config(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def load_policy_file(path: str) -> dict[str, Any]:
+def load_yaml_mapping(path: str, label: str) -> dict[str, Any]:
     if not path:
         return {}
     if not path.endswith((".yaml", ".yml")):
-        raise ValueError("policy file must be YAML with .yaml or .yml extension")
+        raise ValueError(f"{label} file must be YAML with .yaml or .yml extension")
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
     try:
         import yaml  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise RuntimeError("YAML policy files require PyYAML: pip install PyYAML") from exc
+        raise RuntimeError("YAML files require PyYAML: pip install PyYAML") from exc
     data = yaml.safe_load(raw)
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ValueError("policy file must contain a YAML mapping")
+        raise ValueError(f"{label} file must contain a YAML mapping")
     return data
+
+
+def load_policy_file(path: str) -> dict[str, Any]:
+    data = load_yaml_mapping(path, "policy")
+    if "sessions" in data:
+        raise ValueError("sessions must be configured with --session-file, not in the policy file")
+    return data
+
+
+def load_session_file(path: str) -> dict[str, Any]:
+    return load_yaml_mapping(path, "session")
 
 
 def clean_request_headers(headers: Dict[str, str]) -> Dict[str, str]:
@@ -182,6 +193,32 @@ def build_control_url(instance_id: str, remote_port: int, gateway_domain: str, s
     if scheme not in {"ws", "wss"}:
         raise ValueError("--control-scheme must be ws or wss")
     return f"{scheme}://{remote_port}-{instance_id}.{gateway_domain}/ws"
+
+
+def acquire_instance_access_token(instance_id: str) -> str:
+    if not instance_id:
+        raise ValueError("instance_id is required to acquire sandbox access token")
+    try:
+        from tencentcloud.ags.v20250920 import ags_client, models
+        from tencentcloud.common import credential
+        from tencentcloud.common.profile.client_profile import ClientProfile
+        from tencentcloud.common.profile.http_profile import HttpProfile
+    except ImportError as exc:
+        raise RuntimeError("TencentCloud SDK is required to acquire sandbox access tokens") from exc
+
+    sid = os.getenv("TENCENTCLOUD_SECRET_ID")
+    skey = os.getenv("TENCENTCLOUD_SECRET_KEY")
+    if not sid or not skey:
+        raise ValueError("TENCENTCLOUD_SECRET_ID and TENCENTCLOUD_SECRET_KEY are required to acquire sandbox access tokens")
+    region = os.getenv("TENCENTCLOUD_REGION") or os.getenv("AGS_REGION") or "ap-guangzhou"
+    http_profile = HttpProfile()
+    http_profile.endpoint = os.getenv("AGS_CLOUD_ENDPOINT", "ags.tencentcloudapi.com")
+    profile = ClientProfile()
+    profile.httpProfile = http_profile
+    client = ags_client.AgsClient(credential.Credential(sid, skey), region, profile)
+    req = models.AcquireSandboxInstanceTokenRequest()
+    req.InstanceId = instance_id
+    return client.AcquireSandboxInstanceToken(req).Token
 
 
 def resolve_api_key(api_key_env: str) -> Tuple[str, str]:
@@ -540,6 +577,8 @@ def session_from_config(args: argparse.Namespace, item: dict[str, Any], index: i
         ("instance_access_token_env", "access_token_env"),
         args.instance_access_token,
     )
+    if not instance_access_token:
+        instance_access_token = acquire_instance_access_token(instance_id)
     return TunnelSessionConfig(
         name=name,
         control_url=control_url,
@@ -563,11 +602,19 @@ def make_sessions(args: argparse.Namespace, config: dict[str, Any]) -> list[Tunn
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
+    argv_list = list(argv) if argv is not None else sys.argv[1:]
+    if argv_list and argv_list[0] == "serve":
+        argv_list = argv_list[1:]
     parser = argparse.ArgumentParser(description="Run the local side of the AGS WebSocket HTTP tunnel.")
     parser.add_argument(
         "--policy-file",
         default=os.getenv("AGS_TUNNEL_POLICY_FILE", ""),
         help="YAML policy file containing upstream and allowlist settings.",
+    )
+    parser.add_argument(
+        "--session-file",
+        default=os.getenv("AGS_TUNNEL_SESSION_FILE", ""),
+        help="Optional YAML file containing sandbox tunnel sessions. If omitted, a single session is built from CLI args.",
     )
     parser.add_argument(
         "--control-url",
@@ -641,17 +688,18 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--upstream-timeout", type=float, default=120.0)
     parser.add_argument("--chunk-size", type=int, default=64 * 1024)
-    return parser.parse_args(argv)
+    return parser.parse_args(argv_list)
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     try:
         policy_config = load_policy_file(args.policy_file)
+        session_config = load_session_file(args.session_file)
         api_key_name, api_key = resolve_api_key(args.api_key_env)
         upstream_base = str(policy_value(policy_config, "upstream_base", args.upstream_base))
         policy = make_policy(args, policy_config)
-        sessions = make_sessions(args, policy_config)
+        sessions = make_sessions(args, session_config)
         clients = [
             LocalTunnelClient(
                 name=session.name,

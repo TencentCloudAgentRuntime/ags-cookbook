@@ -83,6 +83,7 @@ scripts/build-claude-code-dir.sh
                             构建 Linux amd64 Claude Code 演示目录
 scripts/build-images.sh     构建并推送主镜像、tunnel 镜像、演示 workload 镜像
 config/tunnel-policy.yaml   YAML 白名单策略
+config/tunnel-sessions.yaml 可选；一个本地 client 连接多个沙箱时使用
 ```
 
 ## 最短运行步骤
@@ -170,7 +171,7 @@ allowed_methods:
 
 如果同时配置 `allowed_upstream_hosts` 和 `allowed_ip_cidrs`，两个条件都必须通过。不要把白名单放宽成通配配置。
 
-本地 client 支持同时连接多个沙箱，多个连接仍然共用同一份顶层白名单。如果需要更复杂的白名单逻辑，直接修改 `tunnel/ags_tunnel_client.py` 里的 `TunnelPolicy`。
+本地 client 支持同时连接多个沙箱，多个连接仍然共用同一份顶层白名单。需要连接多个沙箱时，使用 `--session-file config/tunnel-sessions.yaml` 指定连接清单；如果需要更复杂的白名单逻辑，直接修改 `tunnel/ags_tunnel_client.py` 里的 `TunnelPolicy`。
 
 ## 白名单验证
 
@@ -231,4 +232,4 @@ make run
 - 沙箱只能通过 tunnel 表达请求意图。
 - 本地 client 丢弃沙箱传来的 auth header，再注入本机凭据。
 - YAML 策略限制上游 host、IP/CIDR、port、path、method 和可转发 header。
-- 多个沙箱连接共用同一份 YAML 白名单，不支持在 session 内放宽策略。
+- 多个沙箱连接共用同一份 YAML 白名单，连接清单不能放宽策略。

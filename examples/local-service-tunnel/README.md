@@ -83,6 +83,7 @@ scripts/build-claude-code-dir.sh
                             Build a Linux amd64 Claude Code demo directory
 scripts/build-images.sh     Build and push main, tunnel, and demo workload images
 config/tunnel-policy.yaml   YAML allowlist policy
+config/tunnel-sessions.yaml Optional; used when one local client connects to multiple sandboxes
 ```
 
 ## Run
@@ -170,7 +171,7 @@ allowed_methods:
 
 If both `allowed_upstream_hosts` and `allowed_ip_cidrs` are set, both checks must pass. Keep the policy narrow; the sandbox is not trusted.
 
-The local client can connect to multiple sandboxes at the same time. All connections still share the same top-level allowlist. For more advanced allowlist logic, edit `TunnelPolicy` in `tunnel/ags_tunnel_client.py`.
+The local client can connect to multiple sandboxes at the same time. All connections still share the same top-level allowlist. Use `--session-file config/tunnel-sessions.yaml` when one local client should connect to multiple sandboxes. For more advanced allowlist logic, edit `TunnelPolicy` in `tunnel/ags_tunnel_client.py`.
 
 ## Allowlist Verification
 
@@ -231,4 +232,4 @@ This permission mode is only for the isolated demo sandbox. Customer workloads c
 - The sandbox only sends request intent through the tunnel.
 - The local client drops sandbox-provided auth headers and injects local credentials.
 - The YAML policy restricts upstream host, IP/CIDR, port, path, method, and forwarded headers.
-- Multiple sandbox connections share one YAML allowlist; sessions cannot relax the policy.
+- Multiple sandbox connections share one YAML allowlist; the connection list cannot relax the policy.
