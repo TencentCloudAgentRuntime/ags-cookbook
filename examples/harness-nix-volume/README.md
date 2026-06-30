@@ -46,7 +46,7 @@ The demo Harness is intentionally concrete: the Nix image volume contains the Cl
 
 ## Prerequisites
 
-- Docker or another Docker-compatible container build tool.
+- Docker.
 - `uv` for the local Python SDK helper.
 - Network access to pull the `nixos/nix` builder image and Nix packages. Local Nix installation is not required.
 - A container registry that AGS can pull from.
@@ -81,17 +81,9 @@ docker push "$MAIN_IMAGE_REF"
 docker push "$HARNESS_VOLUME_IMAGE_REF"
 ```
 
-If you use another compatible container engine:
-
-```bash
-CONTAINER_ENGINE=<engine> make build-images
-<engine> push "$MAIN_IMAGE_REF"
-<engine> push "$HARNESS_VOLUME_IMAGE_REF"
-```
-
 `scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container, so the generated closure matches the sandbox's `x86_64-linux` environment. Users do not need to install Nix on the host machine.
 
-The builder container sets `sandbox = false` and `filter-syscalls = false` in its local `nix.conf` because nested Nix sandbox setup can fail under container seccomp profiles. The build still runs inside a disposable container. If your container runtime requires an explicit build security option, set `CONTAINER_BUILD_SECURITY_OPT`, for example `CONTAINER_BUILD_SECURITY_OPT=seccomp=unconfined`.
+The builder container sets `sandbox = false` and `filter-syscalls = false` in its local `nix.conf` because nested Nix sandbox setup can fail under container seccomp profiles. The build still runs inside a disposable container.
 
 The Harness image volume contains:
 
