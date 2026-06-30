@@ -17,7 +17,7 @@ flowchart LR
 
   subgraph AGS["AGS 沙箱内"]
     Mount["只读挂载\n/nix -> 镜像卷 /nix"]
-    Process["/nix/harness/bin/harness-demo\nserve --port 18080"]
+    Process["/nix/harness/nix-env/bin/harness-demo\nserve --port 18080"]
     Port["沙箱暴露的端口\n18080"]
   end
 
@@ -90,9 +90,11 @@ docker push "$HARNESS_VOLUME_IMAGE_REF"
 Harness 镜像卷里包含：
 
 - `/nix/store/...`：Nix closure
-- `/nix/harness/env`：指向构建产物的稳定链接
-- `/nix/harness/bin/claude`：来自完整 Claude Code npm package 及其 Linux x64 native payload
-- `/nix/harness/bin/harness-demo`：demo 服务的稳定入口
+- `/nix/harness/nix-env`：稳定的运行时 profile
+- `/nix/harness/env`：指向 `nix-env` 的兼容链接
+- `/nix/harness/bin`：指向 `nix-env/bin` 的兼容链接
+- `/nix/harness/nix-env/bin/claude`：来自完整 Claude Code npm package 及其 Linux x64 native payload
+- `/nix/harness/nix-env/bin/harness-demo`：demo 服务入口
 
 镜像卷必须挂载到 `/nix`。Nix store 的引用是绝对路径，把同一份文件挂到其他目录会导致很多可执行文件无法运行。
 
@@ -119,7 +121,7 @@ make run
 4. 直接启动 Harness：
 
    ```text
-   /nix/harness/bin/harness-demo serve --host 0.0.0.0 --port 18080
+   /nix/harness/nix-env/bin/harness-demo serve --host 0.0.0.0 --port 18080
    ```
 
 5. 暴露沙箱端口 `18080`。
@@ -150,7 +152,9 @@ DELETE_TOOL=1 make cleanup
 
 ## 接入真实 Harness
 
-把 `nix/default.nix` 里的 `claudeCode` derivation 换成你的真实 Harness 二进制或启动器。如果你的 Harness 需要更多运行时，依赖加到 `runtimeEnv.paths` 里，例如：
+如果是真实的 npm Harness，更新 `nix/claude-code/package.json`，重新生成 `nix/claude-code/package-lock.json`，再用 `nix-build` 报出的 hash mismatch 更新 `nix/default.nix` 里的 `npmDepsHash`。这个示例用 `buildNpmPackage`，由 npm 和 Nix 生成 npm 依赖布局，不需要手工组装。
+
+如果不是 npm Harness，把 `nix/default.nix` 里的 `claudeCode` derivation 换成你的真实二进制或启动器。如果你的 Harness 需要更多运行时，依赖加到 `runtimeEnv.paths` 里，例如：
 
 ```nix
 pkgs.nodejs_22
@@ -162,4 +166,4 @@ pkgs.chromium
 
 可写状态放到镜像卷以外，例如 `/tmp`、`/workspace` 或单独的 AGS 存储挂载。镜像卷应当当成只读运行时依赖。
 
-如果主镜像里已经有自己的 Node.js、Java 或 Python，建议用 `/nix/harness/bin/...` 的绝对路径启动 Harness，不要把 `/nix/harness/bin` 全局加到用户 workload 的 `PATH` 最前面。这样可以避免挂载进来的 Harness 运行时意外覆盖主镜像自己的工具。
+如果主镜像里已经有自己的 Node.js、Java 或 Python，建议用 `/nix/harness/nix-env/bin/...` 的绝对路径启动 Harness，不要把挂载进来的 Harness `bin` 目录全局加到用户 workload 的 `PATH` 最前面。这样可以避免挂载进来的 Harness 运行时意外覆盖主镜像自己的工具。

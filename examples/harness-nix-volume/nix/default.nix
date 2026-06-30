@@ -1,54 +1,25 @@
 { pkgs ? import <nixpkgs> { } }:
 
 let
-  claudeCodeNative = pkgs.stdenvNoCC.mkDerivation {
-    pname = "claude-code-linux-x64";
+  claudeCode = pkgs.buildNpmPackage {
+    pname = "claude-code";
     version = "2.1.196";
-    src = pkgs.fetchurl {
-      url = "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.196.tgz";
-      hash = "sha512-n8/1jNHQcYLAUL9hTfjU96r4TTQD5O7QTnqjX8MAvWWlAzvVhy7cAwWrI46V2ntyVJO9CupLMmp9tXufB0QDEg==";
-    };
-    sourceRoot = "package";
+    src = ./claude-code;
+    npmDepsHash = "sha256-5J4UnkxH2uIsrG2pzJlbn32MmStl5SvImreGrr1/7nQ=";
+
     nativeBuildInputs = [ pkgs.autoPatchelfHook ];
     buildInputs = [
       pkgs.glibc
       pkgs.stdenv.cc.cc.lib
     ];
-    dontConfigure = true;
-    dontBuild = true;
+    dontNpmBuild = true;
     dontStrip = true;
 
-    installPhase = ''
-      mkdir -p "$out"
-      cp -a . "$out/"
-      chmod +x "$out/claude"
-    '';
-  };
-
-  claudeCode = pkgs.stdenvNoCC.mkDerivation {
-    pname = "claude-code";
-    version = "2.1.196";
-    src = pkgs.fetchurl {
-      url = "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.196.tgz";
-      hash = "sha512-dcNbagEwy0CGkma3dLD1dFa4sknDtU4+6+027gP+c8OQQwSBINTBR0qVmTF7BtcqB10tGk4v8mF4fsPMkBAGtQ==";
-    };
-    sourceRoot = "package";
-    dontConfigure = true;
-    dontBuild = true;
-
-    installPhase = ''
-      package_dir="$out/lib/node_modules/@anthropic-ai/claude-code"
-      native_dir="$out/lib/node_modules/@anthropic-ai/claude-code-linux-x64"
-
-      mkdir -p "$package_dir" "$native_dir" "$out/bin"
-      cp -a . "$package_dir/"
-      cp -a ${claudeCodeNative}/. "$native_dir/"
-
-      # Mirror the npm install layout: the public package entrypoint is
-      # bin/claude.exe, backed by the platform native payload.
-      cp ${claudeCodeNative}/claude "$package_dir/bin/claude.exe"
-      chmod +x "$package_dir/bin/claude.exe"
-      ln -s "$package_dir/bin/claude.exe" "$out/bin/claude"
+    postInstall = ''
+      package_dir="$out/lib/node_modules/ags-harness-claude-code-runtime"
+      rm -rf "$package_dir/node_modules/@anthropic-ai/claude-code-linux-x64-musl"
+      mkdir -p "$out/bin"
+      ln -s "$package_dir/node_modules/@anthropic-ai/claude-code/bin/claude.exe" "$out/bin/claude"
     '';
   };
 
@@ -72,17 +43,19 @@ EOF
       chmod +x "$out/bin/harness-demo"
     '';
   };
+
+  runtimeEnv = pkgs.buildEnv {
+    name = "ags-harness-nix-env";
+    paths = [
+      claudeCode
+      harness
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.jq
+      pkgs.nodejs_22
+      pkgs.python312
+    ];
+  };
 in
-pkgs.buildEnv {
-  name = "ags-harness-nix-env";
-  paths = [
-    claudeCode
-    harness
-    pkgs.bash
-    pkgs.coreutils
-    pkgs.curl
-    pkgs.jq
-    pkgs.nodejs_22
-    pkgs.python312
-  ];
-}
+runtimeEnv

@@ -1,0 +1,10 @@
+{
+  "name": "ags-harness-claude-code-runtime",
+  "version": "0.1.0",
+  "description": "Claude Code runtime package for the AGS Harness Nix volume example",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.196"
+  },
+  "private": true
+}

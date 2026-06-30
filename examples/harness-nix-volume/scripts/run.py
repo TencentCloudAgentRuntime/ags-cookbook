@@ -102,7 +102,7 @@ def create_tool(client: ags_client.AgsClient) -> str:
     custom = models.CustomConfiguration()
     custom.Image = need("MAIN_IMAGE_REF")
     custom.ImageRegistryType = os.getenv("MAIN_IMAGE_REGISTRY_TYPE", "personal")
-    custom.Command = ["/nix/harness/bin/harness-demo"]
+    custom.Command = ["/nix/harness/nix-env/bin/harness-demo"]
     custom.Args = ["serve", "--host", "0.0.0.0", "--port", str(HARNESS_PORT)]
     custom.Ports = [port("harness", HARNESS_PORT)]
     custom.Probe = probe()

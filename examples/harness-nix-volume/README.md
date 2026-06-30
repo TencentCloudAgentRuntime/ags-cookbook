@@ -17,7 +17,7 @@ flowchart LR
 
   subgraph AGS["AGS sandbox"]
     Mount["read-only mount\n/nix -> image volume /nix"]
-    Process["/nix/harness/bin/harness-demo\nserve --port 18080"]
+    Process["/nix/harness/nix-env/bin/harness-demo\nserve --port 18080"]
     Port["sandbox exposed port\n18080"]
   end
 
@@ -90,9 +90,11 @@ Both images must be pushed before `make run`. `MAIN_IMAGE_REF` is the sandbox's 
 The Harness image volume contains:
 
 - `/nix/store/...` for the Nix closure
-- `/nix/harness/env` symlinked to the built environment
-- `/nix/harness/bin/claude` from the complete Claude Code npm package plus its Linux x64 native payload
-- `/nix/harness/bin/harness-demo` as the stable demo service entrypoint
+- `/nix/harness/nix-env` as the stable runtime profile
+- `/nix/harness/env` compatibility symlink to `nix-env`
+- `/nix/harness/bin` compatibility symlink to `nix-env/bin`
+- `/nix/harness/nix-env/bin/claude` from the complete Claude Code npm package plus its Linux x64 native payload
+- `/nix/harness/nix-env/bin/harness-demo` as the demo service entrypoint
 
 Mount the image volume at `/nix`. Nix store references are absolute paths, so mounting the same files elsewhere will break many executables.
 
@@ -119,7 +121,7 @@ make run
 4. Starts the Harness process directly:
 
    ```text
-   /nix/harness/bin/harness-demo serve --host 0.0.0.0 --port 18080
+   /nix/harness/nix-env/bin/harness-demo serve --host 0.0.0.0 --port 18080
    ```
 
 5. Exposes sandbox port `18080`.
@@ -150,7 +152,9 @@ DELETE_TOOL=1 make cleanup
 
 ## Adapting To A Real Harness
 
-Replace the `claudeCode` derivation in `nix/default.nix` with your real Harness binary or launcher. If your Harness needs more runtimes, add them to the `runtimeEnv.paths` list, for example:
+For an npm-based Harness, update `nix/claude-code/package.json`, regenerate `nix/claude-code/package-lock.json`, and then update `npmDepsHash` in `nix/default.nix` from the hash mismatch reported by `nix-build`. The example uses `buildNpmPackage` so the npm dependency layout is produced by npm and Nix, instead of being assembled by hand.
+
+For a non-npm Harness, replace the `claudeCode` derivation in `nix/default.nix` with your real binary or launcher. If your Harness needs more runtimes, add them to the `runtimeEnv.paths` list, for example:
 
 ```nix
 pkgs.nodejs_22
@@ -162,4 +166,4 @@ pkgs.chromium
 
 Keep writable state outside the image volume, such as `/tmp`, `/workspace`, or a separate AGS storage mount. Image volumes should be treated as read-only runtime dependencies.
 
-If the main image already has its own Node.js, Java, or Python, call the Harness through the absolute `/nix/harness/bin/...` path and avoid prepending `/nix/harness/bin` to the global `PATH` of unrelated user workloads. This keeps the mounted Harness runtime from accidentally shadowing the main image's tools.
+If the main image already has its own Node.js, Java, or Python, call the Harness through the absolute `/nix/harness/nix-env/bin/...` path and avoid prepending the mounted Harness `bin` directory to the global `PATH` of unrelated user workloads. This keeps the mounted Harness runtime from accidentally shadowing the main image's tools.

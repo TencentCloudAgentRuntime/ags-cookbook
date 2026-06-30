@@ -27,10 +27,12 @@ RUN mkdir -p /etc/nix \
 
 COPY nix/ /src/nix/
 RUN nix-build /src/nix/default.nix --out-link /tmp/harness-result \
+    && result_path="$(readlink -f /tmp/harness-result)" \
     && mkdir -p /nix-export/nix/store /nix-export/nix/harness \
     && cp -a $(nix-store -qR /tmp/harness-result) /nix-export/nix/store/ \
-    && ln -s "$(readlink /tmp/harness-result)" /nix-export/nix/harness/env \
-    && ln -s env/bin /nix-export/nix/harness/bin
+    && ln -s "$result_path" /nix-export/nix/harness/nix-env \
+    && ln -s nix-env /nix-export/nix/harness/env \
+    && ln -s nix-env/bin /nix-export/nix/harness/bin
 
 FROM scratch
 COPY --from=builder /nix-export/ /
