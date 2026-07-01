@@ -91,8 +91,6 @@ The Harness image volume contains:
 
 - `/nix/store/...` for the Nix closure
 - `/nix/harness/nix-env` as the stable runtime profile
-- `/nix/harness/env` compatibility symlink to `nix-env`
-- `/nix/harness/bin` compatibility symlink to `nix-env/bin`
 - `/nix/harness/nix-env/bin/claude` from the complete Claude Code npm package plus its Linux x64 native payload
 - `/nix/harness/nix-env/bin/harness-demo` as the demo service entrypoint
 

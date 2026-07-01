@@ -91,8 +91,6 @@ Harness 镜像卷里包含：
 
 - `/nix/store/...`：Nix closure
 - `/nix/harness/nix-env`：稳定的运行时 profile
-- `/nix/harness/env`：指向 `nix-env` 的兼容链接
-- `/nix/harness/bin`：指向 `nix-env/bin` 的兼容链接
 - `/nix/harness/nix-env/bin/claude`：来自完整 Claude Code npm package 及其 Linux x64 native payload
 - `/nix/harness/nix-env/bin/harness-demo`：demo 服务入口
 
