@@ -214,13 +214,11 @@ def _build_auth_headers(
     headers = {}
     if envd_access_token:
         headers["X-Access-Token"] = envd_access_token
-    if include_traffic and traffic_access_token:
-        headers["e2b-traffic-access-token"] = traffic_access_token
     return headers
 
 
 def _should_retry_with_traffic(status: int | None, traffic_access_token: str | None, include_traffic: bool) -> bool:
-    return bool(traffic_access_token) and not include_traffic and status in (401, 403)
+    return False
 
 
 class LocalProxyServer:

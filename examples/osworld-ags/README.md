@@ -8,7 +8,6 @@ It works by copying a small overlay into a local OSWorld checkout. The overlay a
 
 - `provider_name=ags` support in OSWorld
 - local HTTP/WebSocket proxying for AGS sandbox access
-- a VM-side Chrome CDP bridge that uses only the Python standard library
 - noVNC support for remote desktop viewing
 
 ## Before You Start
@@ -63,7 +62,7 @@ Note: currently only supports Python 3.10
 make setup
 ```
 
-This creates `osworld/.venv` with `uv`, installs Python 3.10 if needed, and installs the overlaid `requirements.txt` into that virtual environment. The overlay includes the AGS dependencies, including `e2b`, `e2b-code-interpreter`, and `aiohttp`. It pins `e2b` to an AGS-compatible range because newer upstream SDK releases validate only `e2b_...` keys, while AGS API keys commonly use the `ark_...` form.
+This creates `osworld/.venv` with `uv`, installs Python 3.10 if needed, and installs the overlaid `requirements.txt` into that virtual environment. The overlay includes the AGS dependencies, including `e2b`, `e2b-code-interpreter`, and `aiohttp`. If your AGS API key starts with `ark_` and the SDK validates for an `e2b_` prefix, replace only the prefix with `e2b_`; the key-format check does not require downgrading the SDK.
 
 ## Run
 
@@ -115,4 +114,7 @@ http://localhost:<vnc_port>/vnc.html
 - AGS does not expose VM snapshots through the OSWorld provider. The overlay
   treats OSWorld snapshot revert as "replace the sandbox" to avoid leaking the
   previous sandbox between tasks.
+- The provider authenticates sandbox traffic with the sandbox access token by
+  default; it does not require `e2b-traffic-access-token` for normal OSWorld
+  runs.
 - Upstream project: [xlang-ai/OSWorld](https://github.com/xlang-ai/OSWorld)
