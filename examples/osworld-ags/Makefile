@@ -8,7 +8,7 @@ OSWORLD_PY := $(OSWORLD_VENV)/bin/python
 setup:
 	@test -d $(OSWORLD_DIR) || (echo "missing $(OSWORLD_DIR): clone OSWorld first" && exit 1)
 	uv python install $(OSWORLD_PYTHON)
-	uv venv --python $(OSWORLD_PYTHON) $(OSWORLD_VENV)
+	@test -x $(OSWORLD_PY) || uv venv --python $(OSWORLD_PYTHON) $(OSWORLD_VENV)
 	cd $(OSWORLD_DIR) && uv pip install --python .venv/bin/python -r requirements.txt
 
 run:

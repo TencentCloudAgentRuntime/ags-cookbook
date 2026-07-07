@@ -75,5 +75,6 @@ json_minify
 json_repair
 volcengine-python-sdk[ark]
 ui-tars>=0.4.2.2
+e2b>=2.13.2,<2.14.0
 e2b-code-interpreter>=2.4.1
 aiohttp>=3.9.0

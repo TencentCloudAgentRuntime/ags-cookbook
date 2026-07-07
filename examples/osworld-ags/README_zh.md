@@ -8,6 +8,7 @@
 
 - OSWorld 中可直接使用 `provider_name=ags`
 - 面向 AGS 的本地 HTTP/WebSocket 代理
+- VM 内只依赖 Python 标准库的 Chrome CDP bridge
 - 用于远程桌面观察的 noVNC 支持
 
 ## 开始前需要准备
@@ -62,7 +63,7 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 make setup
 ```
 
-这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会把 AGS 依赖写入 `requirements.txt`，包括 `e2b-code-interpreter` 和 `aiohttp`。
+这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会加入 AGS 依赖，包括 `e2b`、`e2b-code-interpreter` 和 `aiohttp`。其中 `e2b` 会固定在 AGS 兼容的版本范围，因为较新的上游 SDK 只接受 `e2b_...` 格式的 key，而 AGS API Key 常见格式是 `ark_...`。
 
 ## 运行
 
@@ -87,6 +88,7 @@ uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt
 
 - `desktop_env/providers/ags/__init__.py`
 - `desktop_env/providers/ags/config.py`
+- `desktop_env/providers/ags/cdp_proxy.py`
 - `desktop_env/providers/ags/manager.py`
 - `desktop_env/providers/ags/provider.py`
 
@@ -94,7 +96,6 @@ uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt
 
 - `desktop_env/desktop_env.py`
 - `desktop_env/providers/__init__.py`
-- `desktop_env/controllers/python.py`
 - `run_multienv.py`
 - `requirements.txt`
 
@@ -111,4 +112,5 @@ http://localhost:<vnc_port>/vnc.html
 - 这不是 OSWorld 上游官方发行版。
 - AGS provider 以 cookbook overlay 的形式在这里分发。
 - overlay 中的相关源码派生自 OSWorld，继续遵循 Apache-2.0。
+- AGS provider 不暴露 OSWorld VM snapshot 能力。overlay 会把 snapshot revert 当作“替换一个新 sandbox”，避免多个任务之间泄漏旧 sandbox。
 - 上游项目：[xlang-ai/OSWorld](https://github.com/xlang-ai/OSWorld)

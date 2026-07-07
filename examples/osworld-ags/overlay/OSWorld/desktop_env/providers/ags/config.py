@@ -13,8 +13,9 @@ Modified and redistributed by Agent Sandbox Cookbook as part of the OSWorld AGS 
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load the example-local .env file. Override existing shell values so a stale
+# global E2B_API_KEY/E2B_DOMAIN does not silently point this example elsewhere.
+load_dotenv(override=True)
 
 # API Configuration
 E2B_API_KEY = os.environ.get("E2B_API_KEY", "")
