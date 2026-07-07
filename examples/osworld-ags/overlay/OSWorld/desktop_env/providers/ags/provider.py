@@ -4,12 +4,8 @@ Modified and redistributed by Agent Sandbox Cookbook as part of the OSWorld AGS 
 """
 
 import atexit
-import json
 import logging
-import os
 import signal
-import shlex
-import ssl
 import time
 import threading
 import socket
@@ -17,7 +13,6 @@ import re
 import requests
 import weakref
 from pathlib import Path
-from urllib.parse import urlparse, urlunparse
 
 from desktop_env.providers.base import Provider
 from desktop_env.providers.ags.config import (
@@ -39,6 +34,11 @@ if not logger.handlers:
 # Global registry of active AGS providers for cleanup
 _active_providers = weakref.WeakSet()
 _cleanup_done = False
+CDP_PROXY_SOURCE = Path(__file__).with_name("cdp_proxy.py")
+
+
+def _read_cdp_proxy_script() -> str:
+    return CDP_PROXY_SOURCE.read_text(encoding="utf-8")
 
 
 def _cleanup_all_providers():
@@ -94,74 +94,6 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
     logger.warning("aiohttp package not available, CDP proxy will have limited functionality")
 
-if AIOHTTP_AVAILABLE:
-    _PERMISSIVE_SSL = ssl.create_default_context()
-    _PERMISSIVE_SSL.check_hostname = False
-    _PERMISSIVE_SSL.verify_mode = ssl.CERT_NONE
-
-
-def _rewrite_cdp_url(raw: str, local_port: int) -> str:
-    """Rewrite CDP URLs to the local proxy port used by Playwright."""
-    if not isinstance(raw, str):
-        return raw
-    parsed = urlparse(raw)
-    if parsed.scheme in ("ws", "wss"):
-        return urlunparse(("ws", f"127.0.0.1:{local_port}", parsed.path, "", parsed.query, parsed.fragment))
-    if parsed.scheme in ("http", "https"):
-        return urlunparse(("http", f"127.0.0.1:{local_port}", parsed.path, "", parsed.query, parsed.fragment))
-    return raw
-
-
-def _rewrite_cdp_payload(content: bytes, local_port: int) -> bytes:
-    """Rewrite CDP /json responses so WS connections go through the local proxy."""
-    try:
-        payload = json.loads(content.decode("utf-8"))
-    except Exception:
-        content_str = content.decode("utf-8", errors="replace")
-        content_str = re.sub(r"wss?://[^/\s\"]+:\d+", f"ws://127.0.0.1:{local_port}", content_str)
-        return content_str.encode("utf-8")
-
-    def rewrite_item(item):
-        if isinstance(item, dict):
-            rewritten = dict(item)
-            for key in ("webSocketDebuggerUrl", "devtoolsFrontendUrl"):
-                if key in rewritten:
-                    rewritten[key] = _rewrite_cdp_url(rewritten[key], local_port)
-            return rewritten
-        return item
-
-    if isinstance(payload, list):
-        payload = [rewrite_item(item) for item in payload]
-    elif isinstance(payload, dict):
-        payload = rewrite_item(payload)
-
-    return json.dumps(payload).encode("utf-8")
-
-
-CDP_PROXY_SOURCE = Path(__file__).with_name("cdp_proxy.py")
-
-
-def _read_cdp_proxy_script() -> str:
-    return CDP_PROXY_SOURCE.read_text(encoding="utf-8")
-
-SOCAT_WRAPPER_SCRIPT = (
-    '#!/bin/bash\n'
-    'REAL=/usr/bin/socat.real\n'
-    'for arg in "$@"; do\n'
-    '  case "$arg" in\n'
-    '    tcp-listen:9222*)\n'
-    '      nohup python3 /tmp/cdp_proxy.py >/tmp/cdp_proxy.log 2>&1 &\n'
-    '      for i in $(seq 1 50); do\n'
-    "        ss -tlnp 2>/dev/null | grep -q ':9222 ' && exit 0\n"
-    '        sleep 0.2\n'
-    '      done\n'
-    '      exit 0\n'
-    '      ;;\n'
-    '  esac\n'
-    'done\n'
-    'exec "$REAL" "$@"\n'
-)
-
 
 def find_available_port(start_port: int) -> int:
     """Find an available port starting from start_port."""
@@ -206,21 +138,6 @@ def find_and_bind_port(start_port: int, max_retries: int = 100) -> socket.socket
     raise RuntimeError(f"No available port found starting from {start_port}")
 
 
-def _build_auth_headers(
-    envd_access_token: str | None,
-    traffic_access_token: str | None,
-    include_traffic: bool = False,
-) -> dict:
-    headers = {}
-    if envd_access_token:
-        headers["X-Access-Token"] = envd_access_token
-    return headers
-
-
-def _should_retry_with_traffic(status: int | None, traffic_access_token: str | None, include_traffic: bool) -> bool:
-    return False
-
-
 class LocalProxyServer:
     """
     Local proxy server for AGS sandbox, supporting both HTTP and WebSocket.
@@ -229,17 +146,10 @@ class LocalProxyServer:
     This is essential for services like noVNC that use WebSocket (websockify).
     """
 
-    def __init__(
-        self,
-        local_port: int,
-        target_host: str,
-        envd_access_token: str | None,
-        traffic_access_token: str | None,
-    ):
+    def __init__(self, local_port: int, target_host: str, access_token: str):
         self.local_port = local_port
         self.target_host = target_host
-        self.envd_access_token = envd_access_token
-        self.traffic_access_token = traffic_access_token
+        self.access_token = access_token
         self.thread = None
         self.loop = None
         self.runner = None
@@ -296,7 +206,7 @@ class LocalProxyServer:
     async def _start_server(self):
         """Start the aiohttp web server with retry on port conflict."""
         import random
-        app = web.Application(client_max_size=0)
+        app = web.Application()
 
         # Route all requests through our handler
         app.router.add_route('*', '/{path:.*}', self._handle_request)
@@ -342,65 +252,51 @@ class LocalProxyServer:
     async def _handle_http(self, request: web.Request, path: str):
         """Handle HTTP request by proxying to the remote sandbox."""
         target_url = f"https://{self.target_host}{path}"
+        headers = {"X-Access-Token": self.access_token}
+
+        # Forward original headers (except host)
+        for key, value in request.headers.items():
+            if key.lower() not in ("host", "transfer-encoding"):
+                headers[key] = value
+        headers["X-Access-Token"] = self.access_token
+
         body = await request.read()
 
         logger.debug("Proxy HTTP %s: %s -> %s", request.method, path, target_url)
 
         try:
             async with aiohttp.ClientSession() as session:
-                for include_traffic in (False, True):
-                    headers = _build_auth_headers(
-                        self.envd_access_token,
-                        self.traffic_access_token,
-                        include_traffic=include_traffic,
-                    )
+                async with session.request(
+                    request.method,
+                    target_url,
+                    headers=headers,
+                    data=body if body else None,
+                    timeout=aiohttp.ClientTimeout(total=300, connect=30),
+                ) as response:
+                    content = await response.read()
 
-                    # Forward original headers (except hop-by-hop and auth headers).
-                    for key, value in request.headers.items():
-                        if key.lower() not in (
-                            "host",
-                            "transfer-encoding",
-                            "x-access-token",
-                            "e2b-traffic-access-token",
-                        ):
-                            headers[key] = value
-
-                    async with session.request(
-                        request.method,
-                        target_url,
-                        headers=headers,
-                        data=body if body else None,
-                        timeout=aiohttp.ClientTimeout(total=300, connect=30),
-                        ssl=_PERMISSIVE_SSL,
-                    ) as response:
-                        content = await response.read()
-
-                        if _should_retry_with_traffic(response.status, self.traffic_access_token, include_traffic):
-                            logger.debug("Retrying %s with traffic token after %d", path, response.status)
-                            continue
-
-                        if response.status >= 500:
-                            logger.warning(
-                                "Remote returned error %d for %s: %s",
-                                response.status, path,
-                                content.decode('utf-8', errors='replace')[:500]
-                            )
-                        elif response.status >= 400:
-                            logger.debug(
-                                "Remote returned %d for %s",
-                                response.status, path,
-                            )
-
-                        resp_headers = {}
-                        for key, value in response.headers.items():
-                            if key.lower() not in ("transfer-encoding", "content-encoding", "content-length"):
-                                resp_headers[key] = value
-
-                        return web.Response(
-                            body=content,
-                            status=response.status,
-                            headers=resp_headers,
+                    if response.status >= 500:
+                        logger.warning(
+                            "Remote returned error %d for %s: %s",
+                            response.status, path,
+                            content.decode('utf-8', errors='replace')[:500]
                         )
+                    elif response.status >= 400:
+                        logger.debug(
+                            "Remote returned %d for %s",
+                            response.status, path,
+                        )
+
+                    resp_headers = {}
+                    for key, value in response.headers.items():
+                        if key.lower() not in ("transfer-encoding", "content-encoding", "content-length"):
+                            resp_headers[key] = value
+
+                    return web.Response(
+                        body=content,
+                        status=response.status,
+                        headers=resp_headers,
+                    )
         except Exception as e:
             logger.error("Proxy HTTP error for %s: %s", path, e)
             return web.Response(text=str(e), status=502)
@@ -411,54 +307,42 @@ class LocalProxyServer:
         await ws_client.prepare(request)
 
         remote_url = f"wss://{self.target_host}{path}"
+        headers = {"X-Access-Token": self.access_token}
 
         logger.debug("Proxy WebSocket: %s -> %s", path, remote_url)
 
         try:
             async with aiohttp.ClientSession() as session:
-                for include_traffic in (False, True):
-                    headers = _build_auth_headers(
-                        self.envd_access_token,
-                        self.traffic_access_token,
-                        include_traffic=include_traffic,
+                async with session.ws_connect(remote_url, headers=headers) as ws_remote:
+                    async def forward_client_to_remote():
+                        try:
+                            async for msg in ws_client:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    await ws_remote.send_str(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.BINARY:
+                                    await ws_remote.send_bytes(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.CLOSE:
+                                    break
+                        except Exception as e:
+                            logger.debug("Client->Remote forward ended: %s", e)
+
+                    async def forward_remote_to_client():
+                        try:
+                            async for msg in ws_remote:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    await ws_client.send_str(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.BINARY:
+                                    await ws_client.send_bytes(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.CLOSE:
+                                    break
+                        except Exception as e:
+                            logger.debug("Remote->Client forward ended: %s", e)
+
+                    await asyncio.gather(
+                        forward_client_to_remote(),
+                        forward_remote_to_client(),
+                        return_exceptions=True,
                     )
-                    try:
-                        async with session.ws_connect(remote_url, headers=headers, ssl=_PERMISSIVE_SSL) as ws_remote:
-                            async def forward_client_to_remote():
-                                try:
-                                    async for msg in ws_client:
-                                        if msg.type == aiohttp.WSMsgType.TEXT:
-                                            await ws_remote.send_str(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                                            await ws_remote.send_bytes(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                                            break
-                                except Exception as e:
-                                    logger.debug("Client->Remote forward ended: %s", e)
-
-                            async def forward_remote_to_client():
-                                try:
-                                    async for msg in ws_remote:
-                                        if msg.type == aiohttp.WSMsgType.TEXT:
-                                            await ws_client.send_str(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                                            await ws_client.send_bytes(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                                            break
-                                except Exception as e:
-                                    logger.debug("Remote->Client forward ended: %s", e)
-
-                            await asyncio.gather(
-                                forward_client_to_remote(),
-                                forward_remote_to_client(),
-                                return_exceptions=True,
-                            )
-                        break
-                    except aiohttp.WSServerHandshakeError as e:
-                        if _should_retry_with_traffic(e.status, self.traffic_access_token, include_traffic):
-                            logger.debug("Retrying WebSocket %s with traffic token after %d", path, e.status)
-                            continue
-                        raise
 
         except Exception as e:
             logger.error("Proxy WebSocket error: %s", e)
@@ -519,17 +403,10 @@ class CDPProxyServer:
     Uses aiohttp to handle both HTTP requests and WebSocket connections on the same port.
     """
 
-    def __init__(
-        self,
-        local_port: int,
-        target_host: str,
-        envd_access_token: str | None,
-        traffic_access_token: str | None,
-    ):
+    def __init__(self, local_port: int, target_host: str, access_token: str):
         self.local_port = local_port
         self.target_host = target_host
-        self.envd_access_token = envd_access_token
-        self.traffic_access_token = traffic_access_token
+        self.access_token = access_token
         self.thread = None
         self.loop = None
         self.runner = None
@@ -586,7 +463,7 @@ class CDPProxyServer:
     async def _start_server(self):
         """Start the aiohttp web server with retry on port conflict."""
         import random
-        app = web.Application(client_max_size=0)
+        app = web.Application()
 
         # Route all requests through our handler
         app.router.add_route('*', '/{path:.*}', self._handle_request)
@@ -635,39 +512,41 @@ class CDPProxyServer:
     async def _handle_http(self, request: web.Request, path: str):
         """Handle HTTP request."""
         target_url = f"https://{self.target_host}{path}"
+        # Note: Host header is handled by the internal proxy in the sandbox
+        headers = {"X-Access-Token": self.access_token}
 
         logger.debug("CDP HTTP: %s -> %s", path, target_url)
 
         try:
             async with aiohttp.ClientSession() as session:
-                for include_traffic in (False, True):
-                    # Note: Host header is handled by the internal proxy in the sandbox.
-                    headers = _build_auth_headers(
-                        self.envd_access_token,
-                        self.traffic_access_token,
-                        include_traffic=include_traffic,
-                    )
-                    async with session.get(target_url, headers=headers, ssl=_PERMISSIVE_SSL) as response:
-                        content = await response.read()
+                async with session.get(target_url, headers=headers) as response:
+                    content = await response.read()
 
-                        if _should_retry_with_traffic(response.status, self.traffic_access_token, include_traffic):
-                            logger.debug("Retrying CDP HTTP %s with traffic token after %d", path, response.status)
-                            continue
+                    # If remote returns error, log it clearly
+                    if response.status >= 400:
+                        logger.error("Remote CDP returned error %d: %s",
+                                   response.status, content.decode('utf-8', errors='replace')[:500])
 
-                        # If remote returns error, log it clearly
-                        if response.status >= 400:
-                            logger.error("Remote CDP returned error %d: %s",
-                                       response.status, content.decode('utf-8', errors='replace')[:500])
+                    # Rewrite WebSocket URLs in /json/* responses
+                    if path.startswith("/json") and response.status == 200:
+                        content_str = content.decode("utf-8")
+                        logger.debug("CDP /json response: %s", content_str[:200])
 
-                        # Rewrite WebSocket URLs in /json/* responses
-                        if path.startswith("/json") and response.status == 200:
-                            content = _rewrite_cdp_payload(content, self.local_port)
-
-                        return web.Response(
-                            body=content,
-                            status=response.status,
-                            content_type=response.content_type
+                        # Replace remote WebSocket URLs with local
+                        # Pattern matches wss://host or ws://host followed by path
+                        content_str = re.sub(
+                            r'wss?://[^/\s"]+',
+                            f'ws://localhost:{self.local_port}',
+                            content_str
                         )
+                        logger.debug("CDP /json rewritten: %s", content_str[:200])
+                        content = content_str.encode("utf-8")
+
+                    return web.Response(
+                        body=content,
+                        status=response.status,
+                        content_type=response.content_type
+                    )
         except Exception as e:
             logger.error("CDP HTTP proxy error: %s", e, exc_info=True)
             return web.Response(text=str(e), status=502)
@@ -678,57 +557,45 @@ class CDPProxyServer:
         await ws_client.prepare(request)
 
         remote_url = f"wss://{self.target_host}{path}"
+        # Note: Host header is handled by the internal proxy in the sandbox
+        headers = {"X-Access-Token": self.access_token}
 
         logger.debug("CDP WebSocket: %s -> %s", path, remote_url)
 
         try:
             async with aiohttp.ClientSession() as session:
-                for include_traffic in (False, True):
-                    # Note: Host header is handled by the internal proxy in the sandbox.
-                    headers = _build_auth_headers(
-                        self.envd_access_token,
-                        self.traffic_access_token,
-                        include_traffic=include_traffic,
+                async with session.ws_connect(remote_url, headers=headers) as ws_remote:
+                    # Create tasks for bidirectional forwarding
+                    async def forward_client_to_remote():
+                        try:
+                            async for msg in ws_client:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    await ws_remote.send_str(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.BINARY:
+                                    await ws_remote.send_bytes(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.CLOSE:
+                                    break
+                        except Exception as e:
+                            logger.debug("Client->Remote forward ended: %s", e)
+
+                    async def forward_remote_to_client():
+                        try:
+                            async for msg in ws_remote:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    await ws_client.send_str(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.BINARY:
+                                    await ws_client.send_bytes(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.CLOSE:
+                                    break
+                        except Exception as e:
+                            logger.debug("Remote->Client forward ended: %s", e)
+
+                    # Run both forwarding tasks
+                    await asyncio.gather(
+                        forward_client_to_remote(),
+                        forward_remote_to_client(),
+                        return_exceptions=True
                     )
-                    try:
-                        async with session.ws_connect(remote_url, headers=headers, ssl=_PERMISSIVE_SSL) as ws_remote:
-                            # Create tasks for bidirectional forwarding
-                            async def forward_client_to_remote():
-                                try:
-                                    async for msg in ws_client:
-                                        if msg.type == aiohttp.WSMsgType.TEXT:
-                                            await ws_remote.send_str(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                                            await ws_remote.send_bytes(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                                            break
-                                except Exception as e:
-                                    logger.debug("Client->Remote forward ended: %s", e)
-
-                            async def forward_remote_to_client():
-                                try:
-                                    async for msg in ws_remote:
-                                        if msg.type == aiohttp.WSMsgType.TEXT:
-                                            await ws_client.send_str(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                                            await ws_client.send_bytes(msg.data)
-                                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                                            break
-                                except Exception as e:
-                                    logger.debug("Remote->Client forward ended: %s", e)
-
-                            # Run both forwarding tasks
-                            await asyncio.gather(
-                                forward_client_to_remote(),
-                                forward_remote_to_client(),
-                                return_exceptions=True
-                            )
-                        break
-                    except aiohttp.WSServerHandshakeError as e:
-                        if _should_retry_with_traffic(e.status, self.traffic_access_token, include_traffic):
-                            logger.debug("Retrying CDP WebSocket %s with traffic token after %d", path, e.status)
-                            continue
-                        raise
 
         except Exception as e:
             logger.error("CDP WebSocket proxy error: %s", e)
@@ -805,7 +672,6 @@ class AGSProvider(Provider):
         self.sandbox = None
         self.sandbox_id = None
         self.envd_access_token = None
-        self.traffic_access_token = None
 
         # Local proxy servers
         self.proxy_servers = {}
@@ -833,12 +699,7 @@ class AGSProvider(Provider):
         for name, remote_port, local_start in http_port_mapping:
             remote_host = self._get_sandbox_host(remote_port)
 
-            proxy = LocalProxyServer(
-                local_start,
-                remote_host,
-                self.envd_access_token,
-                self.traffic_access_token,
-            )
+            proxy = LocalProxyServer(local_start, remote_host, self.envd_access_token)
             proxy.start()  # This will retry and update local_port if needed
             self.proxy_servers[name] = proxy
 
@@ -852,12 +713,7 @@ class AGSProvider(Provider):
 
         # CDP proxy for Chromium (supports WebSocket)
         chromium_remote_host = self._get_sandbox_host(CHROMIUM_PORT)
-        cdp_proxy = CDPProxyServer(
-            19222,
-            chromium_remote_host,
-            self.envd_access_token,
-            self.traffic_access_token,
-        )
+        cdp_proxy = CDPProxyServer(19222, chromium_remote_host, self.envd_access_token)
         cdp_proxy.start()  # This will retry and update local_port if needed
         self.proxy_servers["chromium"] = cdp_proxy
         self.local_chromium_port = cdp_proxy.local_port
@@ -918,63 +774,62 @@ class AGSProvider(Provider):
 
         This method:
         1. Deploys /tmp/cdp_proxy.py script (standard library only)
-        2. Deploys /tmp/socat_wrapper
-        3. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
+        2. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
            "socat tcp-listen:9222,fork tcp:localhost:1337" calls from task setup,
            starts cdp_proxy.py instead, and passes other socat calls through.
         """
+        import json as json_module
         exec_url = f"http://localhost:{self.local_server_port}/setup/execute"
+        headers = {"Content-Type": "application/json"}
 
-        def exec_shell(cmd: str, critical: bool = False, max_retries: int = 1) -> dict:
+        def exec_shell(cmd: str) -> dict:
             """Execute a shell command in the sandbox."""
-            last_error = None
-            for attempt in range(max_retries):
-                try:
-                    resp = requests.post(
-                        exec_url,
-                        json={"command": cmd, "shell": True},
-                        timeout=180,
-                    )
-                    if resp.status_code == 200:
-                        result = resp.json()
-                        logger.debug("exec '%s': %s", cmd[:80], result.get("output", "")[:200])
-                        return result
-                    last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
-                except Exception as e:
-                    last_error = str(e)
+            try:
+                payload = json_module.dumps({"command": cmd, "shell": True})
+                resp = requests.post(exec_url, headers=headers, data=payload, timeout=120)
+                if resp.status_code == 200:
+                    result = resp.json()
+                    logger.debug("exec '%s': %s", cmd[:50], result.get("output", "")[:200])
+                    return result
+                else:
+                    logger.warning("exec '%s' failed: %s", cmd[:50], resp.text[:200])
+                    return {"status": "error", "output": resp.text}
+            except Exception as e:
+                logger.warning("exec '%s' error: %s", cmd[:50], e)
+                return {"status": "error", "output": str(e)}
 
-                if attempt < max_retries - 1:
-                    logger.warning(
-                        "CDP deploy attempt %d/%d failed: %s",
-                        attempt + 1,
-                        max_retries,
-                        last_error,
-                    )
-                    time.sleep(2)
+        proxy_script = _read_cdp_proxy_script()
+        write_cmd = f"cat > /tmp/cdp_proxy.py << 'CDPPROXYSCRIPT'\n{proxy_script}\nCDPPROXYSCRIPT"
+        exec_shell(write_cmd)
 
-            if critical:
-                raise RuntimeError(f"Critical CDP bridge deploy command failed: {last_error}; cmd={cmd[:120]}")
-            logger.warning("CDP bridge deploy command failed: %s; cmd=%s", last_error, cmd[:120])
-            return {"status": "error", "output": str(last_error)}
-
-        logger.info("Deploying standard-library CDP bridge scripts to sandbox...")
-
-        exec_shell(
-            f"cat > /tmp/cdp_proxy.py << 'AGS_CDP_EOF'\n{_read_cdp_proxy_script()}\nAGS_CDP_EOF",
-            critical=True,
-            max_retries=3,
+        # Install socat wrapper using sudo (password: password).
+        # 1. Backup real socat binary
+        # 2. Replace /usr/bin/socat with a bash wrapper that:
+        #    - Intercepts "socat tcp-listen:9222,..." and starts cdp_proxy.py instead
+        #    - Passes all other socat calls through to the real binary
+        socat_wrapper = (
+            '#!/bin/bash\n'
+            'REAL=/usr/bin/socat.real\n'
+            'for arg in "$@"; do\n'
+            '  case "$arg" in\n'
+            '    tcp-listen:9222*)\n'
+            '      nohup python3 /tmp/cdp_proxy.py >/tmp/cdp_proxy.log 2>&1 &\n'
+            '      for i in $(seq 1 50); do\n'
+            '        ss -tlnp 2>/dev/null | grep -q ":9222 " && exit 0\n'
+            '        sleep 0.2\n'
+            '      done\n'
+            '      exit 0\n'
+            '      ;;\n'
+            '  esac\n'
+            'done\n'
+            'exec "$REAL" "$@"\n'
         )
-        exec_shell(
-            f"cat > /tmp/socat_wrapper << 'AGS_CDP_EOF'\n{SOCAT_WRAPPER_SCRIPT}\nAGS_CDP_EOF",
-            critical=True,
-            max_retries=3,
-        )
-        exec_shell("chmod +x /tmp/socat_wrapper", critical=True, max_retries=2)
-
-        password = shlex.quote(os.environ.get("AGS_CLIENT_PASSWORD", "password"))
-        exec_shell(f"echo {password} | sudo -S cp /usr/bin/socat /usr/bin/socat.real || true")
-        exec_shell(f"echo {password} | sudo -S cp /tmp/socat_wrapper /usr/bin/socat", critical=True, max_retries=2)
-        exec_shell(f"echo {password} | sudo -S chmod +x /usr/bin/socat", critical=True, max_retries=2)
+        # Write wrapper to /tmp first, then use sudo to install
+        exec_shell(f"cat > /tmp/socat_wrapper << 'SOCATWRAPPER'\n{socat_wrapper}SOCATWRAPPER")
+        exec_shell("chmod +x /tmp/socat_wrapper")
+        exec_shell("echo password | sudo -S cp /usr/bin/socat /usr/bin/socat.real")
+        exec_shell("echo password | sudo -S cp /tmp/socat_wrapper /usr/bin/socat")
+        exec_shell("echo password | sudo -S chmod +x /usr/bin/socat")
 
         # Verify wrapper is installed
         result = exec_shell("file /usr/bin/socat && file /usr/bin/socat.real")
@@ -1011,9 +866,6 @@ class AGSProvider(Provider):
             self.envd_access_token = getattr(
                 self.sandbox, "_SandboxBase__envd_access_token", None
             )
-        self.traffic_access_token = getattr(self.sandbox, "traffic_access_token", None)
-        if not self.traffic_access_token:
-            self.traffic_access_token = getattr(self.sandbox, "trafficAccessToken", None)
 
         logger.info("AGS sandbox created with ID: %s", self.sandbox_id)
 
@@ -1046,8 +898,8 @@ class AGSProvider(Provider):
         raise NotImplementedError("Snapshots not available for AGS provider")
 
     def revert_to_snapshot(self, path_to_vm: str, snapshot_name: str):
-        """Revert by stopping and restarting the sandbox."""
-        logger.info("AGS snapshot revert requested; replacing sandbox with a fresh instance.")
+        """Replace the sandbox because AGS does not expose OSWorld VM snapshots."""
+        logger.warning("AGS snapshot revert not supported; replacing sandbox.")
         self.stop_emulator(path_to_vm)
 
     def stop_emulator(self, path_to_vm: str, region=None, *args, **kwargs):
@@ -1068,6 +920,5 @@ class AGSProvider(Provider):
                 self.sandbox = None
                 self.sandbox_id = None
                 self.envd_access_token = None
-                self.traffic_access_token = None
         else:
             logger.warning("stop_emulator called but sandbox is None")
