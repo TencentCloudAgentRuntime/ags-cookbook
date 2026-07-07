@@ -62,7 +62,7 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 make setup
 ```
 
-这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会加入 AGS 依赖，包括 `e2b`、`e2b-code-interpreter` 和 `aiohttp`。如果 AGS API Key 以 `ark_` 开头，且 SDK 校验要求 `e2b_` 前缀，可以只把前缀替换成 `e2b_`；不需要为了 key 格式降级 SDK。
+这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会加入 AGS 依赖，包括 `e2b`、`e2b-code-interpreter` 和 `aiohttp`。这里会限制 SDK 小版本，让 `ark_` 前缀的 AGS API Key 默认可直接使用。如果你手动升级到更高版本 SDK，且 SDK 校验要求 `e2b_` 前缀，可以只把 key 前缀替换成 `e2b_`。
 
 ## 运行
 

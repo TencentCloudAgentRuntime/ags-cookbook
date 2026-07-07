@@ -62,7 +62,7 @@ Note: currently only supports Python 3.10
 make setup
 ```
 
-This creates `osworld/.venv` with `uv`, installs Python 3.10 if needed, and installs the overlaid `requirements.txt` into that virtual environment. The overlay includes the AGS dependencies, including `e2b`, `e2b-code-interpreter`, and `aiohttp`. If your AGS API key starts with `ark_` and the SDK validates for an `e2b_` prefix, replace only the prefix with `e2b_`; the key-format check does not require downgrading the SDK.
+This creates `osworld/.venv` with `uv`, installs Python 3.10 if needed, and installs the overlaid `requirements.txt` into that virtual environment. The overlay includes the AGS dependencies, including `e2b`, `e2b-code-interpreter`, and `aiohttp`. These SDK versions are capped so AGS API keys that start with `ark_` work without extra changes. If you manually upgrade to a newer SDK that validates for an `e2b_` prefix, replace only the key prefix with `e2b_`.
 
 ## Run
 
