@@ -14,6 +14,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
+- `hermes-cookbook` — run Hermes Agent in AGS with official image, local management UI and CFS persistence
 - `mini-swe-agent` — SWE-bench evaluation with AGS SWE sandbox and SWE-ReX runtime
 - `mobile-use` — Android / Appium automation in AGS
 - `openclaw-cookbook` — run OpenClaw in AGS with official image, local management UI and COS persistence
@@ -42,6 +43,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `browser-agent` | advanced | Python + browser sandbox + LLM | `make run` | Requires OpenAI-compatible LLM backend env vars |
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
+| `hermes-cookbook` | advanced | Node.js + custom image + CFS | `make run` | Run Hermes Agent in AGS with official image; includes local management UI |
 | `html-processing` | starter | Python + browser/code sandboxes | `make run` | Good visual intro to dual-sandbox flow |
 | `hybrid-cookbook` | starter | Go | `make run` | Minimal Go integration path |
 | `mini-rl` | starter | Python + code sandbox | `make run` | Smallest Python example |

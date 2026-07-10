@@ -14,6 +14,7 @@
 
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
+- `hermes-cookbook` —— 基于官方镜像在 AGS 中运行 Hermes Agent，含本地管理界面与 CFS 持久化
 - `mini-swe-agent` —— 基于 AGS SWE Sandbox 和 SWE-ReX runtime 运行 SWE-bench 评测
 - `mobile-use` —— 在 AGS 中运行 Android / Appium 自动化
 - `openclaw-cookbook` —— 基于官方镜像在 AGS 中运行 OpenClaw，含本地管理界面与 COS 持久化
@@ -42,6 +43,7 @@
 | `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
+| `hermes-cookbook` | 进阶 | Node.js + 自定义镜像 + CFS | `make run` | 基于官方镜像在 AGS 中运行 Hermes Agent；含本地管理界面 |
 | `html-processing` | 入门 | Python + 浏览器/代码双沙箱 | `make run` | 适合作为双沙箱协作的直观起点 |
 | `hybrid-cookbook` | 入门 | Go | `make run` | 最小 Go 集成路径 |
 | `mini-rl` | 入门 | Python + 代码沙箱 | `make run` | 最小 Python 示例 |
