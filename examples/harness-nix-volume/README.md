@@ -1,42 +1,57 @@
-# Harness Nix Volume
+# Harness Nix Volume: Isolate Runtime Dependencies with a Minimal Closure
 
-This example shows how to package Harness dependencies with Nix, publish them as an AGS image volume, and mount that volume into a custom main image.
+## Why Package A Harness With Nix
 
-The pattern is useful when a Harness needs a pinned CLI, Node.js, Python, JVM, native tools, or shared libraries, but you do not want to rebuild every customer main image with those dependencies baked in.
+Nix does not install software and its dependencies into shared locations such as `/usr` or `/usr/local`. Instead, every build output lives at an immutable, hash-addressed path such as `/nix/store/<hash>-nodejs-22.x`. Starting from the final Harness runtime output, Nix can enumerate its complete dependency closure: the Harness itself and every interpreter, CLI, shared library, and other transitive dependency that the output references at runtime.
+
+This example packages only that closure and a stable runtime entrypoint into the image volume; unrelated software from the Nix builder is left behind. “Minimal closure” is relative to the final runtime output: software selected by `runtimeEnv` and its transitive dependencies is included, while software that the output does not reference is not copied into the image volume.
+
+This decouples the Harness runtime from the main image:
+
+- **No dependency on software preinstalled in the main image:** the Harness uses the pinned Node.js, Python, CLI, and shared libraries from its own closure.
+- **No dependency conflicts:** Nix keeps different software versions in separate hash-addressed paths, and the Harness always uses the dependencies from its own closure. A different Node.js, Python, or shared library version in the main image can coexist without replacing the Harness version.
+- **No pollution of the main image toolchain:** the image volume is mounted read-only at `/nix`, installs nothing into `/usr` or `/lib`, and starts the Harness through an absolute `/nix/harness/nix-env/bin/...` path without changing the global `PATH` for business processes.
+- **Independent upgrades and reuse:** when Harness dependencies change, only the image volume needs to be rebuilt; the same main image can be paired with different Harness runtime versions.
+
+The pattern is useful when a Harness needs a pinned CLI, Node.js, Python, JVM, native tools, or shared libraries, but you do not want to bake those dependencies into every main image.
 
 ## How It Works
 
 ```mermaid
 flowchart LR
-  subgraph Local["User side"]
-    Nix["nix build\nx86_64-linux closure"]
-    VolumeImage["Harness image volume\ncontains /nix"]
-    MainImage["Main image\nbusiness base image"]
-    SDK["scripts/run.py\nTencentCloud Python SDK"]
+  subgraph Build["Build the Harness runtime"]
+    Definition["default.nix\ndeclares Harness and runtime dependencies"]
+    Runtime["runtimeEnv\nfinal output in /nix/store"]
+    Closure["nix-store -qR\nenumerates the complete closure"]
+    VolumeImage["Harness image volume\nclosure + stable entrypoint"]
   end
 
   subgraph AGS["AGS sandbox"]
-    Mount["read-only mount\n/nix -> image volume /nix"]
+    MainImage["Main image\nno Harness dependencies preinstalled"]
+    Mount["image volume mounted read-only at /nix"]
     Process["/nix/harness/nix-env/bin/harness-demo\nserve --port 18080"]
     Port["sandbox exposed port\n18080"]
   end
 
-  Nix --> VolumeImage
-  SDK --> MainImage
-  SDK --> VolumeImage
+  Definition --> Runtime
+  Runtime --> Closure
+  Closure --> VolumeImage
+  MainImage --> Mount
   VolumeImage --> Mount
   Mount --> Process
   Process --> Port
 ```
 
-The demo Harness is intentionally concrete: the Nix image volume contains the complete Claude Code npm package, its Linux x64 native payload, and the Node.js/Python runtime needed by the wrapper service. The sandbox starts an HTTP service from the mounted Nix runtime and reports `claude --version`, `node --version`, and Python. The main image does not install Claude Code or Node.js; those come from the mounted `/nix` tree.
+`nix/default.nix` first produces a `runtimeEnv` profile that combines the Harness with the selected runtimes. `scripts/build-harness-volume.sh` then uses `nix-store -qR` to find every transitive dependency of that profile, copies only those `/nix/store` paths, and creates the stable `/nix/harness/nix-env` entrypoint. AGS mounts the image volume read-only at `/nix` in the main image and starts the Harness directly through that absolute path.
+
+The demo Harness is intentionally concrete: its closure contains the complete Claude Code npm package, its Linux x64 native payload, and the Node.js, Python, and shared libraries needed by the wrapper service. The sandbox starts an HTTP service from the mounted Nix runtime and reports `claude --version`, `node --version`, and Python. The main image deliberately does not install Claude Code, Node.js, or Python; these application-level runtime dependencies all come from the mounted Nix closure.
 
 ## Files
 
 | Path | Purpose |
 |---|---|
-| `nix/default.nix` | Default build definition used by the containerized Nix builder. |
-| `nix/flake.nix` | Defines the self-contained `x86_64-linux` Harness runtime. |
+| `nix/default.nix` | Declares the Harness packages, runtime dependencies, and final `runtimeEnv` profile. |
+| `nix/flake.nix` | Imports `default.nix` and exposes the `x86_64-linux` result through a standard flake interface. |
 | `nix/src/harness_server.py` | Tiny demo Harness service. Replace this with your real Harness entrypoint. |
 | `scripts/build-harness-volume.sh` | Builds the Nix closure and packages `/nix` into an image volume. |
 | `images/main/Dockerfile` | Minimal main image used by the sandbox. |
@@ -85,11 +100,11 @@ docker push "$HARNESS_VOLUME_IMAGE_REF"
 
 Both images must be pushed before `make run`. `MAIN_IMAGE_REF` is the sandbox's custom main image, and `HARNESS_VOLUME_IMAGE_REF` is mounted as the read-only `/nix` image volume.
 
-`scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container, so the generated closure matches the sandbox's `x86_64-linux` environment. Users do not need to install Nix on the host machine.
+`scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container to produce a runtime profile for the sandbox's `x86_64-linux` environment, then copies the complete closure enumerated by `nix-store -qR`. Users do not need to install Nix on the host machine, and unrelated builder software does not enter the final image volume.
 
 The Harness image volume contains:
 
-- `/nix/store/...` for the Nix closure
+- `/nix/store/...` for the Harness runtime and its complete transitive Nix closure
 - `/nix/harness/nix-env` as the stable runtime profile
 - `/nix/harness/nix-env/bin/claude` from the complete Claude Code npm package plus its Linux x64 native payload
 - `/nix/harness/nix-env/bin/harness-demo` as the demo service entrypoint

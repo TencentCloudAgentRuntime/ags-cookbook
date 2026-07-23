@@ -1,42 +1,57 @@
-# Harness Nix 镜像卷
+# Harness Nix 镜像卷：用最小闭包隔离运行时依赖
 
-这个示例演示如何用 Nix 制作一个自包含的 Harness 运行时，把它打包成 AGS 镜像卷，再挂载到自定义主镜像里使用。
+## 为什么用 Nix 打包 Harness
 
-这个模式适合 Harness 需要固定 CLI、Node.js、Python、JVM、native tools、动态库等依赖，但又不希望每个客户的主镜像都重新内置这些依赖的场景。
+Nix 不会把软件及其依赖安装到共享的 `/usr` 或 `/usr/local` 目录，而是把每个构建结果放进带哈希的只读路径，例如 `/nix/store/<hash>-nodejs-22.x`。从最终的 Harness 运行时输出出发，Nix 可以枚举出它引用的完整依赖闭包（closure）：Harness 本身，以及它运行时真正需要的解释器、CLI、动态库和其他传递依赖。
+
+这个示例只把该闭包和一个稳定的运行时入口打进镜像卷，不会把 Nix builder 里的其他软件一起带入。这里的“最小闭包”是相对于最终运行时输出而言：`runtimeEnv` 明确选择的软件及其传递依赖会被包含，未被这个输出引用的软件不会进入镜像卷。
+
+这样可以把 Harness 运行时与主镜像解耦：
+
+- **不依赖主镜像预装环境**：Harness 使用闭包内固定版本的 Node.js、Python、CLI 和动态库，不要求主镜像预先安装同一套软件。
+- **避免依赖冲突**：Nix 把不同版本的软件放在各自独立的哈希路径中，Harness 固定使用自己闭包内的依赖。即使主镜像已有其他版本的 Node.js、Python 或动态库，两套环境也可以同时存在，不会互相覆盖。
+- **不污染主镜像工具链**：镜像卷只读挂载到 `/nix`，不会向主镜像的 `/usr`、`/lib` 等目录安装文件；Harness 通过 `/nix/harness/nix-env/bin/...` 绝对路径启动，也不会全局改写业务进程的 `PATH`。
+- **可以独立升级和复用**：Harness 依赖变化时只需重建镜像卷，同一份主镜像可以搭配不同版本的 Harness 运行时。
+
+这个模式适合 Harness 需要固定 CLI、Node.js、Python、JVM、native tools 或动态库，但又不希望每个主镜像都重复内置这些依赖的场景。
 
 ## 工作方式
 
 ```mermaid
 flowchart LR
-  subgraph Local["用户侧"]
-    Nix["nix build\nx86_64-linux closure"]
-    VolumeImage["Harness 镜像卷\n包含 /nix"]
-    MainImage["主镜像\n业务基础镜像"]
-    SDK["scripts/run.py\nTencentCloud Python SDK"]
+  subgraph Build["构建 Harness 运行时"]
+    Definition["default.nix\n声明 Harness 和运行时依赖"]
+    Runtime["runtimeEnv\n/nix/store 中的最终输出"]
+    Closure["nix-store -qR\n枚举完整依赖闭包"]
+    VolumeImage["Harness 镜像卷\n闭包 + 稳定入口"]
   end
 
   subgraph AGS["AGS 沙箱内"]
-    Mount["只读挂载\n/nix -> 镜像卷 /nix"]
+    MainImage["主镜像\n无需预装 Harness 依赖"]
+    Mount["镜像卷只读挂载到 /nix"]
     Process["/nix/harness/nix-env/bin/harness-demo\nserve --port 18080"]
     Port["沙箱暴露的端口\n18080"]
   end
 
-  Nix --> VolumeImage
-  SDK --> MainImage
-  SDK --> VolumeImage
+  Definition --> Runtime
+  Runtime --> Closure
+  Closure --> VolumeImage
+  MainImage --> Mount
   VolumeImage --> Mount
   Mount --> Process
   Process --> Port
 ```
 
-示例里的 Harness 是一个真实 CLI 演示：Nix 镜像卷里包含完整的 Claude Code npm package、Linux x64 native payload，以及 demo 服务需要的 Node.js/Python 运行时。沙箱会从挂载进来的 Nix 运行时启动一个 HTTP 服务，并返回 `claude --version`、`node --version` 和 Python 版本。主镜像没有安装 Claude Code 或 Node.js，这些都来自挂载的 `/nix`。
+`nix/default.nix` 先生成一个 `runtimeEnv`，把 Harness 及选定的运行时组合成一个 profile。`scripts/build-harness-volume.sh` 再通过 `nix-store -qR` 找出这个 profile 的全部传递依赖，只复制这些 `/nix/store` 路径，并创建稳定入口 `/nix/harness/nix-env`。AGS 把镜像卷只读挂载到主镜像的 `/nix` 后，直接从这个绝对路径启动 Harness。
+
+示例里的 Harness 是一个真实 CLI 演示：闭包中包含完整的 Claude Code npm package、Linux x64 native payload，以及 demo 服务需要的 Node.js、Python 和动态库。沙箱会从挂载进来的 Nix 运行时启动一个 HTTP 服务，并返回 `claude --version`、`node --version` 和 Python 版本。主镜像刻意不安装 Claude Code、Node.js 或 Python；这些应用级运行时依赖都来自挂载的 Nix 闭包。
 
 ## 文件说明
 
 | 路径 | 作用 |
 |---|---|
-| `nix/default.nix` | 容器化 Nix builder 默认使用的构建定义。 |
-| `nix/flake.nix` | 定义 `x86_64-linux` 的自包含 Harness 运行时。 |
+| `nix/default.nix` | 声明 Harness 软件包、运行时依赖和最终的 `runtimeEnv` profile。 |
+| `nix/flake.nix` | 导入 `default.nix`，并以标准 flake 形式暴露 `x86_64-linux` 构建结果。 |
 | `nix/src/harness_server.py` | 一个很小的 Harness 服务示例。实际接入时替换成你的 Harness 入口。 |
 | `scripts/build-harness-volume.sh` | 构建 Nix closure，并把 `/nix` 打进镜像卷。 |
 | `images/main/Dockerfile` | 沙箱使用的最小主镜像。 |
@@ -85,11 +100,11 @@ docker push "$HARNESS_VOLUME_IMAGE_REF"
 
 执行 `make run` 前，两张镜像都必须已经推送完成。`MAIN_IMAGE_REF` 是沙箱的自定义主镜像，`HARNESS_VOLUME_IMAGE_REF` 会作为只读 `/nix` 镜像卷挂载进沙箱。
 
-`scripts/build-harness-volume.sh` 会使用 Linux `nixos/nix` builder 容器构建，生成的 closure 匹配沙箱里的 `x86_64-linux` 环境。用户本机不需要安装 Nix。
+`scripts/build-harness-volume.sh` 会使用 Linux `nixos/nix` builder 容器构建，生成匹配沙箱 `x86_64-linux` 环境的 runtime profile，再复制 `nix-store -qR` 枚举出的完整闭包。用户本机不需要安装 Nix，builder 中与该输出无关的软件也不会进入最终镜像卷。
 
 Harness 镜像卷里包含：
 
-- `/nix/store/...`：Nix closure
+- `/nix/store/...`：Harness 运行时及其全部传递依赖组成的 Nix closure
 - `/nix/harness/nix-env`：稳定的运行时 profile
 - `/nix/harness/nix-env/bin/claude`：来自完整 Claude Code npm package 及其 Linux x64 native payload
 - `/nix/harness/nix-env/bin/harness-demo`：demo 服务入口
