@@ -3,22 +3,45 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import time
 from pathlib import Path
+from typing import Any
 from urllib import request
 
+from e2b import Sandbox
+from e2b.connection_config import ConnectionConfig
+from e2b.sandbox.commands.command_handle import CommandExitException, CommandResult
+from packaging.version import Version
 from tencentcloud.ags.v20250920 import ags_client, models
 from tencentcloud.common import credential
 from tencentcloud.common.profile.client_profile import ClientProfile
 from tencentcloud.common.profile.http_profile import HttpProfile
 
-
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / ".state"
 
-HARNESS_PORT = int(os.getenv("HARNESS_PORT", "18080"))
-SANDBOX_TIMEOUT = os.getenv("INSTANCE_TIMEOUT", "30m")
-NETWORK_MODE = os.getenv("NETWORK_MODE", "SANDBOX")
+ENVD_PORT = int(os.getenv("ENVD_PORT", "49983"))
+HTTP_PORT = int(os.getenv("DEMO_HTTP_PORT", "8080"))
+SANDBOX_TIMEOUT = os.getenv("INSTANCE_TIMEOUT", "1h")
+CLAUDE_BIN = "/nix/claude-code/nix-env/bin/claude"
+STATE_HELPER = "/opt/claude-demo/demo_server.py"
+MAIN_PYTHON = "/usr/local/bin/python3"
+WORKDIR = os.getenv("AGENT_WORKDIR", "/workspace")
+REPORT_FILE = os.getenv("DEMO_REPORT_FILE", "/workspace/demo-result/report.md")
+TOPIC = (
+    os.getenv("TASK_TOPIC")
+    or os.getenv("DEMO_TOPIC")
+    or "最近 24 小时最重要的 AI 行业新闻"
+)
+TASK = os.getenv(
+    "AGENT_TASK",
+    "Use WebSearch no more than twice to find three important AI industry news items "
+    "published in the last 24 hours. Then immediately write a Chinese briefing of no "
+    "more than 600 Chinese characters. Include a title, generation time, three concise "
+    "items, likely impact, and a source URL for each item. Clearly separate facts from "
+    "analysis, mention uncertainty, and do not provide investment advice.",
+)
 
 
 def need(name: str) -> str:
@@ -28,13 +51,24 @@ def need(name: str) -> str:
     return value
 
 
+def anthropic_key() -> str:
+    value = os.getenv("ANTHROPIC_AUTH_TOKEN") or os.getenv("ANTHROPIC_API_KEY")
+    if not value:
+        raise SystemExit("ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is required")
+    return value
+
+
 def tc_client() -> ags_client.AgsClient:
-    cred = credential.Credential(need("TENCENTCLOUD_SECRET_ID"), need("TENCENTCLOUD_SECRET_KEY"))
+    cred = credential.Credential(
+        need("TENCENTCLOUD_SECRET_ID"), need("TENCENTCLOUD_SECRET_KEY")
+    )
     http_profile = HttpProfile()
     http_profile.endpoint = os.getenv("AGS_CLOUD_ENDPOINT", "ags.tencentcloudapi.com")
     profile = ClientProfile()
     profile.httpProfile = http_profile
-    return ags_client.AgsClient(cred, os.getenv("TENCENTCLOUD_REGION", "ap-guangzhou"), profile)
+    return ags_client.AgsClient(
+        cred, os.getenv("TENCENTCLOUD_REGION", "ap-guangzhou"), profile
+    )
 
 
 def port(name: str, value: int) -> models.PortConfiguration:
@@ -45,10 +79,10 @@ def port(name: str, value: int) -> models.PortConfiguration:
     return item
 
 
-def probe() -> models.ProbeConfiguration:
+def envd_probe() -> models.ProbeConfiguration:
     http_get = models.HttpGetAction()
     http_get.Path = "/health"
-    http_get.Port = HARNESS_PORT
+    http_get.Port = ENVD_PORT
     http_get.Scheme = "HTTP"
 
     item = models.ProbeConfiguration()
@@ -61,18 +95,20 @@ def probe() -> models.ProbeConfiguration:
     return item
 
 
-def image_mount(name: str, mount_path: str, reference: str, registry_type: str, sub_path: str) -> models.StorageMount:
+def claude_mount() -> models.StorageMount:
     image = models.ImageStorageSource()
-    image.Reference = reference
-    image.ImageRegistryType = registry_type
-    image.SubPath = sub_path
+    image.Reference = need("CLAUDE_CODE_VOLUME_IMAGE_REF")
+    image.ImageRegistryType = os.getenv(
+        "CLAUDE_CODE_VOLUME_IMAGE_REGISTRY_TYPE", "personal"
+    )
+    image.SubPath = "/nix"
 
     source = models.StorageSource()
     source.Image = image
 
     mount = models.StorageMount()
-    mount.Name = name
-    mount.MountPath = mount_path
+    mount.Name = "claude-code-nix"
+    mount.MountPath = "/nix"
     mount.ReadOnly = True
     mount.StorageSource = source
     return mount
@@ -83,45 +119,35 @@ def write(path: Path, value: str) -> None:
     path.write_text(value, encoding="utf-8")
 
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
-
-
 def create_tool(client: ags_client.AgsClient) -> str:
     req = models.CreateSandboxToolRequest()
-    req.ToolName = os.getenv("TOOL_NAME", f"harness-nix-volume-{time.strftime('%m%d%H%M%S')}")
+    req.ToolName = os.getenv(
+        "TOOL_NAME", f"claude-code-agent-volume-{time.strftime('%m%d%H%M%S')}"
+    )
     req.ToolType = "custom"
-    req.Description = "Self-contained Harness mounted from a Nix image volume"
+    req.Description = "Claude Code from a Nix volume with envd and a public result page"
     req.DefaultTimeout = SANDBOX_TIMEOUT
+    req.Persistent = False
     req.RoleArn = need("ROLE_ARN")
 
     network = models.NetworkConfiguration()
-    network.NetworkMode = NETWORK_MODE
+    network.NetworkMode = "PUBLIC"
     req.NetworkConfiguration = network
 
     custom = models.CustomConfiguration()
     custom.Image = need("MAIN_IMAGE_REF")
     custom.ImageRegistryType = os.getenv("MAIN_IMAGE_REGISTRY_TYPE", "personal")
-    custom.Command = ["/nix/harness/nix-env/bin/harness-demo"]
-    custom.Args = ["serve", "--host", "0.0.0.0", "--port", str(HARNESS_PORT)]
-    custom.Ports = [port("harness", HARNESS_PORT)]
-    custom.Probe = probe()
+    custom.Command = ["/usr/local/bin/start-demo"]
+    custom.Args = []
+    custom.Ports = [port("envd", ENVD_PORT), port("result", HTTP_PORT)]
+    custom.Probe = envd_probe()
 
     resources = models.ResourceConfiguration()
     resources.CPU = os.getenv("RUNTIME_CPU", "2")
     resources.Memory = os.getenv("RUNTIME_MEMORY", "4Gi")
     custom.Resources = resources
     req.CustomConfiguration = custom
-
-    req.StorageMounts = [
-        image_mount(
-            "harness-nix",
-            "/nix",
-            need("HARNESS_VOLUME_IMAGE_REF"),
-            os.getenv("HARNESS_VOLUME_IMAGE_REGISTRY_TYPE", "personal"),
-            "/nix",
-        )
-    ]
+    req.StorageMounts = [claude_mount()]
 
     resp = client.CreateSandboxTool(req)
     tool_id = resp.ToolId
@@ -132,20 +158,18 @@ def create_tool(client: ags_client.AgsClient) -> str:
     return tool_id
 
 
-def get_tool_status(client: ags_client.AgsClient, tool_id: str) -> str:
+def tool_status(client: ags_client.AgsClient, tool_id: str) -> str:
     req = models.DescribeSandboxToolListRequest()
     req.ToolIds = [tool_id]
     resp = client.DescribeSandboxToolList(req)
-    if not resp.SandboxToolSet:
-        return ""
-    return resp.SandboxToolSet[0].Status or ""
+    return resp.SandboxToolSet[0].Status if resp.SandboxToolSet else ""
 
 
 def wait_tool(client: ags_client.AgsClient, tool_id: str) -> None:
     deadline = time.time() + int(os.getenv("TOOL_READY_TIMEOUT_SECONDS", "900"))
     while time.time() < deadline:
-        status = get_tool_status(client, tool_id)
-        print(f"tool status: {status or 'unknown'}")
+        status = tool_status(client, tool_id) or "unknown"
+        print(f"tool status: {status}")
         if status in {"ACTIVE", "READY"}:
             return
         if status in {"FAILED", "DELETING", "DELETED", "ERROR"}:
@@ -154,32 +178,35 @@ def wait_tool(client: ags_client.AgsClient, tool_id: str) -> None:
     raise SystemExit("tool did not become ACTIVE in time")
 
 
-def start_instance(client: ags_client.AgsClient, tool_id: str) -> str:
+def start_instance(
+    client: ags_client.AgsClient, tool_id: str, *, timeout: str | None
+) -> tuple[str, bool]:
     req = models.StartSandboxInstanceRequest()
     req.ToolId = tool_id
-    req.Timeout = SANDBOX_TIMEOUT
+    if timeout is not None:
+        req.Timeout = timeout
+    req.AuthMode = "PUBLIC"
     resp = client.StartSandboxInstance(req)
-    instance_id = resp.Instance.InstanceId
+    instance = resp.Instance
+    instance_id = instance.InstanceId
     write(STATE / "instance_id", instance_id)
     write(STATE / "instance-create.json", resp.to_json_string())
     print(f"INSTANCE_ID={instance_id}")
-    return instance_id
+    return instance_id, bool(instance.Persistent)
 
 
-def get_instance_status(client: ags_client.AgsClient, instance_id: str) -> str:
+def instance_status(client: ags_client.AgsClient, instance_id: str) -> str:
     req = models.DescribeSandboxInstanceListRequest()
     req.InstanceIds = [instance_id]
     resp = client.DescribeSandboxInstanceList(req)
-    if not resp.InstanceSet:
-        return ""
-    return resp.InstanceSet[0].Status or ""
+    return resp.InstanceSet[0].Status if resp.InstanceSet else ""
 
 
 def wait_instance(client: ags_client.AgsClient, instance_id: str) -> None:
     deadline = time.time() + int(os.getenv("INSTANCE_READY_TIMEOUT_SECONDS", "600"))
     while time.time() < deadline:
-        status = get_instance_status(client, instance_id)
-        print(f"instance status: {status or 'unknown'}")
+        status = instance_status(client, instance_id) or "unknown"
+        print(f"instance status: {status}")
         if status in {"RUNNING", "READY", "ACTIVE"}:
             return
         if status in {"FAILED", "DELETING", "DELETED", "ERROR"}:
@@ -188,61 +215,308 @@ def wait_instance(client: ags_client.AgsClient, instance_id: str) -> None:
     raise SystemExit("instance did not become RUNNING in time")
 
 
-def acquire_token(client: ags_client.AgsClient, instance_id: str) -> str:
+def acquire_envd_token(client: ags_client.AgsClient, instance_id: str) -> str:
     req = models.AcquireSandboxInstanceTokenRequest()
     req.InstanceId = instance_id
-    resp = client.AcquireSandboxInstanceToken(req)
-    return resp.Token
+    token = client.AcquireSandboxInstanceToken(req).Token
+    if not token:
+        raise SystemExit("PUBLIC instance did not return an envd access token")
+    return token
 
 
 def gateway_domain() -> str:
-    explicit = os.getenv("AGS_GATEWAY_DOMAIN")
-    if explicit:
-        return explicit
+    if domain := os.getenv("AGS_GATEWAY_DOMAIN") or os.getenv("E2B_DOMAIN"):
+        return domain
     region = os.getenv("TENCENTCLOUD_REGION", "ap-guangzhou")
-    domain = os.getenv("AGS_DOMAIN", "tencentags.com")
-    return f"{region}.{domain}"
+    return f"{region}.{os.getenv('AGS_DOMAIN', 'tencentags.com')}"
 
 
-def sandbox_port_url(instance_id: str, path: str = "") -> str:
+def result_url(instance_id: str) -> str:
     scheme = os.getenv("AGS_SANDBOX_PORT_SCHEME", "https")
-    return f"{scheme}://{HARNESS_PORT}-{instance_id}.{gateway_domain()}{path}"
+    return f"{scheme}://{HTTP_PORT}-{instance_id}.{gateway_domain()}/"
 
 
-def call_harness(instance_id: str, access_token: str, path: str) -> str:
-    req = request.Request(sandbox_port_url(instance_id, path), headers={"X-Access-Token": access_token})
-    with request.urlopen(req, timeout=int(os.getenv("HARNESS_REQUEST_TIMEOUT_SECONDS", "30"))) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+def connect_envd(instance_id: str, token: str) -> Sandbox:
+    domain = gateway_domain()
+    headers = {
+        "X-Access-Token": token,
+        "E2b-Sandbox-Id": instance_id,
+        "E2b-Sandbox-Port": str(ENVD_PORT),
+    }
+    config = ConnectionConfig(
+        domain=domain,
+        extra_sandbox_headers=headers,
+        request_timeout=float(os.getenv("ENVD_REQUEST_TIMEOUT_SECONDS", "60")),
+    )
+    return Sandbox(
+        sandbox_id=instance_id,
+        sandbox_domain=domain,
+        envd_version=Version(os.getenv("ENVD_VERSION", "0.5.14")),
+        envd_access_token=token,
+        connection_config=config,
+    )
+
+
+def result_text(result: object, secret: str = "") -> str:
+    stdout = str(getattr(result, "stdout", "") or "")
+    stderr = str(getattr(result, "stderr", "") or "")
+    text = stdout + stderr
+    return text.replace(secret, "<redacted>") if secret else text
+
+
+def run_envd_command(sandbox: Sandbox, cmd: str, **kwargs: Any) -> CommandResult:
+    try:
+        return sandbox.commands.run(cmd, **kwargs)
+    except CommandExitException as exc:
+        return exc
+
+
+def wait_public_page(url: str, *, expected_status: str | None = None) -> dict[str, Any]:
+    deadline = time.time() + int(os.getenv("PUBLIC_PAGE_READY_TIMEOUT_SECONDS", "120"))
+    endpoint = f"{url}api/status"
+    last_error = ""
+    while time.time() < deadline:
+        try:
+            with request.urlopen(endpoint, timeout=10) as response:
+                payload = json.loads(response.read().decode())
+            if isinstance(payload, dict) and (
+                expected_status is None or payload.get("status") == expected_status
+            ):
+                return payload
+            last_error = f"last page status: {payload!r}"
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover
+            last_error = str(exc)
+        time.sleep(2)
+    raise RuntimeError(f"public result page did not become ready: {last_error}")
+
+
+def publish_error_state(
+    sandbox: Sandbox,
+    *,
+    message: str,
+    claude_path: str,
+    report: str,
+) -> None:
+    args = [
+        MAIN_PYTHON,
+        STATE_HELPER,
+        "write",
+        "--status",
+        "error",
+        "--message",
+        message,
+        "--topic",
+        TOPIC,
+        "--claude-path",
+        claude_path,
+    ]
+    result = run_envd_command(
+        sandbox,
+        shlex.join(args),
+        envs={"DEMO_REPORT": report},
+        user="root",
+    )
+    if result.exit_code != 0:
+        raise RuntimeError(f"failed to update result page: {result_text(result)}")
+
+
+def inspect_claude(sandbox: Sandbox) -> tuple[str, str]:
+    command = (
+        "set -eu\n"
+        f"test -x {shlex.quote(CLAUDE_BIN)}\n"
+        f"printf 'path='; readlink -f {shlex.quote(CLAUDE_BIN)}\n"
+        f"printf 'version='; {shlex.quote(CLAUDE_BIN)} --version"
+    )
+    result = run_envd_command(sandbox, command, cwd=WORKDIR, user="root")
+    text = result_text(result)
+    if result.exit_code != 0:
+        raise RuntimeError(f"mounted Claude Code check failed:\n{text}")
+    values = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    path = values.get("path", "")
+    version = values.get("version", "")
+    if not path.startswith("/nix/store/") or not version:
+        raise RuntimeError(f"unexpected Claude Code runtime:\n{text}")
+    return path, version
+
+
+def claude_environment(api_key: str, base_url: str, model: str) -> dict[str, str]:
+    return {
+        "ANTHROPIC_BASE_URL": base_url,
+        # DeepSeek's Anthropic-compatible endpoint documents AUTH_TOKEN. Accept
+        # API_KEY from the caller, but expose only AUTH_TOKEN to Claude Code.
+        "ANTHROPIC_AUTH_TOKEN": api_key,
+        "ANTHROPIC_MODEL": model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": os.getenv(
+            "ANTHROPIC_DEFAULT_OPUS_MODEL", model
+        ),
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": os.getenv(
+            "ANTHROPIC_DEFAULT_SONNET_MODEL", model
+        ),
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": os.getenv(
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL", model
+        ),
+        "CLAUDE_CODE_SUBAGENT_MODEL": os.getenv("CLAUDE_CODE_SUBAGENT_MODEL", model),
+        "CLAUDE_CODE_EFFORT_LEVEL": os.getenv("CLAUDE_CODE_EFFORT_LEVEL", "medium"),
+        "DISABLE_AUTOUPDATER": "1",
+        "HOME": "/tmp/claude-home",
+        "CLAUDE_BIN": CLAUDE_BIN,
+        "DEMO_REPORT_FILE": REPORT_FILE,
+        "DEMO_STATE_HELPER": STATE_HELPER,
+        "TASK_TOPIC": TOPIC,
+    }
+
+
+def agent_prompt() -> str:
+    return f"""You are responsible for both the analysis and publishing its result.
+The task is not complete until the result page has been updated successfully.
+
+Task:
+{TASK}
+
+Follow this publishing protocol in order:
+
+1. Use Bash to mark the page as running:
+   {MAIN_PYTHON} "$DEMO_STATE_HELPER" write --status running --message "Claude Code 正在检索并分析公开信息，页面会自动刷新。" --topic "$TASK_TOPIC" --claude-path "$(readlink -f "$CLAUDE_BIN")"
+2. Perform the task. Use WebSearch no more than the task allows.
+3. Use the Write tool to save only the final Markdown report to:
+   {REPORT_FILE}
+4. Use Bash to publish that file:
+   {MAIN_PYTHON} "$DEMO_STATE_HELPER" write --status complete --message "分析完成。" --report-file "$DEMO_REPORT_FILE"
+5. Return exactly PUBLISHED after the publish command succeeds.
+
+Do not return the report instead of publishing it. The web page is the result destination.
+"""
+
+
+def run_claude(sandbox: Sandbox, *, api_key: str, base_url: str, model: str) -> str:
+    prepare = run_envd_command(
+        sandbox,
+        "mkdir -p /tmp/claude-home",
+        cwd=WORKDIR,
+        user="root",
+    )
+    if prepare.exit_code != 0:
+        raise RuntimeError(result_text(prepare))
+
+    command = shlex.join(
+        [
+            CLAUDE_BIN,
+            "-p",
+            "--output-format=json",
+            "--no-session-persistence",
+            "--safe-mode",
+            "--permission-mode=dontAsk",
+            "--tools=WebSearch,Write,Bash",
+            "--allowedTools=WebSearch,Write,Bash",
+            "--max-turns",
+            os.getenv("CLAUDE_MAX_TURNS", "8"),
+            "--model",
+            model,
+            "--",
+            agent_prompt(),
+        ]
+    )
+    result = run_envd_command(
+        sandbox,
+        command,
+        cwd=WORKDIR,
+        envs=claude_environment(api_key, base_url, model),
+        user="root",
+        timeout=float(os.getenv("CLAUDE_RUN_TIMEOUT_SECONDS", "600")),
+        request_timeout=float(os.getenv("CLAUDE_RUN_TIMEOUT_SECONDS", "600")) + 30,
+    )
+    text = result_text(result, api_key).strip()
+    write(STATE / "claude-output.json", text + "\n")
+    if result.exit_code != 0:
+        raise RuntimeError(f"Claude Code failed:\n{text[-4000:]}")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Claude Code did not return JSON:\n{text[-4000:]}") from exc
+    final_text = payload.get("result")
+    if payload.get("is_error") or not isinstance(final_text, str):
+        raise RuntimeError(f"Claude Code returned an error:\n{text[-4000:]}")
+    return command
 
 
 def main() -> int:
     STATE.mkdir(exist_ok=True)
+    llm_key = anthropic_key()
+    base_url = need("ANTHROPIC_BASE_URL")
+    model = need("ANTHROPIC_MODEL")
+
     client = tc_client()
-    tool_id = os.getenv("TOOL_ID")
+    tool_id = os.getenv("TOOL_ID", "").strip()
+    tool_source = "existing" if tool_id else "created"
     if tool_id:
+        print(f"Reusing TOOL_ID={tool_id}")
         write(STATE / "tool_id", tool_id)
     else:
         tool_id = create_tool(client)
     wait_tool(client, tool_id)
 
-    instance_id = start_instance(client, tool_id)
+    instance_id, persistent = start_instance(
+        client,
+        tool_id,
+        timeout=SANDBOX_TIMEOUT if tool_source == "created" else None,
+    )
     wait_instance(client, instance_id)
-    access_token = acquire_token(client, instance_id)
+    sandbox = connect_envd(instance_id, acquire_envd_token(client, instance_id))
 
-    health = call_harness(instance_id, access_token, "/health")
-    report = call_harness(instance_id, access_token, "/run")
-    write(STATE / "health.json", health)
-    write(STATE / "runtime-report.json", report)
+    envd_check = run_envd_command(sandbox, "printf 'ENVD_READY\\n'", user="root")
+    if envd_check.exit_code != 0 or "ENVD_READY" not in result_text(envd_check):
+        raise SystemExit("envd command execution check failed")
 
-    payload = json.loads(report)
-    if payload.get("ok") is not True:
-        raise SystemExit(f"harness report is not ok: {report}")
-    for key in ["claude", "node", "python"]:
-        if not payload.get(key) or payload[key] == "not-found":
-            raise SystemExit(f"{key} was not available from mounted Harness runtime: {report}")
+    url = result_url(instance_id)
+    write(STATE / "result_url", url)
+    print(f"RESULT_URL={url}", flush=True)
+    wait_public_page(url)
 
-    print(f"HEALTH_OUTPUT={STATE / 'health.json'}")
-    print(f"RUNTIME_REPORT={STATE / 'runtime-report.json'}")
+    claude_path, claude_version = inspect_claude(sandbox)
+
+    try:
+        command = run_claude(sandbox, api_key=llm_key, base_url=base_url, model=model)
+        page_state = wait_public_page(url, expected_status="complete")
+        if not page_state.get("report"):
+            raise RuntimeError("Claude Code published an empty report")
+    except Exception as exc:
+        safe_error = str(exc).replace(llm_key, "<redacted>")
+        try:
+            publish_error_state(
+                sandbox,
+                message="Claude Code 执行失败，请查看运行脚本输出。",
+                claude_path=claude_path,
+                report=safe_error[-4000:],
+            )
+        except Exception as state_exc:  # noqa: BLE001
+            print(f"failed to publish error state: {state_exc}")
+        raise
+
+    write(
+        STATE / "page-status.json",
+        json.dumps(page_state, ensure_ascii=False, indent=2) + "\n",
+    )
+
+    summary = {
+        "result_url": url,
+        "auth_mode": "PUBLIC",
+        "network_mode": "PUBLIC",
+        "persistent": persistent,
+        "tool_source": tool_source,
+        "envd": "ready",
+        "claude_profile": CLAUDE_BIN,
+        "claude_store_path": claude_path,
+        "claude_version": claude_version,
+        "model": model,
+        "topic": TOPIC,
+        "status": "complete",
+        "report_publisher": "claude-code",
+        "command_uses_absolute_path": command.startswith(CLAUDE_BIN),
+    }
+    summary_text = json.dumps(summary, ensure_ascii=False, indent=2)
+    write(STATE / "runtime-report.json", summary_text + "\n")
+    print(summary_text)
+    print(f"RESULT_URL={url}")
     return 0
 
 

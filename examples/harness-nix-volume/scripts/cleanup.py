@@ -9,7 +9,6 @@ from tencentcloud.common import credential
 from tencentcloud.common.profile.client_profile import ClientProfile
 from tencentcloud.common.profile.http_profile import HttpProfile
 
-
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / ".state"
 
@@ -50,7 +49,7 @@ def main() -> int:
         try:
             c.StopSandboxInstance(req)
             print(f"Instance stopped: {instance_id}")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             print(f"failed to stop instance {instance_id}: {exc}")
 
     if os.getenv("DELETE_TOOL", "0").lower() in {"1", "true", "yes", "on"}:
@@ -61,7 +60,7 @@ def main() -> int:
             try:
                 c.DeleteSandboxTool(req)
                 print(f"Tool deleted: {tool_id}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 print(f"failed to delete tool {tool_id}: {exc}")
 
     print("CLEANUP_OK")

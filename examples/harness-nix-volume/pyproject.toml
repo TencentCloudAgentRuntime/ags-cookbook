@@ -1,8 +1,10 @@
 [project]
-name = "harness-nix-volume"
+name = "claude-code-nix-volume"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "e2b>=2.15.2",
+    "packaging>=24.0",
     "tencentcloud-sdk-python-common>=3.1.32",
     "tencentcloud-sdk-python-ags>=3.1.32",
 ]

@@ -1,5 +1,5 @@
 {
-  description = "Self-contained Harness runtime for AGS image-volume mount";
+  description = "Self-contained Claude Code runtime for an AGS image-volume mount";
 
   inputs.nixpkgs.url = "nixpkgs";
 

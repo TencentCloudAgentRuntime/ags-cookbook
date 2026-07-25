@@ -1,80 +1,79 @@
-# Harness Nix 镜像卷：用最小闭包隔离运行时依赖
+# 在 AGS 沙箱中通过镜像卷挂载 Agent
 
-## 为什么用 Nix 打包 Harness
+这个示例说明 AGS 如何通过镜像卷，把 **Agent 及其自身依赖**按需挂载到沙箱中。主镜像负责代码和任务环境，Agent 镜像卷负责提供 Agent 运行时，两者可以独立构建、组合和升级。
 
-Nix 不会把软件及其依赖安装到共享的 `/usr` 或 `/usr/local` 目录，而是把每个构建结果放进带哈希的只读路径，例如 `/nix/store/<hash>-nodejs-22.x`。从最终的 Harness 运行时输出出发，Nix 可以枚举出它引用的完整依赖闭包（closure）：Harness 本身，以及它运行时真正需要的解释器、CLI、动态库和其他传递依赖。
+本示例以 Claude Code 作为 Agent。同样的挂载方式也适用于 Codex、Pi、OpenCode 等 Agent，以及自定义 Harness。Nix 是本示例用来生成最小、自包含软件闭包的打包手段；方案的核心能力是 AGS 为沙箱挂载独立的 Agent 镜像卷。
 
-这个示例只把该闭包和一个稳定的运行时入口打进镜像卷，不会把 Nix builder 里的其他软件一起带入。这里的“最小闭包”是相对于最终运行时输出而言：`runtimeEnv` 明确选择的软件及其传递依赖会被包含，未被这个输出引用的软件不会进入镜像卷。
+这种方式同时解决 **主镜像与 Agent 的依赖冲突**，以及 **环境镜像与 Agent/Harness 组合带来的镜像数量爆炸**。
 
-这样可以把 Harness 运行时与主镜像解耦：
+主镜像只负责启动 envd 和一个 `8080` 端口的结果网页。Claude Code 不安装在主镜像里，而是由 `/nix` 镜像卷提供。运行脚本通过 envd 启动 Claude Code，完成任务后打印一个可以直接在浏览器打开的 URL。
 
-- **不依赖主镜像预装环境**：Harness 使用闭包内固定版本的 Node.js、Python、CLI 和动态库，不要求主镜像预先安装同一套软件。
-- **避免依赖冲突**：Nix 把不同版本的软件放在各自独立的哈希路径中，Harness 固定使用自己闭包内的依赖。即使主镜像已有其他版本的 Node.js、Python 或动态库，两套环境也可以同时存在，不会互相覆盖。
-- **不污染主镜像工具链**：镜像卷只读挂载到 `/nix`，不会向主镜像的 `/usr`、`/lib` 等目录安装文件；Harness 通过 `/nix/harness/nix-env/bin/...` 绝对路径启动，也不会全局改写业务进程的 `PATH`。
-- **可以独立升级和复用**：Harness 依赖变化时只需重建镜像卷，同一份主镜像可以搭配不同版本的 Harness 运行时。
+默认任务很简单：搜索最近 24 小时内三条重要的 AI 行业新闻，并生成一份带来源链接的中文简报。
 
-这个模式适合 Harness 需要固定 CLI、Node.js、Python、JVM、native tools 或动态库，但又不希望每个主镜像都重复内置这些依赖的场景。
+## 这个方案解决什么
 
-## 工作方式
+### 1. 主镜像与 Agent 的依赖冲突
 
-```mermaid
-flowchart LR
-  subgraph Build["构建 Harness 运行时"]
-    Definition["default.nix\n声明 Harness 和运行时依赖"]
-    Runtime["runtimeEnv\n/nix/store 中的最终输出"]
-    Closure["nix-store -qR\n枚举完整依赖闭包"]
-    VolumeImage["Harness 镜像卷\n闭包 + 稳定入口"]
-  end
+RL 环境的主镜像通常已经固定了任务所需的 Python、Node.js、编译器和系统库。Claude Code、Codex、Pi、OpenCode 或自定义 Harness 也有各自的运行时依赖。如果把 Agent 直接安装进主镜像，可能出现版本冲突、`PATH` 污染，甚至因为升级 Agent 而改变原本可复现的任务环境。
 
-  subgraph AGS["AGS 沙箱内"]
-    MainImage["主镜像\n无需预装 Harness 依赖"]
-    Mount["镜像卷只读挂载到 /nix"]
-    Process["/nix/harness/nix-env/bin/harness-demo\nserve --port 18080"]
-    Port["沙箱暴露的端口\n18080"]
-  end
+Nix 将 Agent 及其依赖放在独立、带哈希的 `/nix/store` 路径中。Agent 使用自己的闭包运行，不覆盖主镜像中的文件；Agent 执行仓库测试时，仍然使用主镜像原有的工具链。
 
-  Definition --> Runtime
-  Runtime --> Closure
-  Closure --> VolumeImage
-  MainImage --> Mount
-  VolumeImage --> Mount
-  Mount --> Process
-  Process --> Port
+### 2. 环境镜像数量爆炸
+
+RL 中往往有大量主镜像，例如 SWE-bench 系列的不同任务环境。同时，Agent 也有很多种类和版本，例如 Claude Code、Codex、Pi、OpenCode，以及频繁变化的自定义 Harness。
+
+如果把 Agent 打进每个主镜像，镜像数量会形成笛卡尔积：
+
+| 方式 | 需要维护的镜像 | Agent 或 Harness 更新时 |
+|---|---|---|
+| Agent 内置在主镜像 | `M 个环境 × N 个 Agent/Harness 版本` | 重新构建所有相关主镜像 |
+| Agent 通过镜像卷挂载 | `M 个环境镜像 + N 个 Agent/Harness 卷` | 只重新构建对应的卷 |
+
+这个方案把“任务环境”和“Agent/Harness”拆成两个可以独立组合、独立升级的维度。启动沙箱时选择主镜像，再挂载所需的 Agent 卷，不需要提前构建每一种组合。
+
+## 你会看到什么
+
+运行成功后，终端会输出：
+
+```text
+RESULT_URL=https://8080-<instance-id>.<region>.tencentags.com/
 ```
 
-`nix/default.nix` 先生成一个 `runtimeEnv`，把 Harness 及选定的运行时组合成一个 profile。`scripts/build-harness-volume.sh` 再通过 `nix-store -qR` 找出这个 profile 的全部传递依赖，只复制这些 `/nix/store` 路径，并创建稳定入口 `/nix/harness/nix-env`。AGS 把镜像卷只读挂载到主镜像的 `/nix` 后，直接从这个绝对路径启动 Harness。
+打开这个地址后，页面会依次显示：
 
-示例里的 Harness 是一个真实 CLI 演示：闭包中包含完整的 Claude Code npm package、Linux x64 native payload，以及 demo 服务需要的 Node.js、Python 和动态库。沙箱会从挂载进来的 Nix 运行时启动一个 HTTP 服务，并返回 `claude --version`、`node --version` 和 Python 版本。主镜像刻意不安装 Claude Code、Node.js 或 Python；这些应用级运行时依赖都来自挂载的 Nix 闭包。
+1. 沙箱已就绪，等待任务开始。
+2. Claude Code 正在检索和分析信息。
+3. 最终中文报告、来源链接和 Claude Code 的实际运行路径。
 
-## 文件说明
+结果网页可以直接访问。
 
-| 路径 | 作用 |
-|---|---|
-| `nix/default.nix` | 声明 Harness 软件包、运行时依赖和最终的 `runtimeEnv` profile。 |
-| `nix/flake.nix` | 导入 `default.nix`，并以标准 flake 形式暴露 `x86_64-linux` 构建结果。 |
-| `nix/src/harness_server.py` | 一个很小的 Harness 服务示例。实际接入时替换成你的 Harness 入口。 |
-| `scripts/build-harness-volume.sh` | 构建 Nix closure，并把 `/nix` 打进镜像卷。 |
-| `images/main/Dockerfile` | 沙箱使用的最小主镜像。 |
-| `pyproject.toml` | Python SDK 辅助脚本依赖。 |
-| `scripts/run.py` | 通过 TencentCloud Python SDK 创建工具、挂载镜像卷、启动沙箱并验证服务。 |
-| `scripts/cleanup.py` | 停止沙箱；可选删除工具。 |
+## 快速开始
 
-## 前置条件
+### 1. 准备环境
 
-- Docker。
-- `uv`，用于运行本地 Python SDK 辅助脚本。
-- 可以拉取 `nixos/nix` builder 镜像和 Nix packages。用户本机不需要安装 Nix。
-- 一个 AGS 可以拉取的容器镜像仓库。
-- 腾讯云密钥，以及一个可以拉取这些镜像的 AGS `ROLE_ARN`。
-- Harness 运行时必须构建为 `x86_64-linux`，因为 AGS 沙箱是 Linux x86 容器。
+需要：
 
-## 配置
+- [uv](https://docs.astral.sh/uv/)、Docker，以及 AGS 可以访问的镜像仓库。
+- 腾讯云凭证和允许 AGS 使用镜像卷的 `ROLE_ARN`。
+- 能访问模型接口和新闻搜索的网络。
+
+本机不需要安装 Nix。Nix 构建会在 `nixos/nix` 容器中完成。
+
+先安装 Python 依赖：
+
+```bash
+make setup
+```
+
+### 2. 配置 AGS 和镜像地址
 
 ```bash
 cp .env.example .env
 ```
 
-至少填写：
+先为后续构建的两张镜像预留完整的仓库地址。这一步只定义镜像名称和标签，不会构建或推送镜像；第 4 步会用这两个地址给本地构建结果打标签并推送，第 5 步再把它们交给 AGS 创建 Tool。
+
+在 `.env` 中填写：
 
 ```bash
 TENCENTCLOUD_SECRET_ID=...
@@ -82,101 +81,156 @@ TENCENTCLOUD_SECRET_KEY=...
 TENCENTCLOUD_REGION=ap-guangzhou
 ROLE_ARN=qcs::cam::uin/<your-uin>:roleName/ags-image-volume-role
 
-MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-main:20260630
-HARNESS_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-volume:20260630
+# 后续构建和推送使用的目标地址
+MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-main:v1
+CLAUDE_CODE_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-volume:v1
 ```
 
-这里必须填写 AGS 可以拉取的镜像仓库地址。本地 `localhost/...` 这类 tag 只适合本地 Docker 检查，不能被 AGS 沙箱使用。
+两个目标地址必须位于 AGS 可以拉取的镜像仓库。主镜像提供 envd 和结果网页，Agent 镜像卷提供 Claude Code 及其运行依赖。
 
-`MAIN_IMAGE_REGISTRY_TYPE` 和 `HARNESS_VOLUME_IMAGE_REGISTRY_TYPE` 默认是 `personal`。
+### 3. 配置模型
 
-## 构建并推送镜像
+模型配置可以直接写入本地 `.env`：
+
+```dotenv
+ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+ANTHROPIC_API_KEY="<your-api-key>"
+ANTHROPIC_MODEL="deepseek-v4-flash"
+```
+
+`.env` 已被 `.gitignore` 和 `.dockerignore` 排除：不会提交到 Git，也不会发送到 Docker build context。不要主动提交该文件，也不要在 Dockerfile 中通过 `COPY`、`ARG` 或 `ENV` 把 Key 写进镜像。
+
+也可以不写 `.env`，改为在当前终端中 `export` 同名变量。脚本同时接受 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`。启动 Claude Code 时，Key 不会写入 AGS Tool，只会作为 `ANTHROPIC_AUTH_TOKEN` 注入该 Claude Code 进程，与 [DeepSeek Claude Code 接入文档](https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/claude_code/) 保持一致。
+
+### 4. 构建并推送镜像
+
+首次使用时，构建主镜像和 Agent 镜像卷：
 
 ```bash
 make build-images
-docker push "$MAIN_IMAGE_REF"
-docker push "$HARNESS_VOLUME_IMAGE_REF"
+make push-images
 ```
 
-执行 `make run` 前，两张镜像都必须已经推送完成。`MAIN_IMAGE_REF` 是沙箱的自定义主镜像，`HARNESS_VOLUME_IMAGE_REF` 会作为只读 `/nix` 镜像卷挂载进沙箱。
+`make push-images` 会把 `.env` 中配置的两张镜像推送到镜像仓库。后续只要镜像内容没有变化，就可以直接使用已有镜像，无需重复构建。
 
-`scripts/build-harness-volume.sh` 会使用 Linux `nixos/nix` builder 容器构建，生成匹配沙箱 `x86_64-linux` 环境的 runtime profile，再复制 `nix-store -qR` 枚举出的完整闭包。用户本机不需要安装 Nix，builder 中与该输出无关的软件也不会进入最终镜像卷。
+如果已经有一个配置好所需主镜像和 Agent 镜像卷的 Tool，则可以跳过本节，不需要再次构建和推送镜像。在 `.env` 中设置 `TOOL_ID="sdt-xxxxxxxx"`，下一步会直接使用该 Tool 启动实例。
 
-Harness 镜像卷里包含：
-
-- `/nix/store/...`：Harness 运行时及其全部传递依赖组成的 Nix closure
-- `/nix/harness/nix-env`：稳定的运行时 profile
-- `/nix/harness/nix-env/bin/claude`：来自完整 Claude Code npm package 及其 Linux x64 native payload
-- `/nix/harness/nix-env/bin/harness-demo`：demo 服务入口
-
-镜像卷必须挂载到 `/nix`。Nix store 的引用是绝对路径，把同一份文件挂到其他目录会导致很多可执行文件无法运行。
-
-## 运行
+### 5. 运行任务
 
 ```bash
-make setup
 make run
 ```
 
-`make run` 会执行以下流程：
+未设置 `TOOL_ID` 时，脚本会使用刚刚推送的主镜像和 Agent 镜像卷创建 AGS 自定义 Tool，将 Agent 卷只读挂载到 `/nix`，然后启动沙箱实例；设置了 `TOOL_ID` 时，脚本会直接使用该 Tool 启动实例。
 
-1. 调用 `CreateSandboxTool`，`ToolType=custom`。
-2. 使用 `MAIN_IMAGE_REF` 作为自定义工具的主镜像。
-3. 添加一个只读镜像卷挂载：
+看到 `RESULT_URL` 后，直接用浏览器打开即可。页面会自动刷新，不需要手动轮询。
 
-   ```text
-   name: harness-nix
-   mountPath: /nix
-   image: HARNESS_VOLUME_IMAGE_REF
-   subPath: /nix
-   ```
+`RESULT_URL` 会在 Agent 开始任务前打印，打开后可以看到页面从等待、分析到报告完成的变化。实例使用 `AuthMode=PUBLIC`，结果端口 `8080` 可以直接访问。需要更换任务时，设置 `TASK_TOPIC` 和 `AGENT_TASK` 后重新运行即可。
 
-4. 直接启动 Harness：
+脚本新建的 Tool 使用限时沙箱，实例超时时间为 1 小时，到期后会自动释放；不再使用时也可以提前清理。
 
-   ```text
-   /nix/harness/nix-env/bin/harness-demo serve --host 0.0.0.0 --port 18080
-   ```
+### 6. 清理
 
-5. 暴露沙箱端口 `18080`。
-6. 通过沙箱暴露的端口请求 `/health` 和 `/run`。
-
-预期 `.state/runtime-report.json`：
-
-```json
-{
-  "ok": true,
-  "claude": "2.1.196 (Claude Code)",
-  "python": "3.12.7",
-  "node": "v22.10.0"
-}
-```
-
-## 清理
+停止实例并保留 Tool，方便下次复用：
 
 ```bash
 make cleanup
 ```
 
-默认只停止沙箱，保留工具方便复用。如果也要删除工具：
+同时删除 Tool：
 
 ```bash
 DELETE_TOOL=1 make cleanup
 ```
 
-## 接入真实 Harness
+## 运行流程
 
-如果是真实的 npm Harness，更新 `nix/claude-code/package.json`，重新生成 `nix/claude-code/package-lock.json`，再用 `nix-build` 报出的 hash mismatch 更新 `nix/default.nix` 里的 `npmDepsHash`。这个示例用 `buildNpmPackage`，由 npm 和 Nix 生成 npm 依赖布局，不需要手工组装。
+箭头自上而下表示执行顺序。中间的“AGS 沙箱内”区域是沙箱实例内部，其余组件均在沙箱外。
 
-如果不是 npm Harness，把 `nix/default.nix` 里的 `claudeCode` derivation 换成你的真实二进制或启动器。如果你的 Harness 需要更多运行时，依赖加到 `runtimeEnv.paths` 里，例如：
+```mermaid
+sequenceDiagram
+  autonumber
+  box 沙箱外：客户侧与 AGS 控制面
+    actor User as 客户 / 浏览器
+    participant Runner as 本地 run.py
+    participant AGS as AGS 控制面
+  end
+  box AGS 沙箱内
+    participant Web as 结果服务 :8080
+    participant Envd as envd :49983
+    participant Agent as Agent（Claude Code）
+  end
+  box 沙箱外：模型与搜索服务
+    participant External as 模型 API / WebSearch
+  end
 
-```nix
-pkgs.nodejs_22
-pkgs.jdk_headless
-pkgs.python312
-pkgs.git
-pkgs.chromium
+  User->>Runner: 执行 make run
+  Runner->>AGS: 创建 Tool，启动 1 小时限时沙箱实例
+  Note over Web,Envd: 主镜像启动结果服务和 envd
+  Note right of Agent: Agent 镜像卷只读挂载到 /nix
+  AGS-->>Runner: 实例就绪，返回 instance_id
+  Runner-->>User: 打印 RESULT_URL
+  User->>Web: 通过公开端口 8080 打开页面
+  Web-->>User: 显示“等待中”
+  Runner->>Envd: 执行 /nix/.../bin/claude
+  Envd->>Agent: 启动 Agent
+  Agent-->>Web: 通过可写结果目录发布“分析中”
+  User->>Web: 自动刷新 GET /api/status
+  Web-->>User: 显示“分析中”
+  Agent->>External: 调用模型并检索公开信息
+  External-->>Agent: 返回分析所需信息
+  Agent-->>Web: 写入报告并发布“已完成”
+  User->>Web: 自动刷新 GET /api/status
+  Web-->>User: 显示最终报告
+  Runner->>Web: 验证最终状态和报告
+  Web-->>Runner: status=complete
 ```
 
-可写状态放到镜像卷以外，例如 `/tmp`、`/workspace` 或单独的 AGS 存储挂载。镜像卷应当当成只读运行时依赖。
+主镜像只提供 envd 和结果服务，镜像卷只提供 Agent 及其依赖。本地脚本负责创建资源、通过 envd 启动 Agent 和验证结果；报告由沙箱内的 Agent 写入。
 
-如果主镜像里已经有自己的 Node.js、Java 或 Python，建议用 `/nix/harness/nix-env/bin/...` 的绝对路径启动 Harness，不要把挂载进来的 Harness `bin` 目录全局加到用户 workload 的 `PATH` 最前面。这样可以避免挂载进来的 Harness 运行时意外覆盖主镜像自己的工具。
+## AGS 镜像卷与 Nix 的关系
+
+AGS 提供的是通用的镜像卷挂载能力，并不要求镜像卷必须由 Nix 构建，也不会解析或管理卷内的软件依赖。镜像卷里可以是一个独立二进制文件、一组预先准备好的文件，或由其他包管理器和构建系统生成的完整依赖闭包。
+
+使用方只需要保证镜像卷与沙箱架构兼容，文件挂载后可以从约定路径运行，并且包含 Agent 自身所需的依赖。AGS 负责把这些文件挂载进沙箱；至于卷内使用哪种打包技术、包含哪些程序，由使用方决定。
+
+本示例选择 Nix，是因为它可以从目标程序出发，找出程序引用的全部传递依赖，形成一个可独立运行的最小闭包。`nix-store -qR` 用于收集 Claude Code 的运行时闭包，并只把这些 `/nix/store` 路径打进 Agent 镜像卷。也可以换成任何能够产出自包含运行时或完整依赖闭包的工具。
+
+这个最小闭包提供了清晰的依赖边界，也让 Agent 可以脱离主镜像独立交付：
+
+- **解决依赖冲突**：Agent 固定使用自己的哈希路径，不覆盖主镜像中的库。
+- **避免组合爆炸**：任意主镜像都可以在运行时挂载所需的 Agent/Harness 卷。
+- **避免重复安装**：多个主镜像可以复用同一份 Agent 运行时。
+- **不污染主镜像**：卷只读挂载到 `/nix`，不会向 `/usr` 安装文件，也不会修改主镜像的 `PATH`。
+- **独立升级**：升级 Agent 或 Harness 时，只发布新卷，不需要重新构建每个主镜像。
+
+### 隔离的是 Agent 自身依赖
+
+这个镜像卷只负责提供 Claude Code 自身的运行时，不会替换客户任务的执行环境。
+
+例如，Agent 在代码仓库中运行 `python test.py` 时，仍会按主镜像的 `PATH` 使用主镜像中的 Python。只有启动 Claude Code 本身时，才使用 `/nix` 中的绝对路径。
+
+## 查看运行证据
+
+每次运行会在 `.state/` 下保存：
+
+| 文件 | 内容 |
+|---|---|
+| `runtime-report.json` | 认证模式、Nix 路径、Claude Code 版本、模型和最终状态 |
+| `claude-output.json` | Claude Code 的结构化输出，不包含 API Key |
+| `page-status.json` | 从公开网页反向读取的最终数据 |
+| `result_url` | 可以直接打开的网页地址 |
+
+## 主要文件
+
+| 路径 | 作用 |
+|---|---|
+| `nix/default.nix` | 构建示例 Agent（Claude Code）的运行时闭包 |
+| `scripts/build_volume.py` | 构建闭包并生成卷镜像 |
+| `images/main/Dockerfile` | 构建带 envd 和网页服务的主镜像 |
+| `images/main/start_demo.py` | 同时管理 envd 和网页服务 |
+| `images/main/demo_server.py` | 提供状态接口和结果网页 |
+| `scripts/run.py` | 创建 AGS 资源、运行 Agent 并验证结果 |
+| `scripts/cleanup.py` | 清理实例和 Tool |
+
+所有运行和生命周期脚本都是 Python；Makefile 只提供简短的用户命令。

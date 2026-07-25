@@ -1,80 +1,79 @@
-# Harness Nix Volume: Isolate Runtime Dependencies with a Minimal Closure
+# Mount Agents into AGS Sandboxes with Image Volumes
 
-## Why Package A Harness With Nix
+This example shows how AGS uses image volumes to mount an **Agent and its own dependencies** into a sandbox on demand. The main image provides the code and task environment, while the Agent image volume provides the Agent runtime. The two can be built, combined, and upgraded independently.
 
-Nix does not install software and its dependencies into shared locations such as `/usr` or `/usr/local`. Instead, every build output lives at an immutable, hash-addressed path such as `/nix/store/<hash>-nodejs-22.x`. Starting from the final Harness runtime output, Nix can enumerate its complete dependency closure: the Harness itself and every interpreter, CLI, shared library, and other transitive dependency that the output references at runtime.
+This example uses Claude Code as the Agent. The same mounting pattern applies to Agents such as Codex, Pi, and OpenCode, as well as custom Harnesses. Nix is the packaging mechanism used here to produce a minimal, self-contained software closure; the core AGS capability is mounting an independent Agent image volume into the sandbox.
 
-This example packages only that closure and a stable runtime entrypoint into the image volume; unrelated software from the Nix builder is left behind. “Minimal closure” is relative to the final runtime output: software selected by `runtimeEnv` and its transitive dependencies is included, while software that the output does not reference is not copied into the image volume.
+This approach solves both **dependency conflicts between the main image and the Agent** and **combinatorial image growth across environments and Agent/Harness variants**.
 
-This decouples the Harness runtime from the main image:
+The main image only starts envd and a result website on port `8080`. Claude Code is not installed in the main image; it comes from the volume mounted at `/nix`. A local Python helper runs Claude Code through envd and prints a URL that opens directly in a browser.
 
-- **No dependency on software preinstalled in the main image:** the Harness uses the pinned Node.js, Python, CLI, and shared libraries from its own closure.
-- **No dependency conflicts:** Nix keeps different software versions in separate hash-addressed paths, and the Harness always uses the dependencies from its own closure. A different Node.js, Python, or shared library version in the main image can coexist without replacing the Harness version.
-- **No pollution of the main image toolchain:** the image volume is mounted read-only at `/nix`, installs nothing into `/usr` or `/lib`, and starts the Harness through an absolute `/nix/harness/nix-env/bin/...` path without changing the global `PATH` for business processes.
-- **Independent upgrades and reuse:** when Harness dependencies change, only the image volume needs to be rebuilt; the same main image can be paired with different Harness runtime versions.
+The default task is intentionally small: find three important AI news items from the last 24 hours and write a short Chinese briefing with source links.
 
-The pattern is useful when a Harness needs a pinned CLI, Node.js, Python, JVM, native tools, or shared libraries, but you do not want to bake those dependencies into every main image.
+## Problems This Design Solves
 
-## How It Works
+### 1. Dependency conflicts between the main image and the Agent
 
-```mermaid
-flowchart LR
-  subgraph Build["Build the Harness runtime"]
-    Definition["default.nix\ndeclares Harness and runtime dependencies"]
-    Runtime["runtimeEnv\nfinal output in /nix/store"]
-    Closure["nix-store -qR\nenumerates the complete closure"]
-    VolumeImage["Harness image volume\nclosure + stable entrypoint"]
-  end
+An RL environment's main image usually pins the Python, Node.js, compilers, and system libraries required by the task. Claude Code, Codex, Pi, OpenCode, and custom Harnesses bring their own runtime dependencies. Installing an Agent directly into the main image can introduce version conflicts, pollute `PATH`, or change an otherwise reproducible task environment whenever the Agent is upgraded.
 
-  subgraph AGS["AGS sandbox"]
-    MainImage["Main image\nno Harness dependencies preinstalled"]
-    Mount["image volume mounted read-only at /nix"]
-    Process["/nix/harness/nix-env/bin/harness-demo\nserve --port 18080"]
-    Port["sandbox exposed port\n18080"]
-  end
+Nix places the Agent and its dependencies in isolated, hashed `/nix/store` paths. The Agent runs from its own closure without overwriting files in the main image. Commands that the Agent runs for the task still use the main image's original toolchain.
 
-  Definition --> Runtime
-  Runtime --> Closure
-  Closure --> VolumeImage
-  MainImage --> Mount
-  VolumeImage --> Mount
-  Mount --> Process
-  Process --> Port
+### 2. Combinatorial growth in environment images
+
+RL systems often contain many main images, such as the task environments in the SWE-bench family. They may also support many Agent types and versions: Claude Code, Codex, Pi, OpenCode, and frequently changing custom Harnesses.
+
+Baking every Agent into every main image creates a Cartesian product:
+
+| Approach | Images to maintain | When an Agent or Harness changes |
+|---|---|---|
+| Agent baked into the main image | `M environments × N Agent/Harness versions` | Rebuild every affected main image |
+| Agent mounted through an image volume | `M environment images + N Agent/Harness volumes` | Rebuild only the affected volume |
+
+This design makes the task environment and Agent/Harness independently selectable and independently upgradable. At sandbox startup, choose a main image and mount the required Agent volume instead of prebuilding every possible combination.
+
+## What You Will See
+
+A successful run prints:
+
+```text
+RESULT_URL=https://8080-<instance-id>.<region>.tencentags.com/
 ```
 
-`nix/default.nix` first produces a `runtimeEnv` profile that combines the Harness with the selected runtimes. `scripts/build-harness-volume.sh` then uses `nix-store -qR` to find every transitive dependency of that profile, copies only those `/nix/store` paths, and creates the stable `/nix/harness/nix-env` entrypoint. AGS mounts the image volume read-only at `/nix` in the main image and starts the Harness directly through that absolute path.
+Open that URL to watch the page move through three states:
 
-The demo Harness is intentionally concrete: its closure contains the complete Claude Code npm package, its Linux x64 native payload, and the Node.js, Python, and shared libraries needed by the wrapper service. The sandbox starts an HTTP service from the mounted Nix runtime and reports `claude --version`, `node --version`, and Python. The main image deliberately does not install Claude Code, Node.js, or Python; these application-level runtime dependencies all come from the mounted Nix closure.
+1. The sandbox is ready and waiting.
+2. Claude Code is searching and analyzing.
+3. The final report, source links, and resolved Claude Code path are displayed.
 
-## Files
+The result page is directly accessible.
 
-| Path | Purpose |
-|---|---|
-| `nix/default.nix` | Declares the Harness packages, runtime dependencies, and final `runtimeEnv` profile. |
-| `nix/flake.nix` | Imports `default.nix` and exposes the `x86_64-linux` result through a standard flake interface. |
-| `nix/src/harness_server.py` | Tiny demo Harness service. Replace this with your real Harness entrypoint. |
-| `scripts/build-harness-volume.sh` | Builds the Nix closure and packages `/nix` into an image volume. |
-| `images/main/Dockerfile` | Minimal main image used by the sandbox. |
-| `pyproject.toml` | Python SDK helper dependencies. |
-| `scripts/run.py` | Creates an AGS custom tool, mounts the image volume, starts a sandbox, and verifies the service. |
-| `scripts/cleanup.py` | Stops the sandbox and optionally deletes the tool. |
+## Quick Start
 
-## Prerequisites
+### 1. Prepare the environment
 
-- Docker.
-- `uv` for the local Python SDK helper.
-- Network access to pull the `nixos/nix` builder image and Nix packages. Local Nix installation is not required.
-- A container registry that AGS can pull from.
-- Tencent Cloud credentials and an AGS role ARN that can pull the configured images.
-- The Harness runtime must be built for `x86_64-linux`, because AGS sandboxes run Linux x86 containers.
+You need:
 
-## Configure
+- [uv](https://docs.astral.sh/uv/), Docker, and a container registry accessible to AGS.
+- Tencent Cloud credentials and a `ROLE_ARN` that permits AGS to use image volumes.
+- Network access to the model endpoint and web search.
+
+You do not need Nix on the host. The Nix build runs inside a `nixos/nix` container.
+
+Install the Python dependencies once:
+
+```bash
+make setup
+```
+
+### 2. Configure AGS and image references
 
 ```bash
 cp .env.example .env
 ```
 
-Set at least:
+Reserve full registry destinations for the two images that will be built later. This step only defines their names and tags; it does not build or push anything. Step 4 tags and pushes the local build outputs to these references, and step 5 passes them to AGS when creating the Tool.
+
+Set these values in `.env`:
 
 ```bash
 TENCENTCLOUD_SECRET_ID=...
@@ -82,101 +81,156 @@ TENCENTCLOUD_SECRET_KEY=...
 TENCENTCLOUD_REGION=ap-guangzhou
 ROLE_ARN=qcs::cam::uin/<your-uin>:roleName/ags-image-volume-role
 
-MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-main:20260630
-HARNESS_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/harness-nix-volume:20260630
+# Destinations used by the later build and push steps.
+MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-main:v1
+CLAUDE_CODE_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-volume:v1
 ```
 
-Use registry image references that AGS can pull. Local-only tags such as `localhost/...` are useful for local Docker checks, but they cannot be used by the AGS sandbox.
+Both destinations must be in a registry that AGS can pull from. The main image provides envd and the result page; the Agent image volume provides Claude Code and its runtime dependencies.
 
-`MAIN_IMAGE_REGISTRY_TYPE` and `HARNESS_VOLUME_IMAGE_REGISTRY_TYPE` default to `personal`.
+### 3. Configure the model
 
-## Build And Push Images
+The model settings can be stored in the local `.env` file:
+
+```dotenv
+ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+ANTHROPIC_API_KEY="<your-api-key>"
+ANTHROPIC_MODEL="deepseek-v4-flash"
+```
+
+`.env` is excluded by both `.gitignore` and `.dockerignore`, so it is neither committed to Git nor sent in the Docker build context. Do not commit it manually or copy the key into an image through Dockerfile `COPY`, `ARG`, or `ENV` instructions.
+
+Alternatively, export the same variables in the current shell. The helper accepts either `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`. It does not store the key in the AGS Tool; it exposes the value only to the Claude Code process as `ANTHROPIC_AUTH_TOKEN`, matching the [DeepSeek Claude Code integration guide](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code/).
+
+### 4. Build and push the images
+
+For the first run, build the main image and Agent image volume:
 
 ```bash
 make build-images
-docker push "$MAIN_IMAGE_REF"
-docker push "$HARNESS_VOLUME_IMAGE_REF"
+make push-images
 ```
 
-Both images must be pushed before `make run`. `MAIN_IMAGE_REF` is the sandbox's custom main image, and `HARNESS_VOLUME_IMAGE_REF` is mounted as the read-only `/nix` image volume.
+`make push-images` pushes both images configured in `.env` to the registry. As long as their contents do not change, later runs can reuse those images without rebuilding them.
 
-`scripts/build-harness-volume.sh` uses a Linux `nixos/nix` builder container to produce a runtime profile for the sandbox's `x86_64-linux` environment, then copies the complete closure enumerated by `nix-store -qR`. Users do not need to install Nix on the host machine, and unrelated builder software does not enter the final image volume.
+If you already have a Tool configured with the required main image and Agent image volume, you can skip this section without rebuilding or pushing either image. Set `TOOL_ID="sdt-xxxxxxxx"` in `.env`; the next step will start an instance directly from that Tool.
 
-The Harness image volume contains:
-
-- `/nix/store/...` for the Harness runtime and its complete transitive Nix closure
-- `/nix/harness/nix-env` as the stable runtime profile
-- `/nix/harness/nix-env/bin/claude` from the complete Claude Code npm package plus its Linux x64 native payload
-- `/nix/harness/nix-env/bin/harness-demo` as the demo service entrypoint
-
-Mount the image volume at `/nix`. Nix store references are absolute paths, so mounting the same files elsewhere will break many executables.
-
-## Run
+### 5. Run the task
 
 ```bash
-make setup
 make run
 ```
 
-`make run` does the following:
+When `TOOL_ID` is unset, the helper creates an AGS custom Tool from the images you just pushed, mounts the Agent volume read-only at `/nix`, and starts a sandbox instance. When `TOOL_ID` is set, it starts the instance directly from that Tool.
 
-1. Calls `CreateSandboxTool` with `ToolType=custom`.
-2. Uses `MAIN_IMAGE_REF` as the custom tool main image.
-3. Adds a read-only image mount:
+Open `RESULT_URL` when it appears. The page refreshes automatically.
 
-   ```text
-   name: harness-nix
-   mountPath: /nix
-   image: HARNESS_VOLUME_IMAGE_REF
-   subPath: /nix
-   ```
+`RESULT_URL` is printed before the Agent starts its task, so the page can show the transition from waiting to analyzing to complete. The instance uses `AuthMode=PUBLIC`, so result port `8080` is directly accessible. To change the task, set `TASK_TOPIC` and `AGENT_TASK` before running it again.
 
-4. Starts the Harness process directly:
+Tools created by the helper use time-limited sandboxes with a one-hour timeout. Their instances are released automatically at expiration and can also be cleaned up earlier.
 
-   ```text
-   /nix/harness/nix-env/bin/harness-demo serve --host 0.0.0.0 --port 18080
-   ```
+### 6. Clean up
 
-5. Exposes sandbox port `18080`.
-6. Calls `/health` and `/run` through the sandbox exposed port.
-
-Expected `.state/runtime-report.json`:
-
-```json
-{
-  "ok": true,
-  "claude": "2.1.196 (Claude Code)",
-  "python": "3.12.7",
-  "node": "v22.10.0"
-}
-```
-
-## Cleanup
+Stop the instance and keep the Tool for reuse:
 
 ```bash
 make cleanup
 ```
 
-By default this stops the sandbox and keeps the tool for reuse. To delete the tool as well:
+Stop the instance and delete the Tool:
 
 ```bash
 DELETE_TOOL=1 make cleanup
 ```
 
-## Adapting To A Real Harness
+## How a Task Runs
 
-For an npm-based Harness, update `nix/claude-code/package.json`, regenerate `nix/claude-code/package-lock.json`, and then update `npmDepsHash` in `nix/default.nix` from the hash mismatch reported by `nix-build`. The example uses `buildNpmPackage` so the npm dependency layout is produced by npm and Nix, instead of being assembled by hand.
+Arrows run from top to bottom in execution order. The middle “Inside the AGS sandbox” box is the sandbox instance; all other components are outside it.
 
-For a non-npm Harness, replace the `claudeCode` derivation in `nix/default.nix` with your real binary or launcher. If your Harness needs more runtimes, add them to the `runtimeEnv.paths` list, for example:
+```mermaid
+sequenceDiagram
+  autonumber
+  box Outside the sandbox: customer and AGS control plane
+    actor User as Customer / browser
+    participant Runner as Local run.py
+    participant AGS as AGS control plane
+  end
+  box Inside the AGS sandbox
+    participant Web as Result service :8080
+    participant Envd as envd :49983
+    participant Agent as Agent (Claude Code)
+  end
+  box Outside the sandbox: model and search services
+    participant External as Model API / WebSearch
+  end
 
-```nix
-pkgs.nodejs_22
-pkgs.jdk_headless
-pkgs.python312
-pkgs.git
-pkgs.chromium
+  User->>Runner: Run make run
+  Runner->>AGS: Create a Tool and start a one-hour time-limited instance
+  Note over Web,Envd: The main image starts the result service and envd
+  Note right of Agent: The Agent image volume is mounted read-only at /nix
+  AGS-->>Runner: Instance ready; return instance_id
+  Runner-->>User: Print RESULT_URL
+  User->>Web: Open the result page on public port 8080
+  Web-->>User: Show “waiting”
+  Runner->>Envd: Execute /nix/.../bin/claude
+  Envd->>Agent: Start the Agent
+  Agent-->>Web: Publish “running” through the writable result directory
+  User->>Web: Refresh GET /api/status automatically
+  Web-->>User: Show “running”
+  Agent->>External: Call the model and search public information
+  External-->>Agent: Return information for the analysis
+  Agent-->>Web: Write the report and publish “complete”
+  User->>Web: Refresh GET /api/status automatically
+  Web-->>User: Show the final report
+  Runner->>Web: Verify final state and report
+  Web-->>Runner: status=complete
 ```
 
-Keep writable state outside the image volume, such as `/tmp`, `/workspace`, or a separate AGS storage mount. Image volumes should be treated as read-only runtime dependencies.
+The main image provides only envd and the result service, while the image volume provides only the Agent and its dependencies. The local helper creates resources, starts the Agent through envd, and verifies the result; the Agent inside the sandbox writes the report.
 
-If the main image already has its own Node.js, Java, or Python, call the Harness through the absolute `/nix/harness/nix-env/bin/...` path and avoid prepending the mounted Harness `bin` directory to the global `PATH` of unrelated user workloads. This keeps the mounted Harness runtime from accidentally shadowing the main image's tools.
+## AGS Image Volumes and Nix
+
+AGS provides a general image-volume mounting capability. It does not require the volume to be built with Nix, nor does it inspect or manage software dependencies inside the volume. A volume can contain one standalone binary, a prepared set of files, or a complete dependency closure produced by another package manager or build system.
+
+The user only needs to ensure that the volume matches the sandbox architecture, runs from the agreed mount path, and contains the Agent's own dependencies. AGS mounts those files into the sandbox; the packaging technology and contents of the volume are entirely up to the user.
+
+This example uses Nix because it can start from a target program and identify all referenced transitive dependencies, producing a minimal self-contained runtime closure. `nix-store -qR` collects the Claude Code runtime closure, and only those `/nix/store` paths enter the Agent image volume. Any other tool that produces a self-contained runtime or complete dependency closure can be used instead.
+
+This minimal closure creates a clear dependency boundary and lets the Agent ship independently of the main image:
+
+- **Dependency-conflict isolation:** the Agent uses its own hashed paths and does not overwrite main-image libraries.
+- **No combinatorial image growth:** any main image can mount the required Agent or Harness volume at runtime.
+- **No repeated installation:** multiple main images can reuse the same Agent runtime.
+- **No main-image pollution:** the read-only volume mounts at `/nix` and does not install into `/usr` or modify `PATH`.
+- **Independent upgrades:** publish a new Agent or Harness volume without rebuilding every main image.
+
+### The volume isolates the Agent runtime
+
+The volume provides Claude Code's own runtime. It does not replace the customer's task environment.
+
+For example, if the Agent runs `python test.py` in a repository, command resolution still follows the main image's `PATH` and uses its Python. Only Claude Code itself is started through the absolute path under `/nix`.
+
+## Inspect Run Evidence
+
+Each run writes these files under `.state/`:
+
+| File | Contents |
+|---|---|
+| `runtime-report.json` | Auth mode, Nix path, Claude Code version, model, and final status |
+| `claude-output.json` | Structured Claude Code output without the API key |
+| `page-status.json` | Final data read back from the public page |
+| `result_url` | Browser-ready result URL |
+
+## Main Files
+
+| Path | Purpose |
+|---|---|
+| `nix/default.nix` | Build the example Agent's (Claude Code) runtime closure |
+| `scripts/build_volume.py` | Build the closure and volume image |
+| `images/main/Dockerfile` | Build the main image with envd and the result service |
+| `images/main/start_demo.py` | Supervise envd and the result service |
+| `images/main/demo_server.py` | Serve the status API and result page |
+| `scripts/run.py` | Create AGS resources, run the Agent, and verify the result |
+| `scripts/cleanup.py` | Clean up the instance and Tool |
+
+All runtime and lifecycle scripts are Python. The Makefile only provides short user-facing commands.
