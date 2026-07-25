@@ -25,10 +25,9 @@ ENVD_PORT = int(os.getenv("ENVD_PORT", "49983"))
 HTTP_PORT = int(os.getenv("DEMO_HTTP_PORT", "8080"))
 SANDBOX_TIMEOUT = os.getenv("INSTANCE_TIMEOUT", "1h")
 CLAUDE_BIN = "/nix/claude-code/nix-env/bin/claude"
-STATE_HELPER = "/opt/claude-demo/demo_server.py"
-MAIN_PYTHON = "/usr/local/bin/python3"
 WORKDIR = os.getenv("AGENT_WORKDIR", "/workspace")
-REPORT_FILE = os.getenv("DEMO_REPORT_FILE", "/workspace/demo-result/report.md")
+REPORT_DIR = "/workspace/report"
+REPORT_FILE = f"{REPORT_DIR}/index.html"
 TOPIC = (
     os.getenv("TASK_TOPIC")
     or os.getenv("DEMO_TOPIC")
@@ -95,6 +94,14 @@ def envd_probe() -> models.ProbeConfiguration:
     return item
 
 
+def sandbox_command() -> str:
+    return (
+        f"/usr/bin/envd -port {ENVD_PORT} & "
+        f"exec python3 -m http.server {HTTP_PORT} --bind 0.0.0.0 "
+        f"--directory {shlex.quote(REPORT_DIR)}"
+    )
+
+
 def claude_mount() -> models.StorageMount:
     image = models.ImageStorageSource()
     image.Reference = need("CLAUDE_CODE_VOLUME_IMAGE_REF")
@@ -125,7 +132,9 @@ def create_tool(client: ags_client.AgsClient) -> str:
         "TOOL_NAME", f"claude-code-agent-volume-{time.strftime('%m%d%H%M%S')}"
     )
     req.ToolType = "custom"
-    req.Description = "Claude Code from a Nix volume with envd and a public result page"
+    req.Description = (
+        "Claude Code from a Nix volume with envd and a static report server"
+    )
     req.DefaultTimeout = SANDBOX_TIMEOUT
     req.Persistent = False
     req.RoleArn = need("ROLE_ARN")
@@ -137,8 +146,8 @@ def create_tool(client: ags_client.AgsClient) -> str:
     custom = models.CustomConfiguration()
     custom.Image = need("MAIN_IMAGE_REF")
     custom.ImageRegistryType = os.getenv("MAIN_IMAGE_REGISTRY_TYPE", "personal")
-    custom.Command = ["/usr/local/bin/start-demo"]
-    custom.Args = []
+    custom.Command = ["/bin/sh", "-c"]
+    custom.Args = [sandbox_command()]
     custom.Ports = [port("envd", ENVD_PORT), port("result", HTTP_PORT)]
     custom.Probe = envd_probe()
 
@@ -271,53 +280,21 @@ def run_envd_command(sandbox: Sandbox, cmd: str, **kwargs: Any) -> CommandResult
         return exc
 
 
-def wait_public_page(url: str, *, expected_status: str | None = None) -> dict[str, Any]:
+def wait_public_file(url: str, *, filename: str = "") -> str:
     deadline = time.time() + int(os.getenv("PUBLIC_PAGE_READY_TIMEOUT_SECONDS", "120"))
-    endpoint = f"{url}api/status"
+    endpoint = f"{url}{filename}"
     last_error = ""
     while time.time() < deadline:
         try:
             with request.urlopen(endpoint, timeout=10) as response:
-                payload = json.loads(response.read().decode())
-            if isinstance(payload, dict) and (
-                expected_status is None or payload.get("status") == expected_status
-            ):
-                return payload
-            last_error = f"last page status: {payload!r}"
+                content = response.read().decode("utf-8", errors="replace")
+            if not filename or "<html" in content.lower():
+                return content
+            last_error = f"{endpoint} did not contain an HTML document"
         except Exception as exc:  # noqa: BLE001  # pragma: no cover
             last_error = str(exc)
         time.sleep(2)
-    raise RuntimeError(f"public result page did not become ready: {last_error}")
-
-
-def publish_error_state(
-    sandbox: Sandbox,
-    *,
-    message: str,
-    claude_path: str,
-    report: str,
-) -> None:
-    args = [
-        MAIN_PYTHON,
-        STATE_HELPER,
-        "write",
-        "--status",
-        "error",
-        "--message",
-        message,
-        "--topic",
-        TOPIC,
-        "--claude-path",
-        claude_path,
-    ]
-    result = run_envd_command(
-        sandbox,
-        shlex.join(args),
-        envs={"DEMO_REPORT": report},
-        user="root",
-    )
-    if result.exit_code != 0:
-        raise RuntimeError(f"failed to update result page: {result_text(result)}")
+    raise RuntimeError(f"public file did not become ready: {last_error}")
 
 
 def inspect_claude(sandbox: Sandbox) -> tuple[str, str]:
@@ -359,39 +336,36 @@ def claude_environment(api_key: str, base_url: str, model: str) -> dict[str, str
         "CLAUDE_CODE_EFFORT_LEVEL": os.getenv("CLAUDE_CODE_EFFORT_LEVEL", "medium"),
         "DISABLE_AUTOUPDATER": "1",
         "HOME": "/tmp/claude-home",
-        "CLAUDE_BIN": CLAUDE_BIN,
-        "DEMO_REPORT_FILE": REPORT_FILE,
-        "DEMO_STATE_HELPER": STATE_HELPER,
-        "TASK_TOPIC": TOPIC,
     }
 
 
 def agent_prompt() -> str:
-    return f"""You are responsible for both the analysis and publishing its result.
-The task is not complete until the result page has been updated successfully.
+    return f"""You are responsible for both the analysis and its published report.
+The task is not complete until you have written the final report to {REPORT_FILE}.
+
+Topic:
+{TOPIC}
 
 Task:
 {TASK}
 
-Follow this publishing protocol in order:
+Follow these steps:
 
-1. Use Bash to mark the page as running:
-   {MAIN_PYTHON} "$DEMO_STATE_HELPER" write --status running --message "Claude Code 正在检索并分析公开信息，页面会自动刷新。" --topic "$TASK_TOPIC" --claude-path "$(readlink -f "$CLAUDE_BIN")"
-2. Perform the task. Use WebSearch no more than the task allows.
-3. Use the Write tool to save only the final Markdown report to:
-   {REPORT_FILE}
-4. Use Bash to publish that file:
-   {MAIN_PYTHON} "$DEMO_STATE_HELPER" write --status complete --message "分析完成。" --report-file "$DEMO_REPORT_FILE"
-5. Return exactly PUBLISHED after the publish command succeeds.
+1. Perform the task. Use WebSearch no more than the task allows.
+2. Use the Write tool to create {REPORT_FILE} as a complete, standalone HTML5 page.
+3. Write the report in Chinese with readable typography, concise sections, and clickable source links. Use inline CSS only; do not use JavaScript or external assets.
+4. Do not write credentials, internal logs, or intermediate work into {REPORT_DIR}.
+5. Return exactly PUBLISHED after the file has been written successfully.
 
-Do not return the report instead of publishing it. The web page is the result destination.
+Do not return the report instead of writing the file. The static HTTP server publishes that directory directly.
 """
 
 
 def run_claude(sandbox: Sandbox, *, api_key: str, base_url: str, model: str) -> str:
     prepare = run_envd_command(
         sandbox,
-        "mkdir -p /tmp/claude-home",
+        f"mkdir -p /tmp/claude-home {shlex.quote(REPORT_DIR)} && "
+        f"rm -f {shlex.quote(REPORT_FILE)}",
         cwd=WORKDIR,
         user="root",
     )
@@ -436,6 +410,8 @@ def run_claude(sandbox: Sandbox, *, api_key: str, base_url: str, model: str) -> 
     final_text = payload.get("result")
     if payload.get("is_error") or not isinstance(final_text, str):
         raise RuntimeError(f"Claude Code returned an error:\n{text[-4000:]}")
+    if final_text.strip() != "PUBLISHED":
+        raise RuntimeError(f"Claude Code did not confirm publication:\n{text[-4000:]}")
     return command
 
 
@@ -470,32 +446,12 @@ def main() -> int:
     url = result_url(instance_id)
     write(STATE / "result_url", url)
     print(f"RESULT_URL={url}", flush=True)
-    wait_public_page(url)
+    wait_public_file(url)
 
     claude_path, claude_version = inspect_claude(sandbox)
-
-    try:
-        command = run_claude(sandbox, api_key=llm_key, base_url=base_url, model=model)
-        page_state = wait_public_page(url, expected_status="complete")
-        if not page_state.get("report"):
-            raise RuntimeError("Claude Code published an empty report")
-    except Exception as exc:
-        safe_error = str(exc).replace(llm_key, "<redacted>")
-        try:
-            publish_error_state(
-                sandbox,
-                message="Claude Code 执行失败，请查看运行脚本输出。",
-                claude_path=claude_path,
-                report=safe_error[-4000:],
-            )
-        except Exception as state_exc:  # noqa: BLE001
-            print(f"failed to publish error state: {state_exc}")
-        raise
-
-    write(
-        STATE / "page-status.json",
-        json.dumps(page_state, ensure_ascii=False, indent=2) + "\n",
-    )
+    command = run_claude(sandbox, api_key=llm_key, base_url=base_url, model=model)
+    report_html = wait_public_file(url, filename="index.html")
+    write(STATE / "report.html", report_html)
 
     summary = {
         "result_url": url,
@@ -511,6 +467,8 @@ def main() -> int:
         "topic": TOPIC,
         "status": "complete",
         "report_publisher": "claude-code",
+        "report_file": REPORT_FILE,
+        "report_server": "python-http.server",
         "command_uses_absolute_path": command.startswith(CLAUDE_BIN),
     }
     summary_text = json.dumps(summary, ensure_ascii=False, indent=2)

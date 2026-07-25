@@ -6,7 +6,7 @@
 
 这种方式同时解决 **主镜像与 Agent 的依赖冲突**，以及 **环境镜像与 Agent/Harness 组合带来的镜像数量爆炸**。
 
-主镜像只负责启动 envd 和一个 `8080` 端口的结果网页。Claude Code 不安装在主镜像里，而是由 `/nix` 镜像卷提供。运行脚本通过 envd 启动 Claude Code，完成任务后打印一个可以直接在浏览器打开的 URL。
+主镜像只负责启动 envd 和一个 `8080` 端口的静态文件服务。Claude Code 不安装在主镜像里，而是由 `/nix` 镜像卷提供。运行脚本通过 envd 启动 Claude Code，Agent 完成任务后直接把 HTML 报告写入静态文件目录。
 
 默认任务很简单：搜索最近 24 小时内三条重要的 AI 行业新闻，并生成一份带来源链接的中文简报。
 
@@ -29,7 +29,7 @@ RL 中往往有大量主镜像，例如 SWE-bench 系列的不同任务环境。
 | Agent 内置在主镜像 | `M 个环境 × N 个 Agent/Harness 版本` | 重新构建所有相关主镜像 |
 | Agent 通过镜像卷挂载 | `M 个环境镜像 + N 个 Agent/Harness 卷` | 只重新构建对应的卷 |
 
-这个方案把“任务环境”和“Agent/Harness”拆成两个可以独立组合、独立升级的维度。启动沙箱时选择主镜像，再挂载所需的 Agent 卷，不需要提前构建每一种组合。
+这个方案把“任务环境”和“Agent/Harness”拆成两个可以独立组合、独立升级的维度。主镜像与 Agent 卷分别构建，再由 AGS Tool 组合使用，不需要提前构建每一种镜像组合。
 
 ## 你会看到什么
 
@@ -39,13 +39,7 @@ RL 中往往有大量主镜像，例如 SWE-bench 系列的不同任务环境。
 RESULT_URL=https://8080-<instance-id>.<region>.tencentags.com/
 ```
 
-打开这个地址后，页面会依次显示：
-
-1. 沙箱已就绪，等待任务开始。
-2. Claude Code 正在检索和分析信息。
-3. 最终中文报告、来源链接和 Claude Code 的实际运行路径。
-
-结果网页可以直接访问。
+Agent 完成前，这个地址指向一个空的报告目录。Agent 完成后会生成 `index.html`，刷新页面即可查看最终中文报告和来源链接。
 
 ## 快速开始
 
@@ -86,7 +80,7 @@ MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-main:v1
 CLAUDE_CODE_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-volume:v1
 ```
 
-两个目标地址必须位于 AGS 可以拉取的镜像仓库。主镜像提供 envd 和结果网页，Agent 镜像卷提供 Claude Code 及其运行依赖。
+两个目标地址必须位于 AGS 可以拉取的镜像仓库。主镜像提供 envd 和 Python 静态文件服务，Agent 镜像卷提供 Claude Code 及其运行依赖。
 
 ### 3. 配置模型
 
@@ -123,9 +117,7 @@ make run
 
 未设置 `TOOL_ID` 时，脚本会使用刚刚推送的主镜像和 Agent 镜像卷创建 AGS 自定义 Tool，将 Agent 卷只读挂载到 `/nix`，然后启动沙箱实例；设置了 `TOOL_ID` 时，脚本会直接使用该 Tool 启动实例。
 
-看到 `RESULT_URL` 后，直接用浏览器打开即可。页面会自动刷新，不需要手动轮询。
-
-`RESULT_URL` 会在 Agent 开始任务前打印，打开后可以看到页面从等待、分析到报告完成的变化。实例使用 `AuthMode=PUBLIC`，结果端口 `8080` 可以直接访问。需要更换任务时，设置 `TASK_TOPIC` 和 `AGENT_TASK` 后重新运行即可。
+`RESULT_URL` 会在 Agent 开始任务前打印。此时打开会看到空的报告目录；终端显示任务完成后，刷新页面即可查看 Agent 生成的 `index.html`。实例使用 `AuthMode=PUBLIC`，结果端口 `8080` 可以直接访问。需要更换任务时，设置 `TASK_TOPIC` 和 `AGENT_TASK` 后重新运行即可。
 
 脚本新建的 Tool 使用限时沙箱，实例超时时间为 1 小时，到期后会自动释放；不再使用时也可以提前清理。
 
@@ -156,7 +148,7 @@ sequenceDiagram
     participant AGS as AGS 控制面
   end
   box AGS 沙箱内
-    participant Web as 结果服务 :8080
+    participant Web as Python 文件服务 :8080
     participant Envd as envd :49983
     participant Agent as Agent（Claude Code）
   end
@@ -166,27 +158,24 @@ sequenceDiagram
 
   User->>Runner: 执行 make run
   Runner->>AGS: 创建 Tool，启动 1 小时限时沙箱实例
-  Note over Web,Envd: 主镜像启动结果服务和 envd
+  Note over Web,Envd: 主镜像直接启动 envd 和 Python 文件服务
   Note right of Agent: Agent 镜像卷只读挂载到 /nix
   AGS-->>Runner: 实例就绪，返回 instance_id
   Runner-->>User: 打印 RESULT_URL
   User->>Web: 通过公开端口 8080 打开页面
-  Web-->>User: 显示“等待中”
+  Web-->>User: 显示空的报告目录
   Runner->>Envd: 执行 /nix/.../bin/claude
   Envd->>Agent: 启动 Agent
-  Agent-->>Web: 通过可写结果目录发布“分析中”
-  User->>Web: 自动刷新 GET /api/status
-  Web-->>User: 显示“分析中”
   Agent->>External: 调用模型并检索公开信息
   External-->>Agent: 返回分析所需信息
-  Agent-->>Web: 写入报告并发布“已完成”
-  User->>Web: 自动刷新 GET /api/status
+  Agent-->>Web: 写入 /workspace/report/index.html
+  Runner->>Web: 读取 index.html，验证报告
+  Web-->>Runner: 返回静态 HTML
+  User->>Web: 刷新页面
   Web-->>User: 显示最终报告
-  Runner->>Web: 验证最终状态和报告
-  Web-->>Runner: status=complete
 ```
 
-主镜像只提供 envd 和结果服务，镜像卷只提供 Agent 及其依赖。本地脚本负责创建资源、通过 envd 启动 Agent 和验证结果；报告由沙箱内的 Agent 写入。
+主镜像只提供 envd 和 Python 标准库的静态文件服务，镜像卷只提供 Agent 及其依赖。本地脚本负责创建资源、通过 envd 启动 Agent 和验证结果；报告由沙箱内的 Agent 直接写入静态文件目录。
 
 ## AGS 镜像卷与 Nix 的关系
 
@@ -218,7 +207,7 @@ AGS 提供的是通用的镜像卷挂载能力，并不要求镜像卷必须由 
 |---|---|
 | `runtime-report.json` | 认证模式、Nix 路径、Claude Code 版本、模型和最终状态 |
 | `claude-output.json` | Claude Code 的结构化输出，不包含 API Key |
-| `page-status.json` | 从公开网页反向读取的最终数据 |
+| `report.html` | 从公开地址读回的最终静态报告 |
 | `result_url` | 可以直接打开的网页地址 |
 
 ## 主要文件
@@ -227,10 +216,8 @@ AGS 提供的是通用的镜像卷挂载能力，并不要求镜像卷必须由 
 |---|---|
 | `nix/default.nix` | 构建示例 Agent（Claude Code）的运行时闭包 |
 | `scripts/build_volume.py` | 构建闭包并生成卷镜像 |
-| `images/main/Dockerfile` | 构建带 envd 和网页服务的主镜像 |
-| `images/main/start_demo.py` | 同时管理 envd 和网页服务 |
-| `images/main/demo_server.py` | 提供状态接口和结果网页 |
+| `images/main/Dockerfile` | 构建主镜像，并直接启动 envd 和 Python 静态文件服务 |
 | `scripts/run.py` | 创建 AGS 资源、运行 Agent 并验证结果 |
 | `scripts/cleanup.py` | 清理实例和 Tool |
 
-所有运行和生命周期脚本都是 Python；Makefile 只提供简短的用户命令。
+构建、运行和清理辅助程序均为 Python；Makefile 只提供简短的用户命令。

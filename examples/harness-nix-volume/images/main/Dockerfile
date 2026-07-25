@@ -7,15 +7,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=envd-provider /usr/bin/envd /usr/bin/envd
-COPY images/main/demo_server.py /opt/claude-demo/demo_server.py
-COPY images/main/start_demo.py /usr/local/bin/start-demo
 
-RUN chmod 0755 /usr/bin/envd /usr/local/bin/start-demo
+RUN chmod 0755 /usr/bin/envd \
+    && mkdir -p /workspace/report
 
 WORKDIR /workspace
-ENV DEMO_STATE_DIR=/workspace/demo-result \
+ENV DEMO_REPORT_DIR=/workspace/report \
     DEMO_HTTP_PORT=8080 \
     ENVD_PORT=49983
 
 EXPOSE 49983 8080
-CMD ["/usr/local/bin/start-demo"]
+CMD ["/bin/sh", "-c", "/usr/bin/envd -port \"$ENVD_PORT\" & exec python3 -m http.server \"$DEMO_HTTP_PORT\" --bind 0.0.0.0 --directory \"$DEMO_REPORT_DIR\""]

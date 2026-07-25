@@ -53,8 +53,6 @@ cleanup:
 check:
 	bash -n .env.example
 	$(PYTHON) -m py_compile \
-		images/main/demo_server.py \
-		images/main/start_demo.py \
 		scripts/build_volume.py \
 		scripts/run.py \
 		scripts/cleanup.py

@@ -6,7 +6,7 @@ This example uses Claude Code as the Agent. The same mounting pattern applies to
 
 This approach solves both **dependency conflicts between the main image and the Agent** and **combinatorial image growth across environments and Agent/Harness variants**.
 
-The main image only starts envd and a result website on port `8080`. Claude Code is not installed in the main image; it comes from the volume mounted at `/nix`. A local Python helper runs Claude Code through envd and prints a URL that opens directly in a browser.
+The main image only starts envd and a static file server on port `8080`. Claude Code is not installed in the main image; it comes from the volume mounted at `/nix`. A local Python helper runs Claude Code through envd, and the Agent writes its final HTML report directly into the served directory.
 
 The default task is intentionally small: find three important AI news items from the last 24 hours and write a short Chinese briefing with source links.
 
@@ -29,7 +29,7 @@ Baking every Agent into every main image creates a Cartesian product:
 | Agent baked into the main image | `M environments × N Agent/Harness versions` | Rebuild every affected main image |
 | Agent mounted through an image volume | `M environment images + N Agent/Harness volumes` | Rebuild only the affected volume |
 
-This design makes the task environment and Agent/Harness independently selectable and independently upgradable. At sandbox startup, choose a main image and mount the required Agent volume instead of prebuilding every possible combination.
+This design makes the task environment and Agent/Harness independently selectable and independently upgradable. Build the main image and Agent volume separately, then combine them in an AGS Tool instead of prebuilding every possible image combination.
 
 ## What You Will See
 
@@ -39,13 +39,7 @@ A successful run prints:
 RESULT_URL=https://8080-<instance-id>.<region>.tencentags.com/
 ```
 
-Open that URL to watch the page move through three states:
-
-1. The sandbox is ready and waiting.
-2. Claude Code is searching and analyzing.
-3. The final report, source links, and resolved Claude Code path are displayed.
-
-The result page is directly accessible.
+Before the Agent finishes, this URL points to an empty report directory. After the Agent creates `index.html`, refresh the page to view the final Chinese report and source links.
 
 ## Quick Start
 
@@ -86,7 +80,7 @@ MAIN_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-main:v1
 CLAUDE_CODE_VOLUME_IMAGE_REF=ccr.ccs.tencentyun.com/your-namespace/claude-code-nix-volume:v1
 ```
 
-Both destinations must be in a registry that AGS can pull from. The main image provides envd and the result page; the Agent image volume provides Claude Code and its runtime dependencies.
+Both destinations must be in a registry that AGS can pull from. The main image provides envd and Python's static file server; the Agent image volume provides Claude Code and its runtime dependencies.
 
 ### 3. Configure the model
 
@@ -123,9 +117,7 @@ make run
 
 When `TOOL_ID` is unset, the helper creates an AGS custom Tool from the images you just pushed, mounts the Agent volume read-only at `/nix`, and starts a sandbox instance. When `TOOL_ID` is set, it starts the instance directly from that Tool.
 
-Open `RESULT_URL` when it appears. The page refreshes automatically.
-
-`RESULT_URL` is printed before the Agent starts its task, so the page can show the transition from waiting to analyzing to complete. The instance uses `AuthMode=PUBLIC`, so result port `8080` is directly accessible. To change the task, set `TASK_TOPIC` and `AGENT_TASK` before running it again.
+`RESULT_URL` is printed before the Agent starts. Opening it at that point shows an empty report directory. After the terminal reports completion, refresh the page to view the generated `index.html`. The instance uses `AuthMode=PUBLIC`, so result port `8080` is directly accessible. To change the task, set `TASK_TOPIC` and `AGENT_TASK` before running it again.
 
 Tools created by the helper use time-limited sandboxes with a one-hour timeout. Their instances are released automatically at expiration and can also be cleaned up earlier.
 
@@ -156,7 +148,7 @@ sequenceDiagram
     participant AGS as AGS control plane
   end
   box Inside the AGS sandbox
-    participant Web as Result service :8080
+    participant Web as Python file server :8080
     participant Envd as envd :49983
     participant Agent as Agent (Claude Code)
   end
@@ -166,27 +158,24 @@ sequenceDiagram
 
   User->>Runner: Run make run
   Runner->>AGS: Create a Tool and start a one-hour time-limited instance
-  Note over Web,Envd: The main image starts the result service and envd
+  Note over Web,Envd: The main image directly starts envd and Python's file server
   Note right of Agent: The Agent image volume is mounted read-only at /nix
   AGS-->>Runner: Instance ready; return instance_id
   Runner-->>User: Print RESULT_URL
   User->>Web: Open the result page on public port 8080
-  Web-->>User: Show “waiting”
+  Web-->>User: Show the empty report directory
   Runner->>Envd: Execute /nix/.../bin/claude
   Envd->>Agent: Start the Agent
-  Agent-->>Web: Publish “running” through the writable result directory
-  User->>Web: Refresh GET /api/status automatically
-  Web-->>User: Show “running”
   Agent->>External: Call the model and search public information
   External-->>Agent: Return information for the analysis
-  Agent-->>Web: Write the report and publish “complete”
-  User->>Web: Refresh GET /api/status automatically
+  Agent-->>Web: Write /workspace/report/index.html
+  Runner->>Web: Read index.html and verify the report
+  Web-->>Runner: Return static HTML
+  User->>Web: Refresh the page
   Web-->>User: Show the final report
-  Runner->>Web: Verify final state and report
-  Web-->>Runner: status=complete
 ```
 
-The main image provides only envd and the result service, while the image volume provides only the Agent and its dependencies. The local helper creates resources, starts the Agent through envd, and verifies the result; the Agent inside the sandbox writes the report.
+The main image provides only envd and Python's standard-library static file server, while the image volume provides only the Agent and its dependencies. The local helper creates resources, starts the Agent through envd, and verifies the result; the Agent writes the report directly into the served directory.
 
 ## AGS Image Volumes and Nix
 
@@ -218,7 +207,7 @@ Each run writes these files under `.state/`:
 |---|---|
 | `runtime-report.json` | Auth mode, Nix path, Claude Code version, model, and final status |
 | `claude-output.json` | Structured Claude Code output without the API key |
-| `page-status.json` | Final data read back from the public page |
+| `report.html` | Final static report read back from the public URL |
 | `result_url` | Browser-ready result URL |
 
 ## Main Files
@@ -227,10 +216,8 @@ Each run writes these files under `.state/`:
 |---|---|
 | `nix/default.nix` | Build the example Agent's (Claude Code) runtime closure |
 | `scripts/build_volume.py` | Build the closure and volume image |
-| `images/main/Dockerfile` | Build the main image with envd and the result service |
-| `images/main/start_demo.py` | Supervise envd and the result service |
-| `images/main/demo_server.py` | Serve the status API and result page |
+| `images/main/Dockerfile` | Build the main image and directly start envd plus Python's static file server |
 | `scripts/run.py` | Create AGS resources, run the Agent, and verify the result |
 | `scripts/cleanup.py` | Clean up the instance and Tool |
 
-All runtime and lifecycle scripts are Python. The Makefile only provides short user-facing commands.
+The build, run, and cleanup helpers are Python. The Makefile only provides short user-facing commands.
