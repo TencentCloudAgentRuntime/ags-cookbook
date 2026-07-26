@@ -215,7 +215,8 @@ AGS 提供的是通用的镜像卷挂载能力，并不要求镜像卷必须由 
 | 路径 | 作用 |
 |---|---|
 | `nix/default.nix` | 构建示例 Agent（Claude Code）的运行时闭包 |
-| `scripts/build_volume.py` | 构建闭包并生成卷镜像 |
+| `images/claude-code-volume/Dockerfile` | 运行 Nix 构建，并将闭包打包成可挂载的卷镜像 |
+| `scripts/build_volume.py` | 读取构建配置，并使用静态 Dockerfile 构建卷镜像 |
 | `images/main/Dockerfile` | 构建主镜像，并直接启动 envd 和 Python 静态文件服务 |
 | `scripts/run.py` | 创建 AGS 资源、运行 Agent 并验证结果 |
 | `scripts/cleanup.py` | 清理实例和 Tool |

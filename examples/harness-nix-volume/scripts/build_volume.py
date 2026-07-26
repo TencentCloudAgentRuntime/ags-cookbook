@@ -7,26 +7,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_DIR = ROOT / "dist" / "claude-code-volume"
-
-DOCKERFILE = """\
-ARG NIX_BUILDER_IMAGE=nixos/nix:2.26.3
-FROM ${NIX_BUILDER_IMAGE} AS builder
-
-WORKDIR /src
-RUN mkdir -p /etc/nix \\
-    && printf 'experimental-features = nix-command flakes\\naccept-flake-config = true\\nsandbox = false\\nfilter-syscalls = false\\n' > /etc/nix/nix.conf
-
-COPY nix/ /src/nix/
-RUN nix-build /src/nix/default.nix --out-link /tmp/claude-code-result \\
-    && result_path="$(readlink -f /tmp/claude-code-result)" \\
-    && mkdir -p /nix-export/nix/store /nix-export/nix/claude-code \\
-    && cp -a $(nix-store -qR /tmp/claude-code-result) /nix-export/nix/store/ \\
-    && ln -s "$result_path" /nix-export/nix/claude-code/nix-env
-
-FROM scratch
-COPY --from=builder /nix-export/ /
-"""
+DOCKERFILE = ROOT / "images" / "claude-code-volume" / "Dockerfile"
 
 
 def need(name: str) -> str:
@@ -45,10 +26,8 @@ def main() -> int:
     platform = os.getenv("IMAGE_PLATFORM", "linux/amd64")
     builder = os.getenv("NIX_BUILDER_IMAGE", "nixos/nix:2.26.3")
 
-    shutil.rmtree(BUILD_DIR, ignore_errors=True)
-    BUILD_DIR.mkdir(parents=True)
-    dockerfile = BUILD_DIR / "Dockerfile"
-    dockerfile.write_text(DOCKERFILE, encoding="utf-8")
+    if not DOCKERFILE.is_file():
+        raise SystemExit(f"volume Dockerfile is missing: {DOCKERFILE}")
 
     command = [
         engine,
@@ -60,7 +39,7 @@ def main() -> int:
         "-t",
         image_ref,
         "-f",
-        str(dockerfile),
+        str(DOCKERFILE),
     ]
     if security_opt := os.getenv("CONTAINER_BUILD_SECURITY_OPT"):
         command.extend(["--security-opt", security_opt])

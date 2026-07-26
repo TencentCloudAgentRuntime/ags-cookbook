@@ -215,7 +215,8 @@ Each run writes these files under `.state/`:
 | Path | Purpose |
 |---|---|
 | `nix/default.nix` | Build the example Agent's (Claude Code) runtime closure |
-| `scripts/build_volume.py` | Build the closure and volume image |
+| `images/claude-code-volume/Dockerfile` | Run the Nix build and package its closure as a mountable volume image |
+| `scripts/build_volume.py` | Read build settings and build the volume image from the static Dockerfile |
 | `images/main/Dockerfile` | Build the main image and directly start envd plus Python's static file server |
 | `scripts/run.py` | Create AGS resources, run the Agent, and verify the result |
 | `scripts/cleanup.py` | Clean up the instance and Tool |
