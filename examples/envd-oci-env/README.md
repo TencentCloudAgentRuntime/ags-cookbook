@@ -2,12 +2,12 @@
 
 A container image can define environment variables with `ENV`.
 
-When envd is the container's PID 1, envd can read those variables. However,
-the original envd does not automatically pass them to new commands. A command
-started through envd may therefore be unable to read the image's `ENV` values.
+When envd is the container's PID 1, envd can read those variables. The original
+envd does not automatically pass all of them to new commands. A command started
+through envd may therefore be unable to read the image's `ENV` values.
 
-This cookbook provides modified envd source code. It explains how customers
-can compile it and add it to their images.
+This cookbook provides modified envd source and shows how to compile it into an
+application image.
 
 ## The symptom
 
@@ -19,8 +19,8 @@ ENTRYPOINT ["/usr/bin/envd"]
 ```
 
 After the container starts, envd can read `MODEL_DIR=/models`. AGS then asks
-envd to start an application or shell command. That new command may not be
-able to read `MODEL_DIR`.
+envd to start an application or shell command. That new command may not be able
+to read `MODEL_DIR`.
 
 ```text
 image ENV -> envd (available) -> new command (missing)
@@ -30,21 +30,26 @@ image ENV -> envd (available) -> new command (missing)
 
 envd explicitly sets the environment list when it creates a new process.
 
-The original envd adds basic variables and variables that were explicitly
-provided. It does not copy envd's complete environment. The image `ENV` values
-received from the OCI runtime are therefore lost at this point.
+The original envd adds basic variables and values explicitly supplied for the
+sandbox or command. It does not copy envd's complete environment. The image
+`ENV` values received from the OCI runtime are lost at this point.
 
 ## What we changed
 
-The source under `utils/envd/src` is based on envd `0.5.14` and adds this
-switch:
+The repository contains two independently buildable source versions:
+
+| envd version | Source path | Public source revision |
+|---|---|---|
+| `0.5.4` | `utils/envd/versions/0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` |
+| `0.2.11` | `utils/envd/versions/0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` |
+
+Both versions add this switch:
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
 ```
 
-When the switch is enabled, envd copies its complete environment before
-starting a new command:
+When enabled, envd copies its complete environment before starting a command:
 
 ```text
 image ENV -> envd (available) -> new command (available)
@@ -61,24 +66,55 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 The switch is enabled only when its value is exactly `1`. If it is absent or
 has another value, envd keeps its original behavior.
 
-## How to use it
+The `0.5.4` source also includes the later public upstream fix that detects
+cgroup v1 before enabling cgroup v2 process placement. Without that fix,
+starting a child process can fail with `bad file descriptor` in a cgroup v1
+container.
 
-### 1. Build envd from source and add it to the image
+## Choose a version
 
-Use a multi-stage Dockerfile to compile envd. The final image contains the
-compiled result but not the Go toolchain:
+envd does not negotiate this version automatically. Use the version required
+by the client or integration that connects to envd. If neither requires a
+specific version, use the example default, `0.5.4`.
+
+Set one of these values in `.env`:
+
+```dotenv
+ENVD_VERSION=0.5.4
+```
+
+or:
+
+```dotenv
+ENVD_VERSION=0.2.11
+```
+
+Use a distinct image tag for each version, for example:
+
+```dotenv
+ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.4
+```
+
+The Makefile selects the matching source directory, Go toolchain, and source
+revision automatically. This example calls the selection `ENVD_VERSION`;
+commands run directly in `utils/envd` call the same selection `VERSION`.
+
+## Build envd into an image
+
+The supplied Dockerfile uses a multi-stage build. Its version-selection part is:
 
 ```dockerfile
+ARG GO_VERSION=1.25.4
 ARG BASE_IMAGE=ubuntu:22.04
 
-FROM golang:1.25.9-bookworm AS envd-builder
+FROM golang:${GO_VERSION}-bookworm AS envd-builder
+ARG ENVD_VERSION=0.5.4
 WORKDIR /workspace
-COPY utils/envd/src ./src
-COPY utils/envd/shared ./shared
+COPY utils/envd/versions/${ENVD_VERSION}/src ./src
+COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
 WORKDIR /workspace/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -buildvcs=false -a -o /out/envd \
-    -ldflags "-X=main.commitSHA=a3fb26e-execenv -s -w -buildid=" .
+    go build -trimpath -buildvcs=false -a -o /out/envd .
 
 FROM ${BASE_IMAGE}
 COPY --from=envd-builder /out/envd /usr/bin/envd
@@ -87,16 +123,11 @@ ENV EXEC_ENABLE_ALL_ENV=1
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-`utils/envd/shared` contains only the shared source packages required to build
-envd. Customers do not need another source checkout.
+The final image contains the compiled envd binary but not the Go toolchain.
 
-The Docker build context must contain `utils/envd/src` and
-`utils/envd/shared`. This example's Makefile uses the repository root as the
-build context.
+## Configure AGS
 
-### 2. Make envd PID 1
-
-Set the AGS custom Tool command to:
+Make envd the container's PID 1:
 
 ```json
 {
@@ -104,22 +135,14 @@ Set the AGS custom Tool command to:
 }
 ```
 
-If a wrapper script starts envd, envd receives only the variables preserved by
-that script. Make sure the wrapper does not filter the image `ENV` values.
-
-### 3. Enable complete environment inheritance
-
-Set the switch in the image so it is already present when envd starts:
+Enable complete environment inheritance in the image:
 
 ```dockerfile
 ENV EXEC_ENABLE_ALL_ENV=1
 ```
 
-envd reads this switch from its own process environment. Rebuild and push the
-image after adding it, then rebuild the Tool and start a sandbox. Commands
-started through envd can now read the image `ENV`.
-
-For example:
+After rebuilding the image and Tool, commands started through envd can read
+the image `ENV`:
 
 ```bash
 agr instance exec <instance-id> --user root -- printenv MODEL_DIR
@@ -138,13 +161,12 @@ take precedence:
 
 | Source | Meaning | Scope |
 |---|---|---|
-| envd process environment | OCI image `ENV`, including `EXEC_ENABLE_ALL_ENV=1` | All later commands |
-| Basic identity variables | `PATH`, `HOME`, `USER`, and `LOGNAME` selected by envd for the execution user | All later commands |
-| Sandbox initialization variables | AGS `CustomConfiguration.Env`, provided as shared defaults during sandbox startup | All commands after initialization |
-| Current-command variables | For example, `agr instance exec --env KEY=VALUE` | Current command only; highest priority |
+| envd process environment | Final values given to PID 1 by the container runtime, including image `ENV` and AGS `CustomConfiguration.Env` | Starting layer for all later commands |
+| Basic identity variables | `PATH`, `HOME`, `USER`, and `LOGNAME` selected by envd | All later commands |
+| Sandbox startup defaults | Common command values supplied by the sandbox platform while envd is initialized, if any | All later commands |
+| Current-command variables | `agr instance exec --env KEY=VALUE` | Current command only; highest priority |
 
-Customers do not need to call `/init` for this use case. To temporarily
-override an image value for one command, use `--env`:
+To override an image value for one command:
 
 ```bash
 agr instance exec <instance-id> \
@@ -153,12 +175,12 @@ agr instance exec <instance-id> \
   -- printenv MODEL_DIR
 ```
 
-## Validation example
+## Validate on AGS
 
 Prerequisites:
 
 - Bash, Docker, and `agr`
-- A personal or enterprise image registry you can push to
+- A personal or enterprise image registry
 - A CAM role that lets AGS pull the image
 - An x86-64 base image containing `/bin/sh`, `/usr/bin/nice`,
   `/usr/bin/ionice`, and `readlink`
@@ -170,8 +192,7 @@ make setup
 ```
 
 Edit `.env` and set the Tencent Cloud credentials, region, image reference,
-registry type, and `AGS_ROLE_ARN`. Git ignores `.env`; never commit real
-credentials.
+registry type, `AGS_ROLE_ARN`, and `ENVD_VERSION`.
 
 Then run:
 
@@ -182,18 +203,32 @@ make push
 make run
 ```
 
-`make run` checks the disabled case, the enabled case, and a
-current-command override. It automatically removes the temporary sandboxes and
-Tools.
+`make run` pre-caches the selected image, creates two temporary sandboxes, and
+checks:
 
-Expected result:
+- the binary reports the selected envd version;
+- setting `EXEC_ENABLE_ALL_ENV=0` keeps inheritance disabled;
+- `EXEC_ENABLE_ALL_ENV=1` exposes image and sandbox-level variables;
+- a current-command value overrides an inherited value.
+
+The example image contains `EXEC_ENABLE_ALL_ENV=1`. To test the disabled case
+with that same image, the first temporary Tool starts envd with
+`EXEC_ENABLE_ALL_ENV=0`. The second Tool uses the image entrypoint unchanged,
+so the switch remains enabled.
+
+The temporary sandboxes and Tools are removed automatically.
+
+Expected result for `ENVD_VERSION=0.5.4`:
 
 ```text
-PASS: image env is absent when inheritance is disabled
-PASS: PID 1, image env, and runtime env verified
+PASS: envd 0.5.4 does not inherit image env when disabled
+PASS: envd 0.5.4 PID 1, image env, and runtime env verified
 PASS: command-specific env overrides inherited image env
 All envd inheritance checks passed
 ```
+
+Repeat with `ENVD_VERSION=0.2.11` and a different image tag to validate the
+second source version.
 
 ## Common failures
 
@@ -204,4 +239,4 @@ All envd inheritance checks passed
 - **Exec returns an internal error**: set `AGS_EXEC_USER` to a user that exists
   in the image.
 - **Tool never becomes ready**: confirm envd listens on port `49983` and that
-  the image contains the commands listed under Validation example.
+  the image contains the commands listed under Validate on AGS.

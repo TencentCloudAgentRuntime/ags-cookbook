@@ -1,79 +1,126 @@
 # envd source with OCI environment inheritance
 
-This directory contains buildable envd source code. It does not contain a
-prebuilt envd binary.
+This directory contains two buildable envd source versions. It does not
+contain prebuilt binaries.
 
-The source is based on envd `0.5.14` at revision `a3fb26e`. This distribution
-adds opt-in inheritance of the environment received by envd.
+Both versions add opt-in inheritance of the environment received by envd:
+
+| envd version | Public source revision | Go version | Source path |
+|---|---|---|---|
+| `0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` | `1.25.4` | `versions/0.5.4/` |
+| `0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` | `1.24.3` | `versions/0.2.11/` |
+
+The versions are independent, and envd does not negotiate a version with its
+client. Use the version required by your client or integration. If neither
+requires a specific version, start with the default, `0.5.4`.
+
+The `0.5.4` source also backports public upstream commit
+`452097909d71775a8953f1b4e4574519cbcb123d`. It detects cgroup v1 correctly
+and falls back to the no-op manager, preventing child-process startup from
+failing with an invalid cgroup file descriptor.
 
 ## Layout
+
+Each version contains:
 
 | Path | Contents |
 |---|---|
 | `src/` | envd source code and tests |
-| `shared/` | Only the shared source packages imported by envd |
-| `Makefile` | Containerized build and test commands |
-| `LICENSE` | Source license |
+| `shared/` | Only the public shared source packages imported by that version |
+| `LICENSE` | Apache License 2.0 |
+| `SOURCE.md` | Exact source revision and distribution changes |
 
-The envd module keeps its original module path. Its `go.mod` uses the local
-`shared/` module, so the build does not require another source checkout.
+Each envd module keeps its original module path. Its `go.mod` resolves the
+matching `shared/` module locally, so the build does not require another source
+checkout.
 
 ## Build
 
-Docker is the only required build dependency:
+Docker is the only build dependency.
+
+Build one version:
 
 ```bash
-make build
+make build VERSION=0.5.4
+make build VERSION=0.2.11
 ```
 
-The build uses Go `1.25.9` and produces:
+`VERSION` selects source when commands are run directly in `utils/envd`. The
+cookbook under `examples/envd-oci-env` uses `ENVD_VERSION` for the same choice
+and passes it to this Makefile.
+
+Or build both:
+
+```bash
+make build-all
+```
+
+The Linux/amd64 outputs are:
 
 ```text
-bin/envd
+bin/envd-0.5.4
+bin/envd-0.2.11
 ```
 
-The default target is Linux/amd64. To build Linux/arm64:
+Build Linux/arm64 binaries with:
 
 ```bash
-make build TARGET_ARCH=arm64
+make build-all TARGET_ARCH=arm64
 ```
 
 No file under `bin/` is committed.
 
 ## Test
 
-Run the environment inheritance and process regression tests:
+Run the focused environment and process tests for both versions:
 
 ```bash
-make test
+make test-all
+```
+
+Test just one version with:
+
+```bash
+make test VERSION=0.5.4
+make test VERSION=0.2.11
 ```
 
 Run the same tests with the Go race detector:
 
 ```bash
-make test-race
+make test-race-all
+```
+
+Run every test and build step:
+
+```bash
+make verify-all
 ```
 
 ## Added behavior
 
-The modification is in:
+The functional modification in each version is:
 
 ```text
-src/internal/services/process/handler/handler.go
+versions/<version>/src/internal/services/process/handler/handler.go
 ```
 
 The default behavior is unchanged. When envd starts with
 `EXEC_ENABLE_ALL_ENV=1`, a command started through envd first inherits envd's
 complete process environment.
 
-Variables configured when the sandbox starts, and variables passed to a
-specific command with `agr instance exec --env`, are applied afterward. These
-explicit values override inherited values with the same name.
+The container runtime combines OCI image `ENV` values and AGS
+`CustomConfiguration.Env` values into envd's own process environment. envd
+then applies identity variables, any common command defaults supplied by the
+sandbox platform at startup, and the current command's variables. A value
+applied later overrides an earlier value with the same name.
 
-Tests for disabled inheritance, enabled inheritance, and override order are in:
+Each version has tests for disabled inheritance, enabled inheritance, and
+override order:
 
 ```text
-src/internal/services/process/handler/environment_test.go
+versions/<version>/src/internal/services/process/handler/environment_test.go
 ```
 
-See `examples/envd-oci-env` for a multi-stage Docker build and AGS usage.
+See `examples/envd-oci-env` for a selectable multi-stage Docker build and AGS
+usage.

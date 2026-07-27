@@ -18,6 +18,15 @@ fi
 
 TENCENTCLOUD_REGION="${TENCENTCLOUD_REGION:-ap-guangzhou}"
 AGS_EXEC_USER="${AGS_EXEC_USER:-root}"
+ENVD_VERSION="${ENVD_VERSION:-0.5.4}"
+
+case "$ENVD_VERSION" in
+  0.5.4 | 0.2.11) ;;
+  *)
+    echo "ENVD_VERSION must be 0.5.4 or 0.2.11" >&2
+    exit 1
+    ;;
+esac
 
 case "$ENVD_IMAGE_REGISTRY_TYPE" in
   personal | enterprise) ;;
@@ -41,6 +50,7 @@ done
 
 agr_args=(--region "$TENCENTCLOUD_REGION" -o json)
 tool_suffix="$(date +%s)-$$"
+tool_version="${ENVD_VERSION//./-}"
 off_tool_id=""
 on_tool_id=""
 off_instance_id=""
@@ -64,6 +74,34 @@ cleanup() {
   exit "$exit_code"
 }
 trap cleanup EXIT
+
+wait_for_instance() {
+  local instance_id="$1"
+  local instance_status=""
+
+  for _ in {1..90}; do
+    instance_status="$(
+      agr instance get "$instance_id" \
+        "${agr_args[@]}" \
+        --jq '.Data.Status'
+    )"
+
+    case "$instance_status" in
+      RUNNING)
+        return 0
+        ;;
+      FAILED | STARTING_FAILED | STOPPING_FAILED)
+        echo "Instance $instance_id entered terminal status $instance_status" >&2
+        return 1
+        ;;
+    esac
+
+    sleep 2
+  done
+
+  echo "Instance $instance_id did not become RUNNING within 180 seconds" >&2
+  return 1
+}
 
 echo "Pre-caching $ENVD_DEMO_IMAGE"
 image_digest="$(
@@ -120,9 +158,9 @@ enabled_custom_config="$(
 echo "Creating temporary AGS tools"
 off_tool_id="$(
   agr tool create \
-    --tool-name "envd-env-off-$tool_suffix" \
+    --tool-name "envd-$tool_version-env-off-$tool_suffix" \
     --tool-type custom \
-    --description "Temporary envd inheritance validation: disabled" \
+    --description "Temporary envd $ENVD_VERSION inheritance validation: disabled" \
     --default-timeout 30m \
     --network-configuration '{"NetworkMode":"SANDBOX"}' \
     --role-arn "$AGS_ROLE_ARN" \
@@ -133,9 +171,9 @@ off_tool_id="$(
 
 on_tool_id="$(
   agr tool create \
-    --tool-name "envd-env-on-$tool_suffix" \
+    --tool-name "envd-$tool_version-env-on-$tool_suffix" \
     --tool-type custom \
-    --description "Temporary envd inheritance validation: enabled" \
+    --description "Temporary envd $ENVD_VERSION inheritance validation: enabled" \
     --default-timeout 30m \
     --network-configuration '{"NetworkMode":"SANDBOX"}' \
     --role-arn "$AGS_ROLE_ARN" \
@@ -161,21 +199,45 @@ on_instance_id="$(
     --jq '.Data.InstanceId'
 )"
 
-echo "Reproducing the default behavior"
+echo "Waiting for temporary AGS sandboxes"
+wait_for_instance "$off_instance_id"
+wait_for_instance "$on_instance_id"
+
+echo "Validating EXEC_ENABLE_ALL_ENV=0"
 agr instance exec "$off_instance_id" \
   --user "$AGS_EXEC_USER" \
+  --env ENVD_EXPECTED_VERSION="$ENVD_VERSION" \
   "${agr_args[@]}" \
   -- /bin/sh -c \
-  'test "${ENVD_IMAGE_ONLY+x}" != x && printf "PASS: image env is absent when inheritance is disabled\n"'
+  'actual_version="$(/usr/bin/envd -version)"
+   test "$actual_version" = "$ENVD_EXPECTED_VERSION" || {
+     printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$ENVD_EXPECTED_VERSION" >&2
+     exit 1
+   }
+   test "${ENVD_IMAGE_ONLY+x}" != x || {
+     printf "FAIL: image env is present when inheritance is disabled\n" >&2
+     exit 1
+   }
+   printf "PASS: envd %s does not inherit image env when disabled\n" "$actual_version"'
 
 echo "Validating EXEC_ENABLE_ALL_ENV=1"
 agr instance exec "$on_instance_id" \
   --user "$AGS_EXEC_USER" \
+  --env ENVD_EXPECTED_VERSION="$ENVD_VERSION" \
   "${agr_args[@]}" \
   -- /bin/sh -c \
-  'pid1_exe="$(readlink /proc/1/exe)"
+  'actual_version="$(/usr/bin/envd -version)"
+   test "$actual_version" = "$ENVD_EXPECTED_VERSION" || {
+     printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$ENVD_EXPECTED_VERSION" >&2
+     exit 1
+   }
+   pid1_exe="$(readlink /proc/1/exe)"
    test "$pid1_exe" = /usr/bin/envd || {
      printf "FAIL: PID 1 executable is %s, expected /usr/bin/envd\n" "$pid1_exe" >&2
+     exit 1
+   }
+   test "${ENVD_SOURCE_VERSION-}" = "$ENVD_EXPECTED_VERSION" || {
+     printf "FAIL: image version marker is %s, expected %s\n" "${ENVD_SOURCE_VERSION-}" "$ENVD_EXPECTED_VERSION" >&2
      exit 1
    }
    test "${ENVD_IMAGE_ONLY-}" = from-oci-image || {
@@ -190,7 +252,7 @@ agr instance exec "$on_instance_id" \
      printf "FAIL: EXEC_ENABLE_ALL_ENV is unavailable\n" >&2
      exit 1
    }
-   printf "PASS: PID 1, image env, and runtime env verified\n"'
+   printf "PASS: envd %s PID 1, image env, and runtime env verified\n" "$actual_version"'
 
 echo "Validating per-request override precedence"
 agr instance exec "$on_instance_id" \

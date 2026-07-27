@@ -3,9 +3,9 @@
 容器镜像可以通过 `ENV` 定义环境变量。
 
 envd 作为容器的 1 号进程时，可以读取这些变量。但是，原版 envd 启动新命令时，
-不会自动把这些变量传下去。新命令因此可能读不到镜像中的 `ENV`。
+不会自动把所有变量传下去。新命令因此可能读不到镜像中的 `ENV`。
 
-本 cookbook 提供修改后的 envd 源码，并说明如何自行编译和加入客户镜像。
+本 cookbook 提供修改后的 envd 源码，并说明如何自行编译和加入应用镜像。
 
 ## 问题现象
 
@@ -27,12 +27,19 @@ Shell 命令。这些新命令可能读不到 `MODEL_DIR`。
 
 envd 创建新进程时，会明确设置这个进程的环境变量列表。
 
-原版 envd 只加入基础变量和明确指定的变量，不会复制 envd 自己收到的完整环境。
-因此，OCI 运行时交给 envd 的镜像 `ENV` 会在这里丢失。
+原版 envd 只加入基础变量，以及为沙箱或当前命令明确设置的变量，不会复制 envd
+自己收到的完整环境。因此，OCI 运行时交给 envd 的镜像 `ENV` 会在这里丢失。
 
 ## 我们修改了什么
 
-仓库中 `utils/envd/src` 下的源码基于 envd `0.5.14`，并增加了以下开关：
+仓库同时提供两个可以独立构建的源码版本：
+
+| envd 版本 | 源码路径 | 公开源码版本 |
+|---|---|---|
+| `0.5.4` | `utils/envd/versions/0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` |
+| `0.2.11` | `utils/envd/versions/0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` |
+
+两个版本都增加了以下开关：
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
@@ -55,23 +62,52 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 只有值为 `1` 时才会开启。没有设置该变量，或者设置成其他值，envd 都保持原来的
 行为。
 
-## 如何使用
+`0.5.4` 源码还包含后续公开上游的 cgroup 检测修复。它会在启用 cgroup v2
+进程管理前识别 cgroup v1。缺少该修复时，envd 在 cgroup v1 容器中启动子进程
+可能报 `bad file descriptor`。
 
-### 1. 从源码编译并加入镜像
+## 选择版本
 
-使用多阶段 Dockerfile 编译 envd。最终镜像只包含编译结果，不包含 Go 工具链：
+envd 不会自动协商版本。请使用连接 envd 的客户端或集成方案明确要求的版本。
+如果两者都没有指定版本，可以使用示例默认的 `0.5.4`。
+
+在 `.env` 中设置：
+
+```dotenv
+ENVD_VERSION=0.5.4
+```
+
+或者：
+
+```dotenv
+ENVD_VERSION=0.2.11
+```
+
+两个版本应使用不同的镜像标签，例如：
+
+```dotenv
+ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.4
+```
+
+Makefile 会自动选择对应的源码目录、Go 工具链和源码版本。本示例把选择参数命名为
+`ENVD_VERSION`；直接在 `utils/envd` 下执行命令时，同一参数名为 `VERSION`。
+
+## 把 envd 编译到镜像中
+
+示例 Dockerfile 使用多阶段构建。与版本选择相关的部分如下：
 
 ```dockerfile
+ARG GO_VERSION=1.25.4
 ARG BASE_IMAGE=ubuntu:22.04
 
-FROM golang:1.25.9-bookworm AS envd-builder
+FROM golang:${GO_VERSION}-bookworm AS envd-builder
+ARG ENVD_VERSION=0.5.4
 WORKDIR /workspace
-COPY utils/envd/src ./src
-COPY utils/envd/shared ./shared
+COPY utils/envd/versions/${ENVD_VERSION}/src ./src
+COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
 WORKDIR /workspace/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -buildvcs=false -a -o /out/envd \
-    -ldflags "-X=main.commitSHA=a3fb26e-execenv -s -w -buildid=" .
+    go build -trimpath -buildvcs=false -a -o /out/envd .
 
 FROM ${BASE_IMAGE}
 COPY --from=envd-builder /out/envd /usr/bin/envd
@@ -80,15 +116,11 @@ ENV EXEC_ENABLE_ALL_ENV=1
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-`utils/envd/shared` 只包含 envd 编译时实际依赖的公共源码包。客户不需要另外拉取
-源码仓库。
+最终镜像只包含编译后的 envd，不包含 Go 工具链。
 
-Docker 构建上下文需要包含 `utils/envd/src` 和 `utils/envd/shared`。本示例的
-Makefile 已经使用仓库根目录作为构建上下文。
+## 配置 AGS
 
-### 2. 让 envd 作为 1 号进程
-
-在 AGS 自定义 Tool 中，把启动命令设置为：
+让 envd 成为容器的 1 号进程：
 
 ```json
 {
@@ -96,21 +128,13 @@ Makefile 已经使用仓库根目录作为构建上下文。
 }
 ```
 
-如果先启动包装脚本，再由包装脚本启动 envd，envd 只能继承包装脚本保留下来的
-环境变量。此时需要确认包装脚本没有过滤镜像 `ENV`。
-
-### 3. 开启完整环境继承
-
-把开关写入镜像，确保 envd 启动时已经能读取它：
+在镜像中开启完整环境继承：
 
 ```dockerfile
 ENV EXEC_ENABLE_ALL_ENV=1
 ```
 
-envd 会从自身的进程环境中读取该开关。添加配置后，重新构建并推送镜像，再重建
-Tool 并启动沙箱。通过 envd 启动的命令就可以读取镜像 `ENV`。
-
-例如：
+重新构建镜像和 Tool 后，通过 envd 启动的命令就可以读取镜像 `ENV`：
 
 ```bash
 agr instance exec <instance-id> --user root -- printenv MODEL_DIR
@@ -128,13 +152,12 @@ agr instance exec <instance-id> --user root -- printenv MODEL_DIR
 
 | 来源 | 含义 | 作用范围 |
 |---|---|---|
-| envd 的进程环境 | OCI 镜像 `ENV`，包括 `EXEC_ENABLE_ALL_ENV=1` | 所有后续命令 |
-| 基础身份变量 | envd 根据执行用户设置的 `PATH`、`HOME`、`USER`、`LOGNAME` | 所有后续命令 |
-| 沙箱初始化变量 | AGS `CustomConfiguration.Env`，在沙箱启动时作为公共默认值传入 | 初始化后的所有命令 |
-| 当前命令的变量 | 例如 `agr instance exec --env KEY=VALUE` | 只影响当前命令，优先级最高 |
+| envd 的进程环境 | 容器运行时交给 1 号进程的最终值，包括镜像 `ENV` 和 AGS `CustomConfiguration.Env` | 所有后续命令的起始环境 |
+| 基础身份变量 | envd 设置的 `PATH`、`HOME`、`USER` 和 `LOGNAME` | 所有后续命令 |
+| 沙箱启动默认值 | 沙箱平台初始化 envd 时提供的公共命令变量（如果有） | 所有后续命令 |
+| 当前命令的变量 | `agr instance exec --env KEY=VALUE` | 只影响当前命令，优先级最高 |
 
-本场景不需要客户手动调用 `/init`。如果当前命令需要临时覆盖镜像中的值，直接使用
-`--env`：
+为一条命令临时覆盖镜像中的值：
 
 ```bash
 agr instance exec <instance-id> \
@@ -143,12 +166,12 @@ agr instance exec <instance-id> \
   -- printenv MODEL_DIR
 ```
 
-## 验证示例
+## 在 AGS 中验证
 
 需要准备：
 
 - Bash、Docker 和 `agr`
-- 可推送的个人版或企业版镜像仓库
+- 个人版或企业版镜像仓库
 - AGS 拉取镜像使用的 CAM 角色
 - x86-64 基础镜像，其中包含 `/bin/sh`、`/usr/bin/nice`、
   `/usr/bin/ionice` 和 `readlink`
@@ -159,8 +182,8 @@ agr instance exec <instance-id> \
 make setup
 ```
 
-编辑 `.env`，填写腾讯云凭据、地域、镜像地址、镜像仓库类型和
-`AGS_ROLE_ARN`。`.env` 已被 Git 忽略，不能提交真实凭据。
+编辑 `.env`，填写腾讯云凭据、地域、镜像地址、镜像仓库类型、
+`AGS_ROLE_ARN` 和 `ENVD_VERSION`。
 
 然后执行：
 
@@ -171,17 +194,29 @@ make push
 make run
 ```
 
-`make run` 会验证开关关闭、开关开启和当前命令覆盖三种情况。创建的临时沙箱和
-Tool 会自动清理。
+`make run` 会预热所选镜像，创建两个临时沙箱，并检查：
 
-预期结果：
+- 二进制报告的 envd 版本与选择一致；
+- 设置 `EXEC_ENABLE_ALL_ENV=0` 时仍然不继承完整环境；
+- 设置 `EXEC_ENABLE_ALL_ENV=1` 后可以读取镜像和沙箱级变量；
+- 当前命令设置的值可以覆盖继承值。
+
+示例镜像中包含 `EXEC_ENABLE_ALL_ENV=1`。为了用同一个镜像验证关闭状态，第一个
+临时 Tool 会使用 `EXEC_ENABLE_ALL_ENV=0` 启动 envd。第二个 Tool 保持镜像入口
+不变，因此开关仍为开启状态。
+
+临时沙箱和 Tool 会自动清理。
+
+`ENVD_VERSION=0.5.4` 时的预期结果：
 
 ```text
-PASS: image env is absent when inheritance is disabled
-PASS: PID 1, image env, and runtime env verified
+PASS: envd 0.5.4 does not inherit image env when disabled
+PASS: envd 0.5.4 PID 1, image env, and runtime env verified
 PASS: command-specific env overrides inherited image env
 All envd inheritance checks passed
 ```
+
+换用 `ENVD_VERSION=0.2.11` 和另一个镜像标签，再执行一次即可验证第二个版本。
 
 ## 常见问题
 
@@ -190,4 +225,5 @@ All envd inheritance checks passed
 - **预热提示镜像不存在**：检查镜像地址，并确认
   `ENVD_IMAGE_REGISTRY_TYPE` 与仓库类型一致。
 - **exec 返回 internal error**：将 `AGS_EXEC_USER` 设置为镜像中实际存在的用户。
-- **Tool 一直未就绪**：确认 envd 监听 `49983`，且镜像包含验证示例中列出的命令。
+- **Tool 一直未就绪**：确认 envd 监听 `49983`，且镜像包含“在 AGS 中验证”列出的
+  命令。

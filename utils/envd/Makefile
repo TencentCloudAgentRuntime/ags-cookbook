@@ -1,17 +1,38 @@
 .DEFAULT_GOAL := help
 
-GO_IMAGE ?= golang:1.25.9-bookworm
+VERSION ?= 0.5.4
 TARGET_ARCH ?= amd64
-BUILD_REVISION ?= a3fb26e-execenv
 
-.PHONY: help build test test-race clean
+ifeq ($(VERSION),0.5.4)
+GO_VERSION := 1.25.4
+UPSTREAM_REVISION := 017de201
+TEST_PACKAGES := ./internal/services/process/handler ./internal/services/process ./internal/utils
+CGROUP_COMPAT_TEST_PACKAGE := ./internal/services/cgroups
+else ifeq ($(VERSION),0.2.11)
+GO_VERSION := 1.24.3
+UPSTREAM_REVISION := 1af78dd3
+TEST_PACKAGES := ./internal/services/process/handler ./internal/services/process ./internal/utils
+else
+$(error unsupported VERSION "$(VERSION)"; choose 0.5.4 or 0.2.11)
+endif
+
+GO_IMAGE ?= golang:$(GO_VERSION)-bookworm
+BUILD_REVISION ?= $(UPSTREAM_REVISION)-execenv
+VERSION_DIR := /workspace/versions/$(VERSION)
+OUTPUT := bin/envd-$(VERSION)
+
+.PHONY: help build build-all test test-all test-race test-race-all verify-all clean
 
 help:
 	@echo "Available targets:"
-	@echo "  make build      # Build bin/envd for Linux/$(TARGET_ARCH)"
-	@echo "  make test       # Run environment inheritance and process tests"
-	@echo "  make test-race  # Run the same tests with the Go race detector"
-	@echo "  make clean      # Remove the local build output"
+	@echo "  make build VERSION=0.5.4       # Build bin/envd-0.5.4"
+	@echo "  make build VERSION=0.2.11      # Build bin/envd-0.2.11"
+	@echo "  make build-all                 # Build both versions"
+	@echo "  make test VERSION=<version>    # Run focused tests"
+	@echo "  make test-all                  # Test both versions"
+	@echo "  make test-race-all             # Race-test both versions"
+	@echo "  make verify-all                # Test, race-test, and build both"
+	@echo "  make clean                     # Remove local build outputs"
 
 build:
 	@mkdir -p bin
@@ -21,9 +42,13 @@ build:
 		-e GOCACHE=/tmp/go-build \
 		-e GOMODCACHE=/tmp/go-mod \
 		-v "$(CURDIR):/workspace" \
-		-w /workspace/src \
+		-w "$(VERSION_DIR)/src" \
 		"$(GO_IMAGE)" \
-		sh -c "CGO_ENABLED=0 GOOS=linux GOARCH=$(TARGET_ARCH) go build -trimpath -buildvcs=false -a -o /workspace/bin/envd -ldflags '-X=main.commitSHA=$(BUILD_REVISION) -s -w -buildid=' ."
+		sh -c "CGO_ENABLED=0 GOOS=linux GOARCH=$(TARGET_ARCH) go build -trimpath -buildvcs=false -a -o /workspace/$(OUTPUT) -ldflags '-X=main.commitSHA=$(BUILD_REVISION) -s -w -buildid=' ."
+
+build-all:
+	@$(MAKE) build VERSION=0.5.4 TARGET_ARCH="$(TARGET_ARCH)"
+	@$(MAKE) build VERSION=0.2.11 TARGET_ARCH="$(TARGET_ARCH)"
 
 test:
 	docker run --rm \
@@ -32,9 +57,13 @@ test:
 		-e GOCACHE=/tmp/go-build \
 		-e GOMODCACHE=/tmp/go-mod \
 		-v "$(CURDIR):/workspace" \
-		-w /workspace/src \
+		-w "$(VERSION_DIR)/src" \
 		"$(GO_IMAGE)" \
-		go test -count=1 ./internal/services/process/handler ./internal/services/process ./internal/utils
+		sh -c "go test -count=1 $(TEST_PACKAGES)$(if $(CGROUP_COMPAT_TEST_PACKAGE), && go test -count=1 $(CGROUP_COMPAT_TEST_PACKAGE) -run TestNewCgroup2ManagerNonCgroup2FS)"
+
+test-all:
+	@$(MAKE) test VERSION=0.5.4
+	@$(MAKE) test VERSION=0.2.11
 
 test-race:
 	docker run --rm \
@@ -43,9 +72,15 @@ test-race:
 		-e GOCACHE=/tmp/go-build \
 		-e GOMODCACHE=/tmp/go-mod \
 		-v "$(CURDIR):/workspace" \
-		-w /workspace/src \
+		-w "$(VERSION_DIR)/src" \
 		"$(GO_IMAGE)" \
-		go test -race -count=1 ./internal/services/process/handler ./internal/services/process ./internal/utils
+		sh -c "go test -race -count=1 $(TEST_PACKAGES)$(if $(CGROUP_COMPAT_TEST_PACKAGE), && go test -race -count=1 $(CGROUP_COMPAT_TEST_PACKAGE) -run TestNewCgroup2ManagerNonCgroup2FS)"
+
+test-race-all:
+	@$(MAKE) test-race VERSION=0.5.4
+	@$(MAKE) test-race VERSION=0.2.11
+
+verify-all: test-all test-race-all build-all
 
 clean:
-	rm -f bin/envd
+	rm -f bin/envd-0.5.4 bin/envd-0.2.11
