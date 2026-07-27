@@ -35,7 +35,7 @@ func TestBuildProcessEnvironmentOverrideOrder(t *testing.T) {
 	t.Setenv("PATH", "/parent/bin")
 
 	defaults := testDefaults()
-	defaults.EnvVars.StoreUser("ENVD_TEST_OVERRIDE", "global")
+	defaults.EnvVars.Store("ENVD_TEST_OVERRIDE", "global")
 
 	got := effectiveEnvironment(buildProcessEnvironment(
 		testUser(),
@@ -58,7 +58,7 @@ func testUser() *user.User {
 }
 
 func testDefaults() *execcontext.Defaults {
-	return &execcontext.Defaults{EnvVars: utils.NewEnvVars()}
+	return &execcontext.Defaults{EnvVars: utils.NewMap[string, string]()}
 }
 
 func effectiveEnvironment(entries []string) map[string]string {

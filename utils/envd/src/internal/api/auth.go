@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -42,7 +41,7 @@ func (a *API) WithAuthorization(handler http.Handler) http.Handler {
 			if !a.accessToken.Equals(authHeader) && !allowedPath {
 				a.logger.Error().Msg("Trying to access secured envd without correct access token")
 
-				err := errors.New("unauthorized access, please provide a valid access token or method signing if supported")
+				err := fmt.Errorf("unauthorized access, please provide a valid access token or method signing if supported")
 				jsonError(w, http.StatusUnauthorized, err)
 
 				return
@@ -84,14 +83,14 @@ func (a *API) validateSigning(r *http.Request, signature *string, signatureExpir
 	tokenFromHeader := r.Header.Get(accessTokenHeader)
 	if tokenFromHeader != "" {
 		if !a.accessToken.Equals(tokenFromHeader) {
-			return errors.New("access token present in header but does not match")
+			return fmt.Errorf("access token present in header but does not match")
 		}
 
 		return nil
 	}
 
 	if signature == nil {
-		return errors.New("missing signature query parameter")
+		return fmt.Errorf("missing signature query parameter")
 	}
 
 	// Empty string is used when no username is provided and the default user should be used
@@ -114,16 +113,15 @@ func (a *API) validateSigning(r *http.Request, signature *string, signatureExpir
 	}
 
 	// signature validation
-	// Use constant-time comparison to prevent timing attacks.
-	if subtle.ConstantTimeCompare([]byte(expectedSignature), []byte(*signature)) != 1 {
-		return errors.New("invalid signature")
+	if expectedSignature != *signature {
+		return fmt.Errorf("invalid signature")
 	}
 
 	// signature expiration
 	if signatureExpiration != nil {
 		exp := int64(*signatureExpiration)
 		if exp < time.Now().Unix() {
-			return errors.New("signature is already expired")
+			return fmt.Errorf("signature is already expired")
 		}
 	}
 

@@ -1,106 +1,45 @@
 package handler
 
 import (
-	"slices"
 	"sync"
 	"sync/atomic"
 )
 
-// MultiplexedChannel fans out values written to Source to every subscriber
-// obtained via Fork. Each subscriber send is guarded by a done channel so
-// a cancelled consumer can never wedge the fan-out loop.
 type MultiplexedChannel[T any] struct {
-	Source chan T
-
+	Source   chan T
+	channels []chan T
 	mu       sync.RWMutex
-	channels []*subscriber[T]
 	exited   atomic.Bool
-}
-
-type subscriber[T any] struct {
-	ch   chan T
-	done chan struct{}
-	once sync.Once
-}
-
-// cancel marks the subscriber as gone. Idempotent and non-blocking.
-func (s *subscriber[T]) cancel() {
-	s.once.Do(func() {
-		close(s.done)
-	})
-}
-
-// isCancelled reports whether cancel has been called.
-func (s *subscriber[T]) isCancelled() bool {
-	select {
-	case <-s.done:
-		return true
-	default:
-		return false
-	}
 }
 
 func NewMultiplexedChannel[T any](buffer int) *MultiplexedChannel[T] {
 	c := &MultiplexedChannel[T]{
-		Source: make(chan T, buffer),
+		channels: nil,
+		Source:   make(chan T, buffer),
 	}
 
-	go c.run()
+	go func() {
+		for v := range c.Source {
+			c.mu.RLock()
+
+			for _, cons := range c.channels {
+				cons <- v
+			}
+
+			c.mu.RUnlock()
+		}
+
+		c.exited.Store(true)
+
+		for _, cons := range c.channels {
+			close(cons)
+		}
+	}()
 
 	return c
 }
 
-// run is the fan-out loop. It delivers each Source value to every live
-// subscriber and closes all consumer channels when Source is closed.
-func (m *MultiplexedChannel[T]) run() {
-	for v := range m.Source {
-		m.mu.RLock()
-		subs := m.channels
-		m.mu.RUnlock()
-
-		for _, s := range subs {
-			// Skip already-cancelled subscribers.
-			if s.isCancelled() {
-				continue
-			}
-
-			select {
-			case s.ch <- v:
-			case <-s.done:
-			}
-		}
-	}
-
-	m.exited.Store(true)
-
-	// Close all remaining consumer channels so `for range` loops exit.
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for _, s := range m.channels {
-		s.cancel()
-		close(s.ch)
-	}
-	m.channels = nil
-}
-
-// HasSubscribers reports whether any non-cancelled subscriber exists.
-func (m *MultiplexedChannel[T]) HasSubscribers() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, s := range m.channels {
-		if !s.isCancelled() {
-			return true
-		}
-	}
-
-	return false
-}
-
-// Fork registers a new subscriber and returns its channel plus a cancel func.
-// If Source is already closed it returns a pre-closed channel and a no-op cancel.
-func (m *MultiplexedChannel[T]) Fork() (<-chan T, func()) {
+func (m *MultiplexedChannel[T]) Fork() (chan T, func()) {
 	if m.exited.Load() {
 		ch := make(chan T)
 		close(ch)
@@ -111,38 +50,22 @@ func (m *MultiplexedChannel[T]) Fork() (<-chan T, func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Re-check under lock in case run() finished between the fast path and here.
-	if m.exited.Load() {
-		ch := make(chan T)
-		close(ch)
+	consumer := make(chan T)
 
-		return ch, func() {}
-	}
+	m.channels = append(m.channels, consumer)
 
-	s := &subscriber[T]{
-		ch:   make(chan T),
-		done: make(chan struct{}),
-	}
-
-	m.channels = append(m.channels, s)
-
-	return s.ch, func() {
-		m.remove(s)
+	return consumer, func() {
+		m.remove(consumer)
 	}
 }
 
-// remove unsubscribes s. Safe to call multiple times.
-func (m *MultiplexedChannel[T]) remove(s *subscriber[T]) {
-	// Cancel before locking so an in-flight fan-out send can unblock.
-	s.cancel()
-
+func (m *MultiplexedChannel[T]) remove(consumer chan T) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for i, sub := range m.channels {
-		if sub == s {
-			// New backing array so run()'s concurrent iteration is safe.
-			m.channels = slices.Concat(m.channels[:i], m.channels[i+1:])
+	for i, ch := range m.channels {
+		if ch == consumer {
+			m.channels = append(m.channels[:i], m.channels[i+1:]...)
 
 			return
 		}

@@ -2,7 +2,7 @@
 
 本目录提供可以直接构建的 envd 源代码，不包含预编译的 envd 二进制。
 
-源码基于 envd `0.6.11`、版本 `7c23f7b`，并增加了按需继承 envd 进程环境的能力。
+源码基于 envd `0.5.14`、版本 `a3fb26e`，并增加了按需继承 envd 进程环境的能力。
 
 ## 目录结构
 
@@ -24,7 +24,7 @@ envd 模块保留原有的 Go module path。`go.mod` 使用本目录下的 `shar
 make build
 ```
 
-构建使用 Go `1.26.5`，产物位于：
+构建使用 Go `1.25.9`，产物位于：
 
 ```text
 bin/envd
@@ -71,11 +71,5 @@ src/internal/services/process/handler/handler.go
 ```text
 src/internal/services/process/handler/environment_test.go
 ```
-
-## 安全提示
-
-该开关会把 envd 的完整环境传给子进程。如果 envd 环境中包含不应由沙箱命令读取
-的凭据或其他敏感值，请不要启用。只需传递少量白名单变量时，应通过
-`agr instance exec --env` 只向具体命令传递。
 
 多阶段 Docker 构建和 AGS 使用方法见 `examples/envd-oci-env`。

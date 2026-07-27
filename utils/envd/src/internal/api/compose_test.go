@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/e2b-dev/infra/packages/envd/internal/execcontext"
-	"github.com/e2b-dev/infra/packages/envd/internal/services/cgroups"
 	"github.com/e2b-dev/infra/packages/envd/internal/utils"
 )
 
@@ -29,11 +28,11 @@ func newComposeTestAPI(t *testing.T) (*API, *user.User) {
 
 	logger := zerolog.Nop()
 	defaults := &execcontext.Defaults{
-		EnvVars: utils.NewEnvVars(),
+		EnvVars: utils.NewMap[string, string](),
 		User:    currentUser.Username,
 	}
 
-	return New(&logger, defaults, nil, false, cgroups.NewNoopManager()), currentUser
+	return New(&logger, defaults, nil, false), currentUser
 }
 
 func writeSourceFile(t *testing.T, dir string, name string, data []byte) string {
@@ -51,7 +50,7 @@ func callCompose(t *testing.T, api *API, req ComposeRequest) *httptest.ResponseR
 	body, err := json.Marshal(req)
 	require.NoError(t, err)
 
-	httpReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/files/compose", bytes.NewReader(body))
+	httpReq := httptest.NewRequest(http.MethodPost, "/files/compose", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -272,7 +271,7 @@ func TestCompose_RoundTripWithDownload(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, w.Result().StatusCode)
 
-	downloadReq := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/files?path="+url.QueryEscape(destPath), nil)
+	downloadReq := httptest.NewRequest(http.MethodGet, "/files?path="+url.QueryEscape(destPath), nil)
 	downloadW := httptest.NewRecorder()
 	api.GetFiles(downloadW, downloadReq, GetFilesParams{
 		Path:     &destPath,

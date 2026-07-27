@@ -1,8 +1,8 @@
 .DEFAULT_GOAL := help
 
-GO_IMAGE ?= golang:1.26.5-bookworm
+GO_IMAGE ?= golang:1.25.9-bookworm
 TARGET_ARCH ?= amd64
-BUILD_REVISION ?= 7c23f7b-execenv
+BUILD_REVISION ?= a3fb26e-execenv
 
 .PHONY: help build test test-race clean
 

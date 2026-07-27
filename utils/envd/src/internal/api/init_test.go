@@ -1,16 +1,10 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/e2b-dev/infra/packages/envd/internal/execcontext"
-	"github.com/e2b-dev/infra/packages/envd/internal/services/cgroups"
 	"github.com/e2b-dev/infra/packages/envd/internal/utils"
 	"github.com/e2b-dev/infra/packages/shared/pkg/keys"
+	utilsShared "github.com/e2b-dev/infra/packages/shared/pkg/utils"
 )
 
 func TestSimpleCases(t *testing.T) {
@@ -146,9 +140,9 @@ func (m *mockMMDSClient) GetAccessTokenHash(_ context.Context) (string, error) {
 func newTestAPI(accessToken *SecureToken, mmdsClient MMDSClient) *API {
 	logger := zerolog.Nop()
 	defaults := &execcontext.Defaults{
-		EnvVars: utils.NewEnvVars(),
+		EnvVars: utils.NewMap[string, string](),
 	}
-	api := New(&logger, defaults, nil, false, cgroups.NewNoopManager())
+	api := New(&logger, defaults, nil, false)
 	if accessToken != nil {
 		api.accessToken.TakeFrom(accessToken)
 	}
@@ -346,7 +340,7 @@ func TestCheckMMDSHash(t *testing.T) {
 
 func TestSetData(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
+	ctx := context.Background()
 	logger := zerolog.Nop()
 
 	t.Run("access token updates", func(t *testing.T) {
@@ -356,36 +350,99 @@ func TestSetData(t *testing.T) {
 			name           string
 			existingToken  *SecureToken
 			requestToken   *SecureToken
+			mmdsHash       string
+			mmdsErr        error
+			wantErr        error
 			wantFinalToken *SecureToken
 		}{
 			{
 				name:           "first-time setup: sets initial token",
 				existingToken:  nil,
 				requestToken:   secureTokenPtr("initial-token"),
+				mmdsHash:       "",
+				mmdsErr:        assert.AnError,
+				wantErr:        nil,
 				wantFinalToken: secureTokenPtr("initial-token"),
 			},
 			{
 				name:           "first-time setup: nil request token leaves token unset",
 				existingToken:  nil,
 				requestToken:   nil,
+				mmdsHash:       "",
+				mmdsErr:        assert.AnError,
+				wantErr:        nil,
 				wantFinalToken: nil,
 			},
 			{
 				name:           "re-init with same token: token unchanged",
 				existingToken:  secureTokenPtr("same-token"),
 				requestToken:   secureTokenPtr("same-token"),
+				mmdsHash:       "",
+				mmdsErr:        assert.AnError,
+				wantErr:        nil,
 				wantFinalToken: secureTokenPtr("same-token"),
 			},
 			{
-				name:           "updates token when request has new token",
+				name:           "resume with MMDS: updates token when hash matches",
 				existingToken:  secureTokenPtr("old-token"),
 				requestToken:   secureTokenPtr("new-token"),
+				mmdsHash:       keys.HashAccessToken("new-token"),
+				mmdsErr:        nil,
+				wantErr:        nil,
 				wantFinalToken: secureTokenPtr("new-token"),
 			},
 			{
-				name:           "clears token when request is nil and existing token is set",
+				name:           "resume with MMDS: fails when hash doesn't match",
+				existingToken:  secureTokenPtr("old-token"),
+				requestToken:   secureTokenPtr("new-token"),
+				mmdsHash:       keys.HashAccessToken("different-token"),
+				mmdsErr:        nil,
+				wantErr:        ErrAccessTokenMismatch,
+				wantFinalToken: secureTokenPtr("old-token"),
+			},
+			{
+				name:           "fails when existing token and request token mismatch without MMDS",
+				existingToken:  secureTokenPtr("existing-token"),
+				requestToken:   secureTokenPtr("wrong-token"),
+				mmdsHash:       "",
+				mmdsErr:        assert.AnError,
+				wantErr:        ErrAccessTokenMismatch,
+				wantFinalToken: secureTokenPtr("existing-token"),
+			},
+			{
+				name:           "conflict when existing token but nil request token",
 				existingToken:  secureTokenPtr("existing-token"),
 				requestToken:   nil,
+				mmdsHash:       "",
+				mmdsErr:        assert.AnError,
+				wantErr:        ErrAccessTokenResetNotAuthorized,
+				wantFinalToken: secureTokenPtr("existing-token"),
+			},
+			{
+				name:           "conflict when existing token but nil request with MMDS present",
+				existingToken:  secureTokenPtr("existing-token"),
+				requestToken:   nil,
+				mmdsHash:       keys.HashAccessToken("some-token"),
+				mmdsErr:        nil,
+				wantErr:        ErrAccessTokenResetNotAuthorized,
+				wantFinalToken: secureTokenPtr("existing-token"),
+			},
+			{
+				name:           "conflict when MMDS returns empty hash and request is nil (prevents unauthorized reset)",
+				existingToken:  secureTokenPtr("existing-token"),
+				requestToken:   nil,
+				mmdsHash:       "",
+				mmdsErr:        nil,
+				wantErr:        ErrAccessTokenResetNotAuthorized,
+				wantFinalToken: secureTokenPtr("existing-token"),
+			},
+			{
+				name:           "resets token when MMDS returns hash of empty string and request is nil (explicit reset)",
+				existingToken:  secureTokenPtr("existing-token"),
+				requestToken:   nil,
+				mmdsHash:       keys.HashAccessToken(""),
+				mmdsErr:        nil,
+				wantErr:        nil,
 				wantFinalToken: nil,
 			},
 		}
@@ -393,7 +450,7 @@ func TestSetData(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
-				mmdsClient := &mockMMDSClient{}
+				mmdsClient := &mockMMDSClient{hash: tt.mmdsHash, err: tt.mmdsErr}
 				api := newTestAPI(tt.existingToken, mmdsClient)
 
 				data := PostInitJSONBody{
@@ -401,7 +458,12 @@ func TestSetData(t *testing.T) {
 				}
 
 				err := api.SetData(ctx, logger, data)
-				require.NoError(t, err)
+
+				if tt.wantErr != nil {
+					require.ErrorIs(t, err, tt.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
 
 				if tt.wantFinalToken == nil {
 					assert.False(t, api.accessToken.IsSet(), "expected token to not be set")
@@ -440,7 +502,7 @@ func TestSetData(t *testing.T) {
 		api := newTestAPI(nil, mmdsClient)
 
 		data := PostInitJSONBody{
-			DefaultUser: new("testuser"),
+			DefaultUser: utilsShared.ToPtr("testuser"),
 		}
 
 		err := api.SetData(ctx, logger, data)
@@ -456,7 +518,7 @@ func TestSetData(t *testing.T) {
 		api.defaults.User = "original"
 
 		data := PostInitJSONBody{
-			DefaultUser: new(""),
+			DefaultUser: utilsShared.ToPtr(""),
 		}
 
 		err := api.SetData(ctx, logger, data)
@@ -471,7 +533,7 @@ func TestSetData(t *testing.T) {
 		api := newTestAPI(nil, mmdsClient)
 
 		data := PostInitJSONBody{
-			DefaultWorkdir: new("/home/user"),
+			DefaultWorkdir: utilsShared.ToPtr("/home/user"),
 		}
 
 		err := api.SetData(ctx, logger, data)
@@ -489,7 +551,7 @@ func TestSetData(t *testing.T) {
 		api.defaults.Workdir = &originalWorkdir
 
 		data := PostInitJSONBody{
-			DefaultWorkdir: new(""),
+			DefaultWorkdir: utilsShared.ToPtr(""),
 		}
 
 		err := api.SetData(ctx, logger, data)
@@ -507,8 +569,8 @@ func TestSetData(t *testing.T) {
 		envVars := EnvVars{"KEY": "value"}
 		data := PostInitJSONBody{
 			AccessToken:    secureTokenPtr("token"),
-			DefaultUser:    new("user"),
-			DefaultWorkdir: new("/workdir"),
+			DefaultUser:    utilsShared.ToPtr("user"),
+			DefaultWorkdir: utilsShared.ToPtr("/workdir"),
 			EnvVars:        &envVars,
 		}
 
@@ -594,163 +656,4 @@ func TestShouldRemountNFS(t *testing.T) {
 			assert.Equal(t, tt.wantRemount, got)
 		})
 	}
-}
-
-type fakeCgroupManager struct {
-	mu               sync.Mutex
-	frozen           []cgroups.ProcessType
-	freezeErr        error
-	unfrozen         []cgroups.ProcessType
-	unfreezeAttempts []cgroups.ProcessType
-	unfreezeErr      error
-}
-
-func (f *fakeCgroupManager) GetFileDescriptor(cgroups.ProcessType) (int, bool) {
-	return 0, false
-}
-
-func (f *fakeCgroupManager) Freeze(pt cgroups.ProcessType) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.freezeErr != nil {
-		return f.freezeErr
-	}
-	f.frozen = append(f.frozen, pt)
-
-	return nil
-}
-
-func (f *fakeCgroupManager) Unfreeze(pt cgroups.ProcessType) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.unfreezeAttempts = append(f.unfreezeAttempts, pt)
-	if f.unfreezeErr != nil {
-		return f.unfreezeErr
-	}
-	f.unfrozen = append(f.unfrozen, pt)
-
-	return nil
-}
-
-func (f *fakeCgroupManager) Close() error { return nil }
-
-func newAPIWithCgroupManager(mgr cgroups.Manager) *API {
-	logger := zerolog.Nop()
-
-	return New(&logger, &execcontext.Defaults{EnvVars: utils.NewEnvVars()}, nil, false, mgr)
-}
-
-func TestPostFreeze(t *testing.T) {
-	t.Parallel()
-
-	t.Run("freezes all user cgroups", func(t *testing.T) {
-		t.Parallel()
-		mgr := &fakeCgroupManager{}
-		api := newAPIWithCgroupManager(mgr)
-
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/freeze", http.NoBody)
-		require.NoError(t, err)
-		rec := httptest.NewRecorder()
-		api.PostFreeze(rec, req)
-
-		require.Equal(t, http.StatusNoContent, rec.Code)
-		assert.Equal(t, userCgroupsToFreeze, mgr.frozen)
-	})
-
-	t.Run("returns 500 on freeze error", func(t *testing.T) {
-		t.Parallel()
-		mgr := &fakeCgroupManager{freezeErr: errors.New("write cgroup.freeze: io error")}
-		api := newAPIWithCgroupManager(mgr)
-
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/freeze", http.NoBody)
-		require.NoError(t, err)
-		rec := httptest.NewRecorder()
-		api.PostFreeze(rec, req)
-
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-		assert.Empty(t, mgr.frozen)
-	})
-}
-
-func TestPostUnfreeze(t *testing.T) {
-	t.Parallel()
-
-	t.Run("unfreezes all user cgroups", func(t *testing.T) {
-		t.Parallel()
-		mgr := &fakeCgroupManager{}
-		api := newAPIWithCgroupManager(mgr)
-
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/unfreeze", http.NoBody)
-		require.NoError(t, err)
-		rec := httptest.NewRecorder()
-		api.PostUnfreeze(rec, req)
-
-		require.Equal(t, http.StatusNoContent, rec.Code)
-		assert.Equal(t, userCgroupsToFreeze, mgr.unfrozen)
-	})
-
-	t.Run("returns 500 but attempts every cgroup on unfreeze error", func(t *testing.T) {
-		t.Parallel()
-		mgr := &fakeCgroupManager{unfreezeErr: errors.New("write cgroup.freeze: io error")}
-		api := newAPIWithCgroupManager(mgr)
-
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/unfreeze", http.NoBody)
-		require.NoError(t, err)
-		rec := httptest.NewRecorder()
-		api.PostUnfreeze(rec, req)
-
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-		assert.Empty(t, mgr.unfrozen)
-		assert.Equal(t, userCgroupsToFreeze, mgr.unfreezeAttempts)
-	})
-}
-
-// Stale /init (Timestamp older than lastSetTime) must still thaw user cgroups
-// even though SetData is skipped.
-func TestPostInit_UnfreezeOnStaleTimestamp(t *testing.T) {
-	t.Parallel()
-
-	mgr := &fakeCgroupManager{}
-	api := newAPIWithCgroupManager(mgr)
-	api.isNotFC = true
-
-	now := time.Now()
-	require.True(t, api.lastSetTime.SetToGreater(now.UnixNano()))
-
-	stale := now.Add(-1 * time.Minute)
-	body, err := json.Marshal(PostInitJSONBody{
-		Timestamp: &stale,
-		EnvVars:   &EnvVars{"SHOULD_NOT_BE_SET": "x"},
-	})
-	require.NoError(t, err)
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/init", bytes.NewReader(body))
-	require.NoError(t, err)
-	rec := httptest.NewRecorder()
-	api.PostInit(rec, req)
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	_, ok := api.defaults.EnvVars.Load("SHOULD_NOT_BE_SET")
-	assert.False(t, ok, "stale /init should not apply EnvVars")
-	assert.Equal(t, userCgroupsToFreeze, mgr.unfrozen, "stale /init must still unfreeze")
-}
-
-// Unauthorized /init must NOT thaw cgroups.
-func TestPostInit_UnauthorizedDoesNotUnfreeze(t *testing.T) {
-	t.Parallel()
-
-	mgr := &fakeCgroupManager{}
-	api := newAPIWithCgroupManager(mgr)
-	api.isNotFC = true
-	api.accessToken.TakeFrom(secureTokenPtr("real-token"))
-
-	body := []byte(`{"accessToken":"wrong-token"}`)
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/init", bytes.NewReader(body))
-	require.NoError(t, err)
-	rec := httptest.NewRecorder()
-	api.PostInit(rec, req)
-
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	assert.Empty(t, mgr.unfreezeAttempts, "unauthorized /init must not attempt unfreeze")
 }

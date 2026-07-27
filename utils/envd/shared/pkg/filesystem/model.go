@@ -18,7 +18,6 @@ type EntryInfo struct {
 	CreatedTime   time.Time
 	ModifiedTime  time.Time
 	SymlinkTarget *string
-	Metadata      map[string]string
 }
 
 type FileType int32

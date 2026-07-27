@@ -32,7 +32,7 @@ envd 创建新进程时，会明确设置这个进程的环境变量列表。
 
 ## 我们修改了什么
 
-仓库中 `utils/envd/src` 下的源码增加了以下开关：
+仓库中 `utils/envd/src` 下的源码基于 envd `0.5.14`，并增加了以下开关：
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
@@ -64,18 +64,19 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 ```dockerfile
 ARG BASE_IMAGE=ubuntu:22.04
 
-FROM golang:1.26.5-bookworm AS envd-builder
+FROM golang:1.25.9-bookworm AS envd-builder
 WORKDIR /workspace
 COPY utils/envd/src ./src
 COPY utils/envd/shared ./shared
 WORKDIR /workspace/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -buildvcs=false -a -o /out/envd \
-    -ldflags "-X=main.commitSHA=7c23f7b-execenv -s -w -buildid=" .
+    -ldflags "-X=main.commitSHA=a3fb26e-execenv -s -w -buildid=" .
 
 FROM ${BASE_IMAGE}
 COPY --from=envd-builder /out/envd /usr/bin/envd
 RUN chmod 0755 /usr/bin/envd
+ENV EXEC_ENABLE_ALL_ENV=1
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
@@ -100,21 +101,14 @@ Makefile 已经使用仓库根目录作为构建上下文。
 
 ### 3. 开启完整环境继承
 
-在同一个 AGS 自定义 Tool 中设置：
+把开关写入镜像，确保 envd 启动时已经能读取它：
 
-```json
-{
-  "Command": ["/usr/bin/envd"],
-  "Env": [
-    {
-      "Name": "EXEC_ENABLE_ALL_ENV",
-      "Value": "1"
-    }
-  ]
-}
+```dockerfile
+ENV EXEC_ENABLE_ALL_ENV=1
 ```
 
-重建 Tool 并启动沙箱后，通过 envd 启动的命令就可以读取镜像 `ENV`。
+envd 会从自身的进程环境中读取该开关。添加配置后，重新构建并推送镜像，再重建
+Tool 并启动沙箱。通过 envd 启动的命令就可以读取镜像 `ENV`。
 
 例如：
 
@@ -134,9 +128,9 @@ agr instance exec <instance-id> --user root -- printenv MODEL_DIR
 
 | 来源 | 含义 | 作用范围 |
 |---|---|---|
-| envd 的进程环境 | OCI 镜像 `ENV` 和 AGS `CustomConfiguration.Env` | 所有后续命令 |
+| envd 的进程环境 | OCI 镜像 `ENV`，包括 `EXEC_ENABLE_ALL_ENV=1` | 所有后续命令 |
 | 基础身份变量 | envd 根据执行用户设置的 `PATH`、`HOME`、`USER`、`LOGNAME` | 所有后续命令 |
-| 沙箱初始化变量 | 平台可以在沙箱启动时调用 envd 的 `/init` 接口，设置公共默认值 | 初始化后的所有命令 |
+| 沙箱初始化变量 | AGS `CustomConfiguration.Env`，在沙箱启动时作为公共默认值传入 | 初始化后的所有命令 |
 | 当前命令的变量 | 例如 `agr instance exec --env KEY=VALUE` | 只影响当前命令，优先级最高 |
 
 本场景不需要客户手动调用 `/init`。如果当前命令需要临时覆盖镜像中的值，直接使用
@@ -148,13 +142,6 @@ agr instance exec <instance-id> \
   --env MODEL_DIR=/temporary-models \
   -- printenv MODEL_DIR
 ```
-
-## 安全提示
-
-该开关会把 envd 的所有环境变量传给新命令，其中可能包含密码、Token 或代理配置。
-
-只有确认 envd 环境中的变量都允许被沙箱命令读取时，才应开启该功能。如果只需传递
-少量变量，可以使用 `agr instance exec --env`，不必开启完整环境继承。
 
 ## 验证示例
 
@@ -204,4 +191,3 @@ All envd inheritance checks passed
   `ENVD_IMAGE_REGISTRY_TYPE` 与仓库类型一致。
 - **exec 返回 internal error**：将 `AGS_EXEC_USER` 设置为镜像中实际存在的用户。
 - **Tool 一直未就绪**：确认 envd 监听 `49983`，且镜像包含验证示例中列出的命令。
-- **发现不应暴露的敏感变量**：关闭开关，只向具体命令传递允许使用的变量。

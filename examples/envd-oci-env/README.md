@@ -36,7 +36,8 @@ received from the OCI runtime are therefore lost at this point.
 
 ## What we changed
 
-The source under `utils/envd/src` adds this switch:
+The source under `utils/envd/src` is based on envd `0.5.14` and adds this
+switch:
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
@@ -70,18 +71,19 @@ compiled result but not the Go toolchain:
 ```dockerfile
 ARG BASE_IMAGE=ubuntu:22.04
 
-FROM golang:1.26.5-bookworm AS envd-builder
+FROM golang:1.25.9-bookworm AS envd-builder
 WORKDIR /workspace
 COPY utils/envd/src ./src
 COPY utils/envd/shared ./shared
 WORKDIR /workspace/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -buildvcs=false -a -o /out/envd \
-    -ldflags "-X=main.commitSHA=7c23f7b-execenv -s -w -buildid=" .
+    -ldflags "-X=main.commitSHA=a3fb26e-execenv -s -w -buildid=" .
 
 FROM ${BASE_IMAGE}
 COPY --from=envd-builder /out/envd /usr/bin/envd
 RUN chmod 0755 /usr/bin/envd
+ENV EXEC_ENABLE_ALL_ENV=1
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
@@ -107,22 +109,15 @@ that script. Make sure the wrapper does not filter the image `ENV` values.
 
 ### 3. Enable complete environment inheritance
 
-Set the switch in the same AGS custom Tool:
+Set the switch in the image so it is already present when envd starts:
 
-```json
-{
-  "Command": ["/usr/bin/envd"],
-  "Env": [
-    {
-      "Name": "EXEC_ENABLE_ALL_ENV",
-      "Value": "1"
-    }
-  ]
-}
+```dockerfile
+ENV EXEC_ENABLE_ALL_ENV=1
 ```
 
-After rebuilding the Tool and starting a sandbox, commands started through
-envd can read the image `ENV`.
+envd reads this switch from its own process environment. Rebuild and push the
+image after adding it, then rebuild the Tool and start a sandbox. Commands
+started through envd can now read the image `ENV`.
 
 For example:
 
@@ -143,9 +138,9 @@ take precedence:
 
 | Source | Meaning | Scope |
 |---|---|---|
-| envd process environment | OCI image `ENV` and AGS `CustomConfiguration.Env` | All later commands |
+| envd process environment | OCI image `ENV`, including `EXEC_ENABLE_ALL_ENV=1` | All later commands |
 | Basic identity variables | `PATH`, `HOME`, `USER`, and `LOGNAME` selected by envd for the execution user | All later commands |
-| Sandbox initialization variables | Shared defaults the platform can set by calling envd's `/init` endpoint during sandbox startup | All commands after initialization |
+| Sandbox initialization variables | AGS `CustomConfiguration.Env`, provided as shared defaults during sandbox startup | All commands after initialization |
 | Current-command variables | For example, `agr instance exec --env KEY=VALUE` | Current command only; highest priority |
 
 Customers do not need to call `/init` for this use case. To temporarily
@@ -157,15 +152,6 @@ agr instance exec <instance-id> \
   --env MODEL_DIR=/temporary-models \
   -- printenv MODEL_DIR
 ```
-
-## Security
-
-The switch passes every envd environment variable to new commands. That
-environment may contain passwords, tokens, or proxy settings.
-
-Enable it only when every variable in envd's environment may be read by
-sandbox commands. If only a few variables are needed, pass them with
-`agr instance exec --env` instead.
 
 ## Validation example
 
@@ -219,5 +205,3 @@ All envd inheritance checks passed
   in the image.
 - **Tool never becomes ready**: confirm envd listens on port `49983` and that
   the image contains the commands listed under Validation example.
-- **Unexpected secret exposure**: disable the switch and pass only approved
-  values to the specific command.

@@ -1,4 +1,4 @@
-ARG GO_IMAGE=golang:1.26.5-bookworm
+ARG GO_IMAGE=golang:1.25.9-bookworm
 ARG BASE_IMAGE=ubuntu:22.04
 
 FROM ${GO_IMAGE} AS envd-builder
@@ -7,7 +7,7 @@ WORKDIR /workspace
 COPY utils/envd/src ./src
 COPY utils/envd/shared ./shared
 
-ARG ENVD_BUILD_REVISION=7c23f7b-execenv
+ARG ENVD_BUILD_REVISION=a3fb26e-execenv
 WORKDIR /workspace/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build \
@@ -25,6 +25,7 @@ RUN chmod 0755 /usr/bin/envd
 
 # These values are intentionally baked into the OCI image. The validation
 # proves whether envd passes them to commands started after the sandbox boots.
+ENV EXEC_ENABLE_ALL_ENV=1
 ENV ENVD_IMAGE_ONLY=from-oci-image
 ENV ENVD_OVERRIDE_ORDER=from-oci-image
 

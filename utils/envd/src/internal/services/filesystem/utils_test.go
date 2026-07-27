@@ -4,7 +4,6 @@ import (
 	"context"
 	"os/exec"
 	osuser "os/user"
-	"runtime"
 	"strconv"
 	"testing"
 
@@ -27,11 +26,6 @@ func TestIsPathOnNetworkMount(t *testing.T) {
 func TestIsPathOnNetworkMount_FuseMount(t *testing.T) {
 	t.Parallel()
 
-	// FUSE mounts via bindfs are exercised on Linux only.
-	if runtime.GOOS != "linux" {
-		t.Skip("FUSE bindfs mount test runs only on Linux")
-	}
-
 	// Require bindfs to be available
 	_, err := exec.LookPath("bindfs")
 	require.NoError(t, err, "bindfs must be installed for this test")
@@ -45,7 +39,7 @@ func TestIsPathOnNetworkMount_FuseMount(t *testing.T) {
 	mountDir := t.TempDir()
 
 	// Mount sourceDir onto mountDir using bindfs (FUSE)
-	ctx := t.Context()
+	ctx := context.Background()
 	cmd := exec.CommandContext(ctx, "bindfs", sourceDir, mountDir)
 	require.NoError(t, cmd.Run(), "failed to mount bindfs")
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,6 +35,12 @@ type MMDSOpts struct {
 	TemplateID           string `json:"envID"`
 	LogsCollectorAddress string `json:"address"`
 	AccessTokenHash      string `json:"accessTokenHash"`
+}
+
+func (opts *MMDSOpts) Update(sandboxID, templateID, collectorAddress string) {
+	opts.SandboxID = sandboxID
+	opts.TemplateID = templateID
+	opts.LogsCollectorAddress = collectorAddress
 }
 
 func (opts *MMDSOpts) AddOptsToJSON(jsonLogs []byte) ([]byte, error) {
@@ -76,7 +81,7 @@ func getMMDSToken(ctx context.Context, client *http.Client) (string, error) {
 	token := string(body)
 
 	if len(token) == 0 {
-		return "", errors.New("mmds token is an empty string")
+		return "", fmt.Errorf("mmds token is an empty string")
 	}
 
 	return token, nil
@@ -129,17 +134,9 @@ func GetAccessTokenHashFromMMDS(ctx context.Context) (string, error) {
 	return opts.AccessTokenHash, nil
 }
 
-func PollForMMDSOpts(ctx context.Context, mmdsChan chan<- *MMDSOpts, envVars *utils.EnvVars) {
-	// Match mmdsAccessTokenClient: bound any single tick (e.g. -j DROP on
-	// MMDS would otherwise hang on the TCP handshake) and avoid keepalive
-	// so a broken intermediate doesn't poison a kept-open connection.
-	httpClient := &http.Client{
-		Timeout:   mmdsAccessTokenRequestClientTimeout,
-		Transport: &http.Transport{DisableKeepAlives: true},
-	}
+func PollForMMDSOpts(ctx context.Context, mmdsChan chan<- *MMDSOpts, envVars *utils.Map[string, string]) {
+	httpClient := &http.Client{}
 	defer httpClient.CloseIdleConnections()
-
-	var lastErr error
 
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -147,24 +144,20 @@ func PollForMMDSOpts(ctx context.Context, mmdsChan chan<- *MMDSOpts, envVars *ut
 	for {
 		select {
 		case <-ctx.Done():
-			if lastErr != nil {
-				fmt.Fprintf(os.Stderr, "<4>gave up polling for mmds opts: %v (last error: %v)\n", ctx.Err(), lastErr)
-			} else {
-				fmt.Fprintf(os.Stderr, "<4>gave up polling for mmds opts: %v\n", ctx.Err())
-			}
+			fmt.Fprintf(os.Stderr, "context cancelled while waiting for mmds opts")
 
 			return
 		case <-ticker.C:
 			token, err := getMMDSToken(ctx, httpClient)
 			if err != nil {
-				lastErr = fmt.Errorf("get mmds token: %w", err)
+				fmt.Fprintf(os.Stderr, "error getting mmds token: %v\n", err)
 
 				continue
 			}
 
 			mmdsOpts, err := getMMDSOpts(ctx, httpClient, token)
 			if err != nil {
-				lastErr = fmt.Errorf("get mmds opts: %w", err)
+				fmt.Fprintf(os.Stderr, "error getting mmds opts: %v\n", err)
 
 				continue
 			}
@@ -180,13 +173,7 @@ func PollForMMDSOpts(ctx context.Context, mmdsChan chan<- *MMDSOpts, envVars *ut
 			}
 
 			if mmdsOpts.LogsCollectorAddress != "" {
-				select {
-				case mmdsChan <- mmdsOpts:
-				case <-ctx.Done():
-					fmt.Fprintf(os.Stderr, "context cancelled while sending mmds opts\n")
-
-					return
-				}
+				mmdsChan <- mmdsOpts
 			}
 
 			return

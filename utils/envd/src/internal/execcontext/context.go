@@ -7,7 +7,7 @@ import (
 )
 
 type Defaults struct {
-	EnvVars *utils.EnvVars
+	EnvVars *utils.Map[string, string]
 	User    string
 	Workdir *string
 }

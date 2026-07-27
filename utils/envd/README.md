@@ -3,7 +3,7 @@
 This directory contains buildable envd source code. It does not contain a
 prebuilt envd binary.
 
-The source is based on envd `0.6.11` at revision `7c23f7b`. This distribution
+The source is based on envd `0.5.14` at revision `a3fb26e`. This distribution
 adds opt-in inheritance of the environment received by envd.
 
 ## Layout
@@ -26,7 +26,7 @@ Docker is the only required build dependency:
 make build
 ```
 
-The build uses Go `1.26.5` and produces:
+The build uses Go `1.25.9` and produces:
 
 ```text
 bin/envd
@@ -75,12 +75,5 @@ Tests for disabled inheritance, enabled inheritance, and override order are in:
 ```text
 src/internal/services/process/handler/environment_test.go
 ```
-
-## Security
-
-This option passes the complete envd environment to child processes. Do not
-enable it if envd's environment contains credentials or other values that
-sandbox commands must not read. Use command-specific
-`agr instance exec --env` variables when only a small allowlist is needed.
 
 See `examples/envd-oci-env` for a multi-stage Docker build and AGS usage.

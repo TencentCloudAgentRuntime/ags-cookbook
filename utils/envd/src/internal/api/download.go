@@ -126,7 +126,7 @@ func (a *API) GetFiles(w http.ResponseWriter, r *http.Request, params GetFilesPa
 		r.Header.Get("If-Range") != ""
 	if hasRangeOrConditional {
 		if !isIdentityAcceptable(r) {
-			errMsg = errors.New("identity encoding not acceptable for Range or conditional request")
+			errMsg = fmt.Errorf("identity encoding not acceptable for Range or conditional request")
 			errorCode = http.StatusNotAcceptable
 			jsonError(w, errorCode, errMsg)
 

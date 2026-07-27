@@ -78,15 +78,8 @@ func (f *Forwarder) StartForwarding(ctx context.Context) {
 	}
 
 	for {
-		// Wait for the next scan result or context cancellation.
-		select {
-		case <-ctx.Done():
-			return
-		case procs, ok := <-f.scannerSubscriber.Messages:
-			if !ok {
-				return
-			}
-
+		// procs is an array of currently opened ports.
+		if procs, ok := <-f.scannerSubscriber.Messages; ok {
 			// Now we are going to refresh all ports that are being forwarded in the `ports` map. Maybe add new ones
 			// and maybe remove some.
 
@@ -151,9 +144,10 @@ func (f *Forwarder) startPortForwarding(ctx context.Context, p *PortToForward) {
 	cgroupFD, ok := f.cgroupManager.GetFileDescriptor(cgroups.ProcessTypeSocat)
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+		Setpgid:     true,
+		CgroupFD:    cgroupFD,
+		UseCgroupFD: ok,
 	}
-	applyCgroupFD(cmd.SysProcAttr, cgroupFD, ok)
 
 	f.logger.Debug().
 		Str("socatCmd", cmd.String()).

@@ -7,42 +7,15 @@ import (
 	"time"
 )
 
-// statTimes holds platform-independent file timestamps and ownership info
-// extracted from a *syscall.Stat_t.
-type statTimes struct {
-	atime time.Time
-	ctime time.Time
-	mtime time.Time
-	uid   uint32
-	gid   uint32
-}
-
-// GetEntryFromPath looks up the entry at path. When includeMetadata is true it
-// also reads the file's user-defined xattr metadata; callers that don't surface
-// metadata (e.g. the orchestrator volume service) pass false to skip the extra
-// path-based xattr syscalls. The metadata read resolves path in the caller's
-// mount namespace, so it's only correct when path is interpreted there.
-func GetEntryFromPath(path string, includeMetadata bool) (EntryInfo, error) {
+func GetEntryFromPath(path string) (EntryInfo, error) {
 	fileInfo, err := os.Lstat(path)
 	if err != nil {
 		return EntryInfo{}, err
 	}
 
-	entry := GetEntryInfo(path, fileInfo)
-	if includeMetadata {
-		// Metadata is best-effort: a read failure shouldn't fail the entry
-		// lookup (Size/Mode/times are still valid), and this helper has no
-		// logger to report it through. Callers that need the error (e.g. the
-		// upload handler) call ReadMetadata directly.
-		entry.Metadata, _ = ReadMetadata(path)
-	}
-
-	return entry, nil
+	return GetEntryInfo(path, fileInfo), nil
 }
 
-// GetEntryInfo builds an EntryInfo purely from fileInfo. It does not read xattr
-// metadata; callers that surface metadata use GetEntryFromPath with
-// includeMetadata set.
 func GetEntryInfo(path string, fileInfo os.FileInfo) EntryInfo {
 	fileMode := fileInfo.Mode()
 
@@ -82,12 +55,11 @@ func GetEntryInfo(path string, fileInfo os.FileInfo) EntryInfo {
 	}
 
 	if base := getBase(fileInfo.Sys()); base != nil {
-		times := extractStatTimes(base)
-		entry.AccessedTime = times.atime
-		entry.CreatedTime = times.ctime
-		entry.ModifiedTime = times.mtime
-		entry.UID = times.uid
-		entry.GID = times.gid
+		entry.AccessedTime = toTimestamp(base.Atim)
+		entry.CreatedTime = toTimestamp(base.Ctim)
+		entry.ModifiedTime = toTimestamp(base.Mtim)
+		entry.UID = base.Uid
+		entry.GID = base.Gid
 	} else if !fileInfo.ModTime().IsZero() {
 		entry.ModifiedTime = fileInfo.ModTime()
 	}

@@ -92,7 +92,7 @@ func TestInstallCACert_FirstTime(t *testing.T) {
 	bundlePath, extraPath := testPaths(t)
 	c := newTestInstaller(t)
 
-	c.install(t.Context(), certA, bundlePath, extraPath)
+	c.install(context.Background(), certA, bundlePath, extraPath)
 	waitForFile(t, extraPath)
 
 	bundle, err := os.ReadFile(bundlePath)
@@ -109,11 +109,11 @@ func TestInstallCACert_SameCert(t *testing.T) {
 	bundlePath, extraPath := testPaths(t)
 	c := newTestInstaller(t)
 
-	c.install(t.Context(), certA, bundlePath, extraPath)
+	c.install(context.Background(), certA, bundlePath, extraPath)
 	waitForFile(t, extraPath) // drain the background goroutine before the hot-path call
 
-	c.install(t.Context(), certA, bundlePath, extraPath) // resume — hot path hit
-	waitForFile(t, extraPath)                            // file already written by first goroutine; guards TempDir cleanup
+	c.install(context.Background(), certA, bundlePath, extraPath) // resume — hot path hit
+	waitForFile(t, extraPath)                                     // file already written by first goroutine; guards TempDir cleanup
 
 	bundle, err := os.ReadFile(bundlePath)
 	require.NoError(t, err)
@@ -127,9 +127,9 @@ func TestInstallCACert_DifferentCert(t *testing.T) {
 	bundlePath, extraPath := testPaths(t)
 	c := newTestInstaller(t)
 
-	c.install(t.Context(), certA, bundlePath, extraPath)
+	c.install(context.Background(), certA, bundlePath, extraPath)
 
-	c.install(t.Context(), certB, bundlePath, extraPath)
+	c.install(context.Background(), certB, bundlePath, extraPath)
 
 	normalizedA := strings.TrimRight(certA, "\n") + "\n"
 	normalizedB := strings.TrimRight(certB, "\n") + "\n"
@@ -147,7 +147,7 @@ func TestInstallCACert_EmptyCert(t *testing.T) {
 	bundlePath, extraPath := testPaths(t)
 	c := newTestInstaller(t)
 
-	c.install(t.Context(), "", bundlePath, extraPath)
+	c.install(context.Background(), "", bundlePath, extraPath)
 
 	bundle, err := os.ReadFile(bundlePath)
 	require.NoError(t, err)
@@ -170,7 +170,7 @@ func TestInstallCACert_RestartSameCert(t *testing.T) {
 	// State of the VM after a previous envd run.
 	require.NoError(t, os.WriteFile(bundlePath, []byte(baseBundle+normalizedA), 0o644))
 
-	c.install(t.Context(), certA, bundlePath, extraPath)
+	c.install(context.Background(), certA, bundlePath, extraPath)
 	waitForFile(t, extraPath)
 
 	bundle, err := os.ReadFile(bundlePath)
@@ -194,7 +194,7 @@ func TestInstallCACert_RestartDifferentCert(t *testing.T) {
 	// State of the VM after a previous envd run that installed certA.
 	require.NoError(t, os.WriteFile(bundlePath, []byte(baseBundle+normalizedA), 0o644))
 
-	c.install(t.Context(), certB, bundlePath, extraPath)
+	c.install(context.Background(), certB, bundlePath, extraPath)
 	waitForFile(t, extraPath)
 
 	bundle, err := os.ReadFile(bundlePath)
@@ -211,13 +211,13 @@ func TestInstallCACert_ConcurrentResume(t *testing.T) {
 	bundlePath, extraPath := testPaths(t)
 	c := newTestInstaller(t)
 
-	c.install(t.Context(), certA, bundlePath, extraPath)
+	c.install(context.Background(), certA, bundlePath, extraPath)
 
 	var wg sync.WaitGroup
 
 	for range 10 {
 		wg.Go(func() {
-			c.install(t.Context(), certA, bundlePath, extraPath)
+			c.install(context.Background(), certA, bundlePath, extraPath)
 		})
 	}
 
@@ -234,25 +234,6 @@ func TestInstallCACert_ConcurrentResume(t *testing.T) {
 
 	normalized := strings.TrimRight(certA, "\n") + "\n"
 	assert.Equal(t, 1, strings.Count(string(bundle), normalized), "cert should appear exactly once")
-}
-
-// A canceled acquire while a previous install's cleanup still holds mu must
-// return ErrCAInstallInProgress, not a raw context error.
-func TestInstallCACert_CanceledCtxUnderContention(t *testing.T) {
-	t.Parallel()
-	bundlePath, extraPath := testPaths(t)
-	c := newTestInstaller(t)
-
-	// Simulate the background cleanup goroutine still holding mu.
-	require.NoError(t, c.mu.Acquire(t.Context(), 1))
-	defer c.mu.Release(1)
-
-	canceledCtx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	err := c.install(canceledCtx, certA, bundlePath, extraPath)
-	require.ErrorIs(t, err, ErrCAInstallInProgress)
-	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestRemoveCertFromBundle(t *testing.T) {

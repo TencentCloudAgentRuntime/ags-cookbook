@@ -108,12 +108,12 @@ if [[ "${1:-}" == "--pre-cache-only" ]]; then
 fi
 
 common_custom_config="$(
-  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/usr/bin/envd"],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
+  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/bin/sh"],"Args":["-c","EXEC_ENABLE_ALL_ENV=0 exec /usr/bin/envd"],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
     "$ENVD_DEMO_IMAGE" "$ENVD_IMAGE_REGISTRY_TYPE"
 )"
 
 enabled_custom_config="$(
-  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/usr/bin/envd"],"Env":[{"Name":"EXEC_ENABLE_ALL_ENV","Value":"1"},{"Name":"ENVD_RUNTIME_ONLY","Value":"from-runtime-config"}],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
+  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/usr/bin/envd"],"Env":[{"Name":"ENVD_RUNTIME_ONLY","Value":"from-runtime-config"}],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
     "$ENVD_DEMO_IMAGE" "$ENVD_IMAGE_REGISTRY_TYPE"
 )"
 
@@ -173,10 +173,23 @@ agr instance exec "$on_instance_id" \
   --user "$AGS_EXEC_USER" \
   "${agr_args[@]}" \
   -- /bin/sh -c \
-  'test "$(readlink /proc/1/exe)" = /usr/bin/envd &&
-   test "$ENVD_IMAGE_ONLY" = from-oci-image &&
-   test "$ENVD_RUNTIME_ONLY" = from-runtime-config &&
-   test "$EXEC_ENABLE_ALL_ENV" = 1 &&
+  'pid1_exe="$(readlink /proc/1/exe)"
+   test "$pid1_exe" = /usr/bin/envd || {
+     printf "FAIL: PID 1 executable is %s, expected /usr/bin/envd\n" "$pid1_exe" >&2
+     exit 1
+   }
+   test "${ENVD_IMAGE_ONLY-}" = from-oci-image || {
+     printf "FAIL: OCI image environment was not inherited\n" >&2
+     exit 1
+   }
+   test "${ENVD_RUNTIME_ONLY-}" = from-runtime-config || {
+     printf "FAIL: AGS runtime environment is unavailable\n" >&2
+     exit 1
+   }
+   test "${EXEC_ENABLE_ALL_ENV-}" = 1 || {
+     printf "FAIL: EXEC_ENABLE_ALL_ENV is unavailable\n" >&2
+     exit 1
+   }
    printf "PASS: PID 1, image env, and runtime env verified\n"'
 
 echo "Validating per-request override precedence"
@@ -185,7 +198,10 @@ agr instance exec "$on_instance_id" \
   --env ENVD_OVERRIDE_ORDER=from-request \
   "${agr_args[@]}" \
   -- /bin/sh -c \
-  'test "$ENVD_OVERRIDE_ORDER" = from-request &&
+  'test "${ENVD_OVERRIDE_ORDER-}" = from-request || {
+     printf "FAIL: command-specific environment did not override the inherited value\n" >&2
+     exit 1
+   }
    printf "PASS: command-specific env overrides inherited image env\n"'
 
 echo "All envd inheritance checks passed"

@@ -3,7 +3,6 @@ package keys
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -99,13 +98,13 @@ func MaskToken(prefix, token string) string {
 
 func VerifyKey(prefix string, key string) (string, error) {
 	if !strings.HasPrefix(key, prefix) {
-		return "", errors.New("invalid key prefix")
+		return "", fmt.Errorf("invalid key prefix")
 	}
 
 	keyValue := key[len(prefix):]
 	keyBytes, err := hex.DecodeString(keyValue)
 	if err != nil {
-		return "", errors.New("invalid key")
+		return "", fmt.Errorf("invalid key")
 	}
 
 	return hasher.Hash(keyBytes), nil

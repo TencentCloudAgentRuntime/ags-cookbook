@@ -2,29 +2,22 @@ package host
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
-	"golang.org/x/sync/semaphore"
 )
-
-// ErrCAInstallInProgress means the lock is held by a prior install's cleanup.
-var ErrCAInstallInProgress = errors.New("CA install already in progress")
 
 const (
 	CaBundlePath = "/etc/ssl/certs/ca-certificates.crt"
 
 	// caExtraPath is where the injected cert is persisted on the NBD-backed
 	// filesystem so that running update-ca-certificates later re-includes it
-	// when rebuilding the bundle. Note: a fast cold boot (filesystem-only
-	// reboot) seeds the tmpfs bundle from a build-time tar and skips
-	// update-ca-certificates, so this persisted cert is NOT auto-merged at boot;
-	// /init re-installs the current proxy CA before the sandbox is routable.
+	// when rebuilding the bundle.
 	caExtraPath = "/usr/local/share/ca-certificates/e2b-ca.crt"
 )
 
@@ -35,7 +28,7 @@ const (
 // ExecStartPre), so all reads and writes bypass the NBD-backed filesystem and
 // atomic cert rotation via os.Rename works within the same device.
 type CACertInstaller struct {
-	mu     *semaphore.Weighted
+	mu     sync.Mutex
 	logger *zerolog.Logger
 
 	// lastCACert caches the most recently installed PEM so that resume (same
@@ -47,10 +40,7 @@ type CACertInstaller struct {
 }
 
 func NewCACertInstaller(logger *zerolog.Logger) *CACertInstaller {
-	return &CACertInstaller{
-		logger: logger,
-		mu:     semaphore.NewWeighted(1),
-	}
+	return &CACertInstaller{logger: logger}
 }
 
 // Install injects certPEM into the system CA bundle. Returns an error if the
@@ -74,7 +64,7 @@ func (c *CACertInstaller) Install(ctx context.Context, certPEM string) error {
 //
 // All goroutine work runs under mu to keep the bundle and extra-certs file
 // consistent with concurrent foreground appends.
-func (c *CACertInstaller) install(ctx context.Context, certPEM, bundlePath, extraPath string) error {
+func (c *CACertInstaller) install(_ context.Context, certPEM, bundlePath, extraPath string) error {
 	if certPEM == "" {
 		return nil
 	}
@@ -85,11 +75,8 @@ func (c *CACertInstaller) install(ctx context.Context, certPEM, bundlePath, extr
 	// consistent regardless of how the caller formatted the PEM.
 	normalized := strings.TrimRight(certPEM, "\n") + "\n"
 
-	// Cancellation here means a prior install's cleanup still holds mu (83ee89f9b).
-	if err := c.mu.Acquire(ctx, 1); err != nil {
-		return fmt.Errorf("%w: %w", ErrCAInstallInProgress, err)
-	}
-	defer c.mu.Release(1)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if c.lastCACert == normalized {
 		c.logger.Debug().
@@ -123,8 +110,8 @@ func (c *CACertInstaller) install(ctx context.Context, certPEM, bundlePath, extr
 	go func() {
 		cleanStart := time.Now()
 
-		_ = c.mu.Acquire(context.WithoutCancel(ctx), 1)
-		defer c.mu.Release(1)
+		c.mu.Lock()
+		defer c.mu.Unlock()
 
 		// A newer install has taken over; let that goroutine handle cleanup.
 		if c.lastCACert != normalized {
