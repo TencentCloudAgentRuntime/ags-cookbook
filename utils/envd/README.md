@@ -1,48 +1,86 @@
-# envd with OCI environment inheritance
+# envd source with OCI environment inheritance
 
-This directory contains a Linux/amd64, statically linked `envd` binary with
-opt-in parent-environment inheritance for processes started through envd.
+This directory contains buildable envd source code. It does not contain a
+prebuilt envd binary.
 
-## Artifact
+The source is based on envd `0.6.11` at revision `7c23f7b`. This distribution
+adds opt-in inheritance of the environment received by envd.
 
-| Field | Value |
+## Layout
+
+| Path | Contents |
 |---|---|
-| File | `envd` |
-| envd version | `0.6.11` |
-| Platform | Linux/amd64 |
-| Linkage | Static |
-| Go toolchain | `1.26.5` |
-| Embedded build revision | `7c23f7b-execenv` |
-| Build date | 2026-07-27 |
-| SHA-256 | `6e48a7fa21384be23577f881ec8eaabc7610f15da62a02368e124144faa7f1ed` |
+| `src/` | envd source code and tests |
+| `shared/` | Only the shared source packages imported by envd |
+| `Makefile` | Containerized build and test commands |
+| `LICENSE` | Source license |
 
-Verify the artifact before use:
+The envd module keeps its original module path. Its `go.mod` uses the local
+`shared/` module, so the build does not require another source checkout.
+
+## Build
+
+Docker is the only required build dependency:
 
 ```bash
-./verify.sh
+make build
+```
+
+The build uses Go `1.26.5` and produces:
+
+```text
+bin/envd
+```
+
+The default target is Linux/amd64. To build Linux/arm64:
+
+```bash
+make build TARGET_ARCH=arm64
+```
+
+No file under `bin/` is committed.
+
+## Test
+
+Run the environment inheritance and process regression tests:
+
+```bash
+make test
+```
+
+Run the same tests with the Go race detector:
+
+```bash
+make test-race
 ```
 
 ## Added behavior
 
-The default remains unchanged. When envd starts without
-`EXEC_ENABLE_ALL_ENV=1`, child processes receive only envd's normal explicit
-environment.
+The modification is in:
 
-When envd itself has `EXEC_ENABLE_ALL_ENV=1`, every process started through
-envd first inherits envd's complete process environment. Variables configured
-when the sandbox starts, and variables passed to a specific command with
-`agr instance exec --env`, are applied afterward. These explicit values
-override inherited values with the same name.
+```text
+src/internal/services/process/handler/handler.go
+```
 
-The exact production source change is included as a zero-context patch in
-`enable-all-env.patch`. Apply it with `git apply --unidiff-zero`.
+The default behavior is unchanged. When envd starts with
+`EXEC_ENABLE_ALL_ENV=1`, a command started through envd first inherits envd's
+complete process environment.
 
-## Security note
+Variables configured when the sandbox starts, and variables passed to a
+specific command with `agr instance exec --env`, are applied afterward. These
+explicit values override inherited values with the same name.
 
-This option deliberately passes the complete envd environment to child
-processes. Do not enable it if envd's environment contains control-plane
-credentials or other values that sandbox commands must not read. Use
-command-specific `agr instance exec --env` variables when only a small
-allowlist should be propagated.
+Tests for disabled inheritance, enabled inheritance, and override order are in:
 
-See `examples/envd-oci-env` for a complete AGS validation workflow.
+```text
+src/internal/services/process/handler/environment_test.go
+```
+
+## Security
+
+This option passes the complete envd environment to child processes. Do not
+enable it if envd's environment contains credentials or other values that
+sandbox commands must not read. Use command-specific
+`agr instance exec --env` variables when only a small allowlist is needed.
+
+See `examples/envd-oci-env` for a multi-stage Docker build and AGS usage.

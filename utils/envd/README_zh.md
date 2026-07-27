@@ -1,44 +1,81 @@
-# 支持 OCI 环境变量继承的 envd
+# 支持 OCI 环境变量继承的 envd 源码
 
-本目录提供一个 Linux/amd64 静态链接的 `envd` 二进制。它支持让 envd
-启动的子进程按需继承 envd 自身的完整环境变量。
+本目录提供可以直接构建的 envd 源代码，不包含预编译的 envd 二进制。
 
-## 产物信息
+源码基于 envd `0.6.11`、版本 `7c23f7b`，并增加了按需继承 envd 进程环境的能力。
 
-| 字段 | 值 |
+## 目录结构
+
+| 路径 | 内容 |
 |---|---|
-| 文件 | `envd` |
-| envd 版本 | `0.6.11` |
-| 平台 | Linux/amd64 |
-| 链接方式 | 静态链接 |
-| Go 工具链 | `1.26.5` |
-| 内嵌构建版本 | `7c23f7b-execenv` |
-| 构建日期 | 2026-07-27 |
-| SHA-256 | `6e48a7fa21384be23577f881ec8eaabc7610f15da62a02368e124144faa7f1ed` |
+| `src/` | envd 源代码和测试 |
+| `shared/` | envd 实际引用的公共源码包 |
+| `Makefile` | 使用容器完成构建和测试 |
+| `LICENSE` | 源码许可证 |
 
-使用前请校验：
+envd 模块保留原有的 Go module path。`go.mod` 使用本目录下的 `shared/` 模块，因此
+客户不需要再拉取其他源码仓库。
+
+## 编译
+
+编译只依赖 Docker：
 
 ```bash
-./verify.sh
+make build
 ```
 
-## 新增行为
+构建使用 Go `1.26.5`，产物位于：
 
-默认行为保持不变。envd 启动时未设置 `EXEC_ENABLE_ALL_ENV=1`，子进程仍只会
-获得 envd 显式组装的环境变量。
+```text
+bin/envd
+```
 
-envd 自身设置 `EXEC_ENABLE_ALL_ENV=1` 后，通过 envd 启动的每个子进程会先继承
-envd 的完整进程环境。沙箱启动时明确配置的变量，以及通过
-`agr instance exec --env` 为某条命令设置的变量，会在继承后应用。同名时，这些
-明确设置的值优先。
+默认生成 Linux/amd64 版本。生成 Linux/arm64 版本：
 
-`enable-all-env.patch` 以零上下文补丁形式包含该二进制对应的生产代码修改，可通过
-`git apply --unidiff-zero` 应用。
+```bash
+make build TARGET_ARCH=arm64
+```
+
+`bin/` 下的文件不会提交到仓库。
+
+## 测试
+
+执行环境继承和进程相关的回归测试：
+
+```bash
+make test
+```
+
+使用 Go race detector 再执行一次：
+
+```bash
+make test-race
+```
+
+## 新增能力
+
+修改代码位于：
+
+```text
+src/internal/services/process/handler/handler.go
+```
+
+默认行为保持不变。envd 启动时设置 `EXEC_ENABLE_ALL_ENV=1` 后，通过 envd 启动的
+命令会先继承 envd 的完整进程环境。
+
+沙箱启动时明确配置的变量，以及通过 `agr instance exec --env` 为某条命令设置的
+变量，会在继承后应用。同名时，这些明确设置的值优先。
+
+开关关闭、开关开启和同名变量覆盖的测试位于：
+
+```text
+src/internal/services/process/handler/environment_test.go
+```
 
 ## 安全提示
 
 该开关会把 envd 的完整环境传给子进程。如果 envd 环境中包含不应由沙箱命令读取
-的控制面凭据或其他敏感值，请不要启用。只需传递少量白名单变量时，应通过
+的凭据或其他敏感值，请不要启用。只需传递少量白名单变量时，应通过
 `agr instance exec --env` 只向具体命令传递。
 
-完整的 AGS 操作和验证流程见 `examples/envd-oci-env`。
+多阶段 Docker 构建和 AGS 使用方法见 `examples/envd-oci-env`。

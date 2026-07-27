@@ -18,8 +18,8 @@ export BASE_IMAGE
 help:
 	@echo "Available targets:"
 	@echo "  make setup      # Create .env from .env.example"
-	@echo "  make verify     # Verify the bundled envd checksum"
-	@echo "  make build      # Build the demo image"
+	@echo "  make verify     # Test the bundled envd source"
+	@echo "  make build      # Compile envd and build the demo image"
 	@echo "  make push       # Push the demo image"
 	@echo "  make pre-cache  # Pre-cache the image in AGS"
 	@echo "  make run        # Reproduce the problem and validate the solution"
@@ -30,7 +30,7 @@ setup:
 	@echo "Edit examples/envd-oci-env/.env before continuing."
 
 verify:
-	@"$(ROOT_DIR)/utils/envd/verify.sh"
+	@$(MAKE) -C "$(ROOT_DIR)/utils/envd" test
 
 build: verify
 	@test -n "$(ENVD_DEMO_IMAGE)" || { echo "ENVD_DEMO_IMAGE is required"; exit 1; }

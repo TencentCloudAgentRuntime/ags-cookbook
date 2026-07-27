@@ -8,7 +8,7 @@ Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox /
 - **Tutorials**: SDK and notebook-based onboarding
 - **Examples**: runnable browser, code, mobile, Go, and OSWorld demos
 - **Benchmarks**: k6 stress scripts
-- **Utils**: debugging helpers and validated runtime components such as envd
+- **Utils**: debugging helpers and validated runtime source components such as envd
 
 ## Repository requirements
 

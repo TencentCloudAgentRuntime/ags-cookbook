@@ -8,7 +8,7 @@
 - **tutorials/**：SDK / Notebook 教程
 - **examples/**：可运行的浏览器、代码、移动端、Go、OSWorld 示例
 - **benchmarks/**：k6 压测脚本
-- **utils/**：调试辅助工具及经过验证的 envd 等运行时组件
+- **utils/**：调试辅助工具及经过验证的 envd 等运行时源码组件
 
 ## 环境要求
 

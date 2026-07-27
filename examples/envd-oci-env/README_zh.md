@@ -5,7 +5,7 @@
 envd 作为容器的 1 号进程时，可以读取这些变量。但是，原版 envd 启动新命令时，
 不会自动把这些变量传下去。新命令因此可能读不到镜像中的 `ENV`。
 
-本 cookbook 提供一个修改后的 envd，并说明如何把它加入客户镜像。
+本 cookbook 提供修改后的 envd 源码，并说明如何自行编译和加入客户镜像。
 
 ## 问题现象
 
@@ -32,7 +32,7 @@ envd 创建新进程时，会明确设置这个进程的环境变量列表。
 
 ## 我们修改了什么
 
-仓库中的 `utils/envd/envd` 增加了以下开关：
+仓库中 `utils/envd/src` 下的源码增加了以下开关：
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
@@ -57,18 +57,33 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 
 ## 如何使用
 
-### 1. 把 envd 加入镜像
+### 1. 从源码编译并加入镜像
 
-仓库中的二进制适用于 Linux/amd64。
+使用多阶段 Dockerfile 编译 envd。最终镜像只包含编译结果，不包含 Go 工具链：
 
 ```dockerfile
-COPY utils/envd/envd /usr/bin/envd
+ARG BASE_IMAGE=ubuntu:22.04
+
+FROM golang:1.26.5-bookworm AS envd-builder
+WORKDIR /workspace
+COPY utils/envd/src ./src
+COPY utils/envd/shared ./shared
+WORKDIR /workspace/src
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -buildvcs=false -a -o /out/envd \
+    -ldflags "-X=main.commitSHA=7c23f7b-execenv -s -w -buildid=" .
+
+FROM ${BASE_IMAGE}
+COPY --from=envd-builder /out/envd /usr/bin/envd
 RUN chmod 0755 /usr/bin/envd
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-Docker 构建上下文需要包含 `utils/envd/envd`。本示例的 Makefile 已经使用仓库根
-目录作为构建上下文。
+`utils/envd/shared` 只包含 envd 编译时实际依赖的公共源码包。客户不需要另外拉取
+源码仓库。
+
+Docker 构建上下文需要包含 `utils/envd/src` 和 `utils/envd/shared`。本示例的
+Makefile 已经使用仓库根目录作为构建上下文。
 
 ### 2. 让 envd 作为 1 号进程
 

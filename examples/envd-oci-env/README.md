@@ -6,8 +6,8 @@ When envd is the container's PID 1, envd can read those variables. However,
 the original envd does not automatically pass them to new commands. A command
 started through envd may therefore be unable to read the image's `ENV` values.
 
-This cookbook provides a modified envd binary and explains how to add it to a
-customer image.
+This cookbook provides modified envd source code. It explains how customers
+can compile it and add it to their images.
 
 ## The symptom
 
@@ -36,7 +36,7 @@ received from the OCI runtime are therefore lost at this point.
 
 ## What we changed
 
-The binary in `utils/envd/envd` adds this switch:
+The source under `utils/envd/src` adds this switch:
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
@@ -62,18 +62,35 @@ has another value, envd keeps its original behavior.
 
 ## How to use it
 
-### 1. Add envd to the image
+### 1. Build envd from source and add it to the image
 
-The bundled binary targets Linux/amd64.
+Use a multi-stage Dockerfile to compile envd. The final image contains the
+compiled result but not the Go toolchain:
 
 ```dockerfile
-COPY utils/envd/envd /usr/bin/envd
+ARG BASE_IMAGE=ubuntu:22.04
+
+FROM golang:1.26.5-bookworm AS envd-builder
+WORKDIR /workspace
+COPY utils/envd/src ./src
+COPY utils/envd/shared ./shared
+WORKDIR /workspace/src
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -buildvcs=false -a -o /out/envd \
+    -ldflags "-X=main.commitSHA=7c23f7b-execenv -s -w -buildid=" .
+
+FROM ${BASE_IMAGE}
+COPY --from=envd-builder /out/envd /usr/bin/envd
 RUN chmod 0755 /usr/bin/envd
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-The Docker build context must contain `utils/envd/envd`. This example's
-Makefile uses the repository root as the build context.
+`utils/envd/shared` contains only the shared source packages required to build
+envd. Customers do not need another source checkout.
+
+The Docker build context must contain `utils/envd/src` and
+`utils/envd/shared`. This example's Makefile uses the repository root as the
+build context.
 
 ### 2. Make envd PID 1
 
