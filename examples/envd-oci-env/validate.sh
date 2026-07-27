@@ -18,12 +18,12 @@ fi
 
 TENCENTCLOUD_REGION="${TENCENTCLOUD_REGION:-ap-guangzhou}"
 AGS_EXEC_USER="${AGS_EXEC_USER:-root}"
-ENVD_VERSION="${ENVD_VERSION:-0.5.4}"
+ENVD_VERSION="${ENVD_VERSION:-0.5.14}"
 
 case "$ENVD_VERSION" in
-  0.5.4 | 0.2.11) ;;
+  0.5.14 | 0.2.11) ;;
   *)
-    echo "ENVD_VERSION must be 0.5.4 or 0.2.11" >&2
+    echo "ENVD_VERSION must be 0.5.14 or 0.2.11" >&2
     exit 1
     ;;
 esac

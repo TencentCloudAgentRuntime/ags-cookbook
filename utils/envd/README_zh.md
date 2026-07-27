@@ -6,15 +6,14 @@
 
 | envd 版本 | 公开源码版本 | Go 版本 | 源码路径 |
 |---|---|---|---|
-| `0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` | `1.25.4` | `versions/0.5.4/` |
+| `0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` | `1.25.9` | `versions/0.5.14/` |
 | `0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` | `1.24.3` | `versions/0.2.11/` |
 
 两个版本相互独立，envd 不会与客户端自动协商版本。请使用客户端或集成方案明确
-要求的版本。如果两者都没有指定版本，可以先使用默认的 `0.5.4`。
+要求的版本。如果两者都没有指定版本，可以先使用默认的 `0.5.14`。
 
-`0.5.4` 还回移了公开上游提交
-`452097909d71775a8953f1b4e4574519cbcb123d`。该修复会正确识别 cgroup v1
-并回退到空实现，避免 envd 使用无效的 cgroup 文件描述符启动子进程。
+`0.5.14` 已经包含上游的 cgroup v2 检测逻辑。它会在 cgroup v1 环境中回退到
+空实现，避免 envd 使用无效的 cgroup 文件描述符启动子进程。
 
 ## 目录结构
 
@@ -37,7 +36,7 @@ envd 模块保留原有的 Go module path。`go.mod` 会使用同版本目录下
 分别编译两个版本：
 
 ```bash
-make build VERSION=0.5.4
+make build VERSION=0.5.14
 make build VERSION=0.2.11
 ```
 
@@ -54,7 +53,7 @@ make build-all
 Linux/amd64 产物为：
 
 ```text
-bin/envd-0.5.4
+bin/envd-0.5.14
 bin/envd-0.2.11
 ```
 
@@ -77,7 +76,7 @@ make test-all
 只测试其中一个版本：
 
 ```bash
-make test VERSION=0.5.4
+make test VERSION=0.5.14
 make test VERSION=0.2.11
 ```
 

@@ -7,16 +7,15 @@ Both versions add opt-in inheritance of the environment received by envd:
 
 | envd version | Public source revision | Go version | Source path |
 |---|---|---|---|
-| `0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` | `1.25.4` | `versions/0.5.4/` |
+| `0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` | `1.25.9` | `versions/0.5.14/` |
 | `0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` | `1.24.3` | `versions/0.2.11/` |
 
 The versions are independent, and envd does not negotiate a version with its
 client. Use the version required by your client or integration. If neither
-requires a specific version, start with the default, `0.5.4`.
+requires a specific version, start with the default, `0.5.14`.
 
-The `0.5.4` source also backports public upstream commit
-`452097909d71775a8953f1b4e4574519cbcb123d`. It detects cgroup v1 correctly
-and falls back to the no-op manager, preventing child-process startup from
+The `0.5.14` source already includes upstream cgroup v2 detection. It falls
+back to the no-op manager on cgroup v1, preventing child-process startup from
 failing with an invalid cgroup file descriptor.
 
 ## Layout
@@ -41,7 +40,7 @@ Docker is the only build dependency.
 Build one version:
 
 ```bash
-make build VERSION=0.5.4
+make build VERSION=0.5.14
 make build VERSION=0.2.11
 ```
 
@@ -58,7 +57,7 @@ make build-all
 The Linux/amd64 outputs are:
 
 ```text
-bin/envd-0.5.4
+bin/envd-0.5.14
 bin/envd-0.2.11
 ```
 
@@ -81,7 +80,7 @@ make test-all
 Test just one version with:
 
 ```bash
-make test VERSION=0.5.4
+make test VERSION=0.5.14
 make test VERSION=0.2.11
 ```
 
