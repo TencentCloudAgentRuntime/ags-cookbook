@@ -104,6 +104,9 @@ versions/<version>/src/internal/services/process/handler/handler.go
 默认行为保持不变。envd 启动时设置 `EXEC_ENABLE_ALL_ENV=1` 后，通过 envd 启动的
 命令会先继承 envd 的完整进程环境。
 
+开关既可以来自镜像 `ENV`，也可以来自创建沙箱时提供的容器环境配置。它必须在
+envd 启动前存在；只在某一次子进程请求中设置已经太晚。
+
 容器运行时会把 OCI 镜像 `ENV` 和 AGS `CustomConfiguration.Env` 合并到 envd
 自身的进程环境中。envd 随后依次应用身份变量、沙箱平台在启动阶段提供的公共命令
 默认值，以及当前命令的变量。同名时，后应用的值会覆盖前面的值。

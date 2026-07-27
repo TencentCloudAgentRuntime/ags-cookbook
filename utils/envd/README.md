@@ -109,6 +109,10 @@ The default behavior is unchanged. When envd starts with
 `EXEC_ENABLE_ALL_ENV=1`, a command started through envd first inherits envd's
 complete process environment.
 
+The switch may come from image `ENV` or from the container environment supplied
+when the sandbox is created. It must be present before envd starts; setting it
+only on an individual child-process request is too late.
+
 The container runtime combines OCI image `ENV` values and AGS
 `CustomConfiguration.Env` values into envd's own process environment. envd
 then applies identity variables, any common command defaults supplied by the

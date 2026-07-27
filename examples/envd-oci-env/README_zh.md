@@ -128,11 +128,27 @@ ENTRYPOINT ["/usr/bin/envd"]
 }
 ```
 
-在镜像中开启完整环境继承：
+需要在 envd 启动前开启完整环境继承。可以写入镜像：
 
 ```dockerfile
 ENV EXEC_ENABLE_ALL_ENV=1
 ```
+
+也可以写入 AGS Tool 的容器环境配置：
+
+```json
+{
+  "Env": [
+    {
+      "Name": "EXEC_ENABLE_ALL_ENV",
+      "Value": "1"
+    }
+  ]
+}
+```
+
+两种方式都会让开关进入 envd 这个 1 号进程的环境，不需要同时设置。如果两处设置
+了同名变量，AGS 容器环境配置会覆盖镜像中的值。
 
 重新构建镜像和 Tool 后，通过 envd 启动的命令就可以读取镜像 `ENV`：
 
@@ -145,6 +161,9 @@ agr instance exec <instance-id> --user root -- printenv MODEL_DIR
 ```text
 /models
 ```
+
+不要使用 `agr instance exec --env EXEC_ENABLE_ALL_ENV=1` 开启该能力。这个值只会
+随某一次子进程请求传入，此时 envd 已经启动，无法再改变 envd 的继承行为。
 
 ## 同名变量如何覆盖
 
@@ -202,8 +221,9 @@ make run
 - 当前命令设置的值可以覆盖继承值。
 
 示例镜像中包含 `EXEC_ENABLE_ALL_ENV=1`。为了用同一个镜像验证关闭状态，第一个
-临时 Tool 会使用 `EXEC_ENABLE_ALL_ENV=0` 启动 envd。第二个 Tool 保持镜像入口
-不变，因此开关仍为开启状态。
+临时 Tool 会在 `CustomConfiguration.Env` 中设置 `EXEC_ENABLE_ALL_ENV=0`。这也
+验证了 AGS 容器环境配置可以覆盖镜像值。第二个 Tool 不覆盖该开关，因此镜像中的
+值仍然生效。
 
 临时沙箱和 Tool 会自动清理。
 

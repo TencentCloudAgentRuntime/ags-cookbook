@@ -135,11 +135,29 @@ Make envd the container's PID 1:
 }
 ```
 
-Enable complete environment inheritance in the image:
+Enable complete environment inheritance before envd starts. You can set it in
+the image:
 
 ```dockerfile
 ENV EXEC_ENABLE_ALL_ENV=1
 ```
+
+Or set it in the AGS Tool's container environment:
+
+```json
+{
+  "Env": [
+    {
+      "Name": "EXEC_ENABLE_ALL_ENV",
+      "Value": "1"
+    }
+  ]
+}
+```
+
+Either method places the switch in envd's PID 1 environment. You do not need
+both. If both set the same name, the AGS container configuration overrides the
+image value.
 
 After rebuilding the image and Tool, commands started through envd can read
 the image `ENV`:
@@ -153,6 +171,10 @@ Expected output:
 ```text
 /models
 ```
+
+Do not use `agr instance exec --env EXEC_ENABLE_ALL_ENV=1` to enable this
+feature. That value is attached to one child-process request after envd has
+already started, so it cannot change envd's inheritance behavior.
 
 ## How duplicate names are resolved
 
@@ -212,9 +234,10 @@ checks:
 - a current-command value overrides an inherited value.
 
 The example image contains `EXEC_ENABLE_ALL_ENV=1`. To test the disabled case
-with that same image, the first temporary Tool starts envd with
-`EXEC_ENABLE_ALL_ENV=0`. The second Tool uses the image entrypoint unchanged,
-so the switch remains enabled.
+with that same image, the first temporary Tool sets
+`CustomConfiguration.Env` to `EXEC_ENABLE_ALL_ENV=0`. This also verifies that
+the AGS container environment overrides the image value. The second Tool does
+not override the switch, so the image value remains enabled.
 
 The temporary sandboxes and Tools are removed automatically.
 

@@ -146,7 +146,7 @@ if [[ "${1:-}" == "--pre-cache-only" ]]; then
 fi
 
 common_custom_config="$(
-  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/bin/sh"],"Args":["-c","EXEC_ENABLE_ALL_ENV=0 exec /usr/bin/envd"],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
+  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/usr/bin/envd"],"Env":[{"Name":"EXEC_ENABLE_ALL_ENV","Value":"0"}],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
     "$ENVD_DEMO_IMAGE" "$ENVD_IMAGE_REGISTRY_TYPE"
 )"
 
