@@ -8,7 +8,7 @@ Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox /
 - **Tutorials**: SDK and notebook-based onboarding
 - **Examples**: runnable browser, code, mobile, Go, and OSWorld demos
 - **Benchmarks**: k6 stress scripts
-- **Utils**: debugging helpers such as ttyd
+- **Utils**: debugging helpers and validated runtime components such as envd
 
 ## Repository requirements
 
@@ -86,6 +86,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
+| `envd-oci-env` | Bash + Docker + agr | Preserve OCI image environment variables when envd is PID 1 |
 | `html-processing` | Python + browser/code sandboxes | Dual-sandbox HTML pipeline |
 | `hybrid-cookbook` | Go | Minimal control-plane + data-plane flow |
 | `mini-rl` | Python + code sandbox | Minimal RL tool-calling example |

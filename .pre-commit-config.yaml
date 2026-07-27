@@ -11,6 +11,7 @@ repos:
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files
+        exclude: ^utils/envd/envd$
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:

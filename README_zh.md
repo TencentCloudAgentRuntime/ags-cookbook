@@ -8,7 +8,7 @@
 - **tutorials/**：SDK / Notebook 教程
 - **examples/**：可运行的浏览器、代码、移动端、Go、OSWorld 示例
 - **benchmarks/**：k6 压测脚本
-- **utils/**：ttyd 等调试辅助工具
+- **utils/**：调试辅助工具及经过验证的 envd 等运行时组件
 
 ## 环境要求
 
@@ -83,6 +83,7 @@ make example-run EXAMPLE=mini-rl
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
+| `envd-oci-env` | Bash + Docker + agr | envd 作为 PID 1 时保留 OCI 镜像环境变量 |
 | `html-processing` | Python + Browser/Code 双沙箱 | HTML 协作处理 |
 | `hybrid-cookbook` | Go | 最小控制面 + 数据面流程 |
 | `mini-rl` | Python + 代码沙箱 | 最小 RL Tool Calling 示例 |
