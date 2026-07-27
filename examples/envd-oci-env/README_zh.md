@@ -1,135 +1,65 @@
 # 使用 envd 保留 OCI 镜像环境变量
 
-本 cookbook 说明：当 envd 是容器 1 号进程时，为什么 OCI 镜像中的环境变量可能
-无法传递给 envd 启动的命令，以及如何按需开启完整环境继承。
+容器镜像可以通过 `ENV` 定义环境变量。
 
-示例可以直接运行：它会使用仓库自带的 envd 二进制构建镜像、预热镜像、创建两个
-临时 AGS 沙箱、验证开关关闭和开启的行为、检查覆盖优先级，最后清理临时资源。
+envd 作为容器的 1 号进程时，可以读取这些变量。但是，原版 envd 启动新命令时，
+不会自动把这些变量传下去。新命令因此可能读不到镜像中的 `ENV`。
+
+本 cookbook 提供一个修改后的 envd，并说明如何把它加入客户镜像。
+
+## 问题现象
+
+假设镜像中有以下配置：
+
+```dockerfile
+ENV MODEL_DIR=/models
+ENTRYPOINT ["/usr/bin/envd"]
+```
+
+容器启动后，envd 可以读取 `MODEL_DIR=/models`。随后，AGS 通过 envd 启动应用或
+Shell 命令。这些新命令可能读不到 `MODEL_DIR`。
+
+```text
+镜像 ENV -> envd（可以读取）-> 新命令（无法读取）
+```
 
 ## 问题原因
 
-OCI 运行时会把镜像 `ENV` 交给容器初始进程：
+envd 创建新进程时，会明确设置这个进程的环境变量列表。
 
-```text
-OCI 镜像 ENV -> envd（PID 1）-> envd 启动的命令
-```
+原版 envd 只加入基础变量和明确指定的变量，不会复制 envd 自己收到的完整环境。
+因此，OCI 运行时交给 envd 的镜像 `ENV` 会在这里丢失。
 
-envd 默认不会把自己的完整环境隐式复制给子进程，而是重新组装环境：先设置
-`PATH`、`HOME`、`USER`、`LOGNAME` 等身份变量，再追加 `/init` 环境变量和单次
-执行请求提供的环境变量。
+## 我们修改了什么
 
-因此，envd 自己可能看得到镜像环境变量，但通过 envd 启动的命令看不到。
-
-## 解决方案
-
-`utils/envd/envd` 中的二进制增加了一个按需开启的开关：
+仓库中的 `utils/envd/envd` 增加了以下开关：
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
 ```
 
-应把该开关设置到 envd 自身，通常通过 `CustomConfiguration.Env` 设置。开启后，
-envd 会先使用 PID 1 的完整环境初始化每个子进程，然后再追加原有显式变量。
-
-实际优先级从低到高为：
+开关开启后，envd 会先复制自己的完整环境，再启动新命令：
 
 ```text
-envd PID 1 环境
-< PATH/HOME/USER/LOGNAME
-< /init 环境变量
-< 单次执行请求环境变量
+镜像 ENV -> envd（可以读取）-> 新命令（可以读取）
 ```
 
-未设置该开关或值不是 `1` 时，默认行为保持不变。
+代码行为等价于：
 
-> 安全提示：开启后，envd 环境中的所有变量都会暴露给 envd 启动的命令。不要把
-> 控制面凭据放入容器环境；如果只需传递少量白名单变量，应改用 `/init` 或单次
-> 执行请求的环境变量。
-
-## 前置条件
-
-- Linux 或 macOS Bash
-- Docker，并具备向目标镜像仓库推送镜像的权限
-- 已配置目标 AGS 账号的 `agr` CLI
-- 环境变量中存在 `TENCENTCLOUD_SECRET_ID` 和
-  `TENCENTCLOUD_SECRET_KEY`
-- AGS 可用于拉取目标镜像的 CAM 角色
-- x86-64 基础镜像，并包含 `/bin/sh`、`/usr/bin/nice`、
-  `/usr/bin/ionice` 和 `readlink`
-
-本示例默认使用 `ubuntu:22.04`。
-
-## 配置
-
-进入本目录后执行：
-
-```bash
-make setup
+```go
+if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
+    childEnv = append(childEnv, os.Environ()...)
+}
 ```
 
-编辑 `.env`：
+只有值为 `1` 时才会开启。没有设置该变量，或者设置成其他值，envd 都保持原来的
+行为。
 
-| 变量 | 必填 | 含义 |
-|---|---:|---|
-| `TENCENTCLOUD_SECRET_ID` | 是 | 腾讯云 API 凭据 |
-| `TENCENTCLOUD_SECRET_KEY` | 是 | 腾讯云 API 凭据 |
-| `TENCENTCLOUD_REGION` | 是 | AGS 地域，例如 `ap-guangzhou` |
-| `ENVD_DEMO_IMAGE` | 是 | 本地可推送且 AGS 可拉取的镜像地址 |
-| `ENVD_IMAGE_REGISTRY_TYPE` | 是 | `personal` 或 `enterprise` |
-| `AGS_ROLE_ARN` | 是 | AGS 拉取镜像使用的 CAM 角色 |
-| `AGS_EXEC_USER` | 否 | 镜像中已存在的用户，默认 `root` |
-| `BASE_IMAGE` | 否 | 应用基础镜像，默认 `ubuntu:22.04` |
+## 如何使用
 
-`.env` 已被 Git 忽略，切勿提交真实凭据。
+### 1. 把 envd 加入镜像
 
-## 构建并发布
-
-校验二进制、构建镜像并推送：
-
-```bash
-make verify
-make build
-make push
-```
-
-Docker 构建上下文必须是仓库根目录，因为 Dockerfile 会复制
-`utils/envd/envd`；Makefile 已自动处理。
-
-## 运行验证
-
-```bash
-make run
-```
-
-`make run` 会：
-
-1. 预热 `ENVD_DEMO_IMAGE` 并等待状态变为 `Success`。
-2. 创建一个未设置 `EXEC_ENABLE_ALL_ENV` 的临时 Tool。
-3. 创建另一个设置了 `EXEC_ENABLE_ALL_ENV=1` 的临时 Tool。
-4. 分别创建最长 20 分钟的临时沙箱。
-5. 确认关闭开关时，子进程看不到 `ENVD_IMAGE_ONLY`。
-6. 确认开启开关时 envd 是 PID 1，并能继承镜像环境和 AGS 运行时环境。
-7. 确认单次执行请求可以覆盖继承的镜像值。
-8. 无论成功或失败，均删除两个沙箱和 Tool。
-
-预期输出包含：
-
-```text
-PASS: image env is absent when inheritance is disabled
-PASS: PID 1, image env, and runtime env verified
-PASS: request env overrides inherited image env
-All envd inheritance checks passed
-```
-
-完整执行构建、推送、预热和验证：
-
-```bash
-make all
-```
-
-## 适配已有镜像
-
-保留应用镜像原有的 `ENV`，加入仓库提供的二进制：
+仓库中的二进制适用于 Linux/amd64。
 
 ```dockerfile
 COPY utils/envd/envd /usr/bin/envd
@@ -137,7 +67,25 @@ RUN chmod 0755 /usr/bin/envd
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-然后在 AGS 自定义 Tool 中配置：
+Docker 构建上下文需要包含 `utils/envd/envd`。本示例的 Makefile 已经使用仓库根
+目录作为构建上下文。
+
+### 2. 让 envd 作为 1 号进程
+
+在 AGS 自定义 Tool 中，把启动命令设置为：
+
+```json
+{
+  "Command": ["/usr/bin/envd"]
+}
+```
+
+如果先启动包装脚本，再由包装脚本启动 envd，envd 只能继承包装脚本保留下来的
+环境变量。此时需要确认包装脚本没有过滤镜像 `ENV`。
+
+### 3. 开启完整环境继承
+
+在同一个 AGS 自定义 Tool 中设置：
 
 ```json
 {
@@ -151,8 +99,87 @@ ENTRYPOINT ["/usr/bin/envd"]
 }
 ```
 
-如果 envd 由包装进程启动而不是直接作为 PID 1，envd 继承的是包装进程的环境；
-还需确认包装进程没有过滤镜像环境变量。
+重建 Tool 并启动沙箱后，通过 envd 启动的命令就可以读取镜像 `ENV`。
+
+例如：
+
+```bash
+agr instance exec <instance-id> --user root -- printenv MODEL_DIR
+```
+
+预期输出：
+
+```text
+/models
+```
+
+## 同名变量如何覆盖
+
+不同入口可以设置同一个环境变量。后设置的值优先：
+
+| 来源 | 含义 | 作用范围 |
+|---|---|---|
+| envd 的进程环境 | OCI 镜像 `ENV` 和 AGS `CustomConfiguration.Env` | 所有后续命令 |
+| 基础身份变量 | envd 根据执行用户设置的 `PATH`、`HOME`、`USER`、`LOGNAME` | 所有后续命令 |
+| 沙箱初始化变量 | 平台可以在沙箱启动时调用 envd 的 `/init` 接口，设置公共默认值 | 初始化后的所有命令 |
+| 当前命令的变量 | 例如 `agr instance exec --env KEY=VALUE` | 只影响当前命令，优先级最高 |
+
+本场景不需要客户手动调用 `/init`。如果当前命令需要临时覆盖镜像中的值，直接使用
+`--env`：
+
+```bash
+agr instance exec <instance-id> \
+  --user root \
+  --env MODEL_DIR=/temporary-models \
+  -- printenv MODEL_DIR
+```
+
+## 安全提示
+
+该开关会把 envd 的所有环境变量传给新命令，其中可能包含密码、Token 或代理配置。
+
+只有确认 envd 环境中的变量都允许被沙箱命令读取时，才应开启该功能。如果只需传递
+少量变量，可以使用 `agr instance exec --env`，不必开启完整环境继承。
+
+## 验证示例
+
+需要准备：
+
+- Bash、Docker 和 `agr`
+- 可推送的个人版或企业版镜像仓库
+- AGS 拉取镜像使用的 CAM 角色
+- x86-64 基础镜像，其中包含 `/bin/sh`、`/usr/bin/nice`、
+  `/usr/bin/ionice` 和 `readlink`
+
+创建配置文件：
+
+```bash
+make setup
+```
+
+编辑 `.env`，填写腾讯云凭据、地域、镜像地址、镜像仓库类型和
+`AGS_ROLE_ARN`。`.env` 已被 Git 忽略，不能提交真实凭据。
+
+然后执行：
+
+```bash
+make verify
+make build
+make push
+make run
+```
+
+`make run` 会验证开关关闭、开关开启和当前命令覆盖三种情况。创建的临时沙箱和
+Tool 会自动清理。
+
+预期结果：
+
+```text
+PASS: image env is absent when inheritance is disabled
+PASS: PID 1, image env, and runtime env verified
+PASS: command-specific env overrides inherited image env
+All envd inheritance checks passed
+```
 
 ## 常见问题
 
@@ -161,6 +188,5 @@ ENTRYPOINT ["/usr/bin/envd"]
 - **预热提示镜像不存在**：检查镜像地址，并确认
   `ENVD_IMAGE_REGISTRY_TYPE` 与仓库类型一致。
 - **exec 返回 internal error**：将 `AGS_EXEC_USER` 设置为镜像中实际存在的用户。
-- **Tool 一直未就绪**：确认 envd 监听 `49983`，且镜像包含前置条件中列出的命令。
-- **发现不应暴露的敏感变量**：关闭开关，只通过 `/init` 或单次执行请求传递白名单
-  变量。
+- **Tool 一直未就绪**：确认 envd 监听 `49983`，且镜像包含验证示例中列出的命令。
+- **发现不应暴露的敏感变量**：关闭开关，只向具体命令传递允许使用的变量。

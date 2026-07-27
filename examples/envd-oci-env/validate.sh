@@ -186,6 +186,6 @@ agr instance exec "$on_instance_id" \
   "${agr_args[@]}" \
   -- /bin/sh -c \
   'test "$ENVD_OVERRIDE_ORDER" = from-request &&
-   printf "PASS: request env overrides inherited image env\n"'
+   printf "PASS: command-specific env overrides inherited image env\n"'
 
 echo "All envd inheritance checks passed"

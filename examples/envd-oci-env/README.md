@@ -1,146 +1,70 @@
 # Preserve OCI image environment variables with envd
 
-This cookbook demonstrates why environment variables baked into an OCI image
-can disappear from commands started through envd, and how to preserve them
-when envd is the container's PID 1.
+A container image can define environment variables with `ENV`.
 
-The workflow is executable: it builds an image from the bundled envd binary,
-pre-caches the image, creates two temporary AGS sandboxes, verifies disabled
-and enabled behavior, checks override precedence, and removes the temporary
-resources.
+When envd is the container's PID 1, envd can read those variables. However,
+the original envd does not automatically pass them to new commands. A command
+started through envd may therefore be unable to read the image's `ENV` values.
 
-## The problem
+This cookbook provides a modified envd binary and explains how to add it to a
+customer image.
 
-An OCI runtime gives the image's `ENV` values to the container's initial
-process:
+## The symptom
 
-```text
-OCI image ENV -> envd (PID 1) -> command started through envd
+Suppose an image contains:
+
+```dockerfile
+ENV MODEL_DIR=/models
+ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-envd normally constructs a new environment for every child process instead of
-implicitly copying its own environment. It includes identity variables such as
-`PATH`, `HOME`, `USER`, and `LOGNAME`, then applies `/init` variables and the
-environment supplied with the individual execution request.
+After the container starts, envd can read `MODEL_DIR=/models`. AGS then asks
+envd to start an application or shell command. That new command may not be
+able to read `MODEL_DIR`.
 
-As a result, envd itself can see an image variable while a command started
-through envd cannot.
+```text
+image ENV -> envd (available) -> new command (missing)
+```
 
-## The solution
+## The cause
 
-The binary in `utils/envd/envd` adds an opt-in switch:
+envd explicitly sets the environment list when it creates a new process.
+
+The original envd adds basic variables and variables that were explicitly
+provided. It does not copy envd's complete environment. The image `ENV` values
+received from the OCI runtime are therefore lost at this point.
+
+## What we changed
+
+The binary in `utils/envd/envd` adds this switch:
 
 ```text
 EXEC_ENABLE_ALL_ENV=1
 ```
 
-Set the switch on envd itself, usually through
-`CustomConfiguration.Env`. envd then initializes each child environment from
-its complete PID 1 environment before applying the existing explicit values.
-
-The effective precedence, from lowest to highest, is:
+When the switch is enabled, envd copies its complete environment before
+starting a new command:
 
 ```text
-envd PID 1 environment
-< PATH/HOME/USER/LOGNAME
-< /init environment
-< per-request environment
+image ENV -> envd (available) -> new command (available)
 ```
 
-The default remains unchanged when the switch is absent or has a value other
-than `1`.
+The behavior is equivalent to:
 
-> Security: enabling this switch exposes every variable in envd's environment
-> to commands started through envd. Keep control-plane credentials out of the
-> container environment, or use `/init`/per-request variables as an allowlist
-> instead.
-
-## Prerequisites
-
-- Linux or macOS shell with Bash
-- Docker with permission to push to your image registry
-- `agr` CLI configured for your AGS account
-- Tencent Cloud credentials in `TENCENTCLOUD_SECRET_ID` and
-  `TENCENTCLOUD_SECRET_KEY`
-- A CAM role that lets AGS pull the selected image
-- An x86-64 base image containing `/bin/sh`, `/usr/bin/nice`,
-  `/usr/bin/ionice`, and `readlink`
-
-The supplied example uses `ubuntu:22.04`.
-
-## Configure
-
-From this directory:
-
-```bash
-make setup
+```go
+if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
+    childEnv = append(childEnv, os.Environ()...)
+}
 ```
 
-Edit `.env` and set:
+The switch is enabled only when its value is exactly `1`. If it is absent or
+has another value, envd keeps its original behavior.
 
-| Variable | Required | Meaning |
-|---|---:|---|
-| `TENCENTCLOUD_SECRET_ID` | yes | Tencent Cloud API credential |
-| `TENCENTCLOUD_SECRET_KEY` | yes | Tencent Cloud API credential |
-| `TENCENTCLOUD_REGION` | yes | AGS region, for example `ap-guangzhou` |
-| `ENVD_DEMO_IMAGE` | yes | Image reference you can push and AGS can pull |
-| `ENVD_IMAGE_REGISTRY_TYPE` | yes | `personal` or `enterprise` |
-| `AGS_ROLE_ARN` | yes | CAM role used by AGS to pull the image |
-| `AGS_EXEC_USER` | no | Existing image user; defaults to `root` |
-| `BASE_IMAGE` | no | Application base image; defaults to `ubuntu:22.04` |
+## How to use it
 
-`.env` is ignored by Git. Never commit real credentials.
+### 1. Add envd to the image
 
-## Build and publish
-
-Verify the bundled binary, build the demo image, and push it:
-
-```bash
-make verify
-make build
-make push
-```
-
-The Docker build context must remain the repository root because the
-Dockerfile copies `utils/envd/envd`. The Makefile handles this automatically.
-
-## Run the validation
-
-```bash
-make run
-```
-
-`make run` performs these operations:
-
-1. Pre-caches `ENVD_DEMO_IMAGE` and waits for `Success`.
-2. Creates a temporary Tool without `EXEC_ENABLE_ALL_ENV`.
-3. Creates another temporary Tool with `EXEC_ENABLE_ALL_ENV=1`.
-4. Starts a 20-minute sandbox from each Tool.
-5. Confirms the disabled sandbox does not expose `ENVD_IMAGE_ONLY`.
-6. Confirms the enabled sandbox uses envd as PID 1 and exposes both the
-   image-baked and AGS runtime variables.
-7. Confirms a per-request variable overrides the inherited image value.
-8. Deletes both sandboxes and Tools, including on failure.
-
-Expected terminal output includes:
-
-```text
-PASS: image env is absent when inheritance is disabled
-PASS: PID 1, image env, and runtime env verified
-PASS: request env overrides inherited image env
-All envd inheritance checks passed
-```
-
-To execute the complete build-to-validation workflow:
-
-```bash
-make all
-```
-
-## Adapt an existing image
-
-Keep the application image's existing `ENV` directives and add the bundled
-binary:
+The bundled binary targets Linux/amd64.
 
 ```dockerfile
 COPY utils/envd/envd /usr/bin/envd
@@ -148,7 +72,25 @@ RUN chmod 0755 /usr/bin/envd
 ENTRYPOINT ["/usr/bin/envd"]
 ```
 
-Then configure the AGS custom Tool with:
+The Docker build context must contain `utils/envd/envd`. This example's
+Makefile uses the repository root as the build context.
+
+### 2. Make envd PID 1
+
+Set the AGS custom Tool command to:
+
+```json
+{
+  "Command": ["/usr/bin/envd"]
+}
+```
+
+If a wrapper script starts envd, envd receives only the variables preserved by
+that script. Make sure the wrapper does not filter the image `ENV` values.
+
+### 3. Enable complete environment inheritance
+
+Set the switch in the same AGS custom Tool:
 
 ```json
 {
@@ -162,9 +104,93 @@ Then configure the AGS custom Tool with:
 }
 ```
 
-If a wrapper process starts envd instead of making it PID 1, envd inherits the
-wrapper's environment; verify that the wrapper has not filtered the image
-variables.
+After rebuilding the Tool and starting a sandbox, commands started through
+envd can read the image `ENV`.
+
+For example:
+
+```bash
+agr instance exec <instance-id> --user root -- printenv MODEL_DIR
+```
+
+Expected output:
+
+```text
+/models
+```
+
+## How duplicate names are resolved
+
+The same variable can be set through different inputs. Values applied later
+take precedence:
+
+| Source | Meaning | Scope |
+|---|---|---|
+| envd process environment | OCI image `ENV` and AGS `CustomConfiguration.Env` | All later commands |
+| Basic identity variables | `PATH`, `HOME`, `USER`, and `LOGNAME` selected by envd for the execution user | All later commands |
+| Sandbox initialization variables | Shared defaults the platform can set by calling envd's `/init` endpoint during sandbox startup | All commands after initialization |
+| Current-command variables | For example, `agr instance exec --env KEY=VALUE` | Current command only; highest priority |
+
+Customers do not need to call `/init` for this use case. To temporarily
+override an image value for one command, use `--env`:
+
+```bash
+agr instance exec <instance-id> \
+  --user root \
+  --env MODEL_DIR=/temporary-models \
+  -- printenv MODEL_DIR
+```
+
+## Security
+
+The switch passes every envd environment variable to new commands. That
+environment may contain passwords, tokens, or proxy settings.
+
+Enable it only when every variable in envd's environment may be read by
+sandbox commands. If only a few variables are needed, pass them with
+`agr instance exec --env` instead.
+
+## Validation example
+
+Prerequisites:
+
+- Bash, Docker, and `agr`
+- A personal or enterprise image registry you can push to
+- A CAM role that lets AGS pull the image
+- An x86-64 base image containing `/bin/sh`, `/usr/bin/nice`,
+  `/usr/bin/ionice`, and `readlink`
+
+Create the configuration file:
+
+```bash
+make setup
+```
+
+Edit `.env` and set the Tencent Cloud credentials, region, image reference,
+registry type, and `AGS_ROLE_ARN`. Git ignores `.env`; never commit real
+credentials.
+
+Then run:
+
+```bash
+make verify
+make build
+make push
+make run
+```
+
+`make run` checks the disabled case, the enabled case, and a
+current-command override. It automatically removes the temporary sandboxes and
+Tools.
+
+Expected result:
+
+```text
+PASS: image env is absent when inheritance is disabled
+PASS: PID 1, image env, and runtime env verified
+PASS: command-specific env overrides inherited image env
+All envd inheritance checks passed
+```
 
 ## Common failures
 
@@ -175,6 +201,6 @@ variables.
 - **Exec returns an internal error**: set `AGS_EXEC_USER` to a user that exists
   in the image.
 - **Tool never becomes ready**: confirm envd listens on port `49983` and that
-  the image contains the command dependencies listed under Prerequisites.
+  the image contains the commands listed under Validation example.
 - **Unexpected secret exposure**: disable the switch and pass only approved
-  values through `/init` or the individual execution request.
+  values to the specific command.
