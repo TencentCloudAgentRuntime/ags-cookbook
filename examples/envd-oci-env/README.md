@@ -40,7 +40,7 @@ The repository contains two independently buildable source versions:
 
 | envd version | Source path | Public source revision |
 |---|---|---|
-| `0.5.4` | `utils/envd/versions/0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` |
+| `0.5.14` | `utils/envd/versions/0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
 | `0.2.11` | `utils/envd/versions/0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` |
 
 Both versions add this switch:
@@ -66,21 +66,20 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 The switch is enabled only when its value is exactly `1`. If it is absent or
 has another value, envd keeps its original behavior.
 
-The `0.5.4` source also includes the later public upstream fix that detects
-cgroup v1 before enabling cgroup v2 process placement. Without that fix,
-starting a child process can fail with `bad file descriptor` in a cgroup v1
-container.
+The `0.5.14` source includes upstream detection for cgroup v1 before enabling
+cgroup v2 process placement. This prevents child-process startup from failing
+with `bad file descriptor` in a cgroup v1 container.
 
 ## Choose a version
 
 envd does not negotiate this version automatically. Use the version required
 by the client or integration that connects to envd. If neither requires a
-specific version, use the example default, `0.5.4`.
+specific version, use the example default, `0.5.14`.
 
 Set one of these values in `.env`:
 
 ```dotenv
-ENVD_VERSION=0.5.4
+ENVD_VERSION=0.5.14
 ```
 
 or:
@@ -92,7 +91,7 @@ ENVD_VERSION=0.2.11
 Use a distinct image tag for each version, for example:
 
 ```dotenv
-ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.4
+ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.14
 ```
 
 The Makefile selects the matching source directory, Go toolchain, and source
@@ -104,11 +103,11 @@ commands run directly in `utils/envd` call the same selection `VERSION`.
 The supplied Dockerfile uses a multi-stage build. Its version-selection part is:
 
 ```dockerfile
-ARG GO_VERSION=1.25.4
+ARG GO_VERSION=1.25.9
 ARG BASE_IMAGE=ubuntu:22.04
 
 FROM golang:${GO_VERSION}-bookworm AS envd-builder
-ARG ENVD_VERSION=0.5.4
+ARG ENVD_VERSION=0.5.14
 WORKDIR /workspace
 COPY utils/envd/versions/${ENVD_VERSION}/src ./src
 COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
@@ -135,11 +134,29 @@ Make envd the container's PID 1:
 }
 ```
 
-Enable complete environment inheritance in the image:
+Enable complete environment inheritance before envd starts. You can set it in
+the image:
 
 ```dockerfile
 ENV EXEC_ENABLE_ALL_ENV=1
 ```
+
+Or set it in the AGS Tool's container environment:
+
+```json
+{
+  "Env": [
+    {
+      "Name": "EXEC_ENABLE_ALL_ENV",
+      "Value": "1"
+    }
+  ]
+}
+```
+
+Either method places the switch in envd's PID 1 environment. You do not need
+both. If both set the same name, the AGS container configuration overrides the
+image value.
 
 After rebuilding the image and Tool, commands started through envd can read
 the image `ENV`:
@@ -153,6 +170,10 @@ Expected output:
 ```text
 /models
 ```
+
+Do not use `agr instance exec --env EXEC_ENABLE_ALL_ENV=1` to enable this
+feature. That value is attached to one child-process request after envd has
+already started, so it cannot change envd's inheritance behavior.
 
 ## How duplicate names are resolved
 
@@ -212,17 +233,18 @@ checks:
 - a current-command value overrides an inherited value.
 
 The example image contains `EXEC_ENABLE_ALL_ENV=1`. To test the disabled case
-with that same image, the first temporary Tool starts envd with
-`EXEC_ENABLE_ALL_ENV=0`. The second Tool uses the image entrypoint unchanged,
-so the switch remains enabled.
+with that same image, the first temporary Tool sets
+`CustomConfiguration.Env` to `EXEC_ENABLE_ALL_ENV=0`. This also verifies that
+the AGS container environment overrides the image value. The second Tool does
+not override the switch, so the image value remains enabled.
 
 The temporary sandboxes and Tools are removed automatically.
 
-Expected result for `ENVD_VERSION=0.5.4`:
+Expected result for `ENVD_VERSION=0.5.14`:
 
 ```text
-PASS: envd 0.5.4 does not inherit image env when disabled
-PASS: envd 0.5.4 PID 1, image env, and runtime env verified
+PASS: envd 0.5.14 does not inherit image env when disabled
+PASS: envd 0.5.14 PID 1, image env, and runtime env verified
 PASS: command-specific env overrides inherited image env
 All envd inheritance checks passed
 ```

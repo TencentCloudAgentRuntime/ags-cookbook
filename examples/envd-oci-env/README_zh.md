@@ -36,7 +36,7 @@ envd 创建新进程时，会明确设置这个进程的环境变量列表。
 
 | envd 版本 | 源码路径 | 公开源码版本 |
 |---|---|---|
-| `0.5.4` | `utils/envd/versions/0.5.4` | `017de20162f1d9ea340d3767eba2c43cd0dd8c33` |
+| `0.5.14` | `utils/envd/versions/0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
 | `0.2.11` | `utils/envd/versions/0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` |
 
 两个版本都增加了以下开关：
@@ -62,19 +62,18 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 只有值为 `1` 时才会开启。没有设置该变量，或者设置成其他值，envd 都保持原来的
 行为。
 
-`0.5.4` 源码还包含后续公开上游的 cgroup 检测修复。它会在启用 cgroup v2
-进程管理前识别 cgroup v1。缺少该修复时，envd 在 cgroup v1 容器中启动子进程
-可能报 `bad file descriptor`。
+`0.5.14` 源码已经包含上游的 cgroup 检测逻辑。它会在启用 cgroup v2 进程管理
+前识别 cgroup v1，避免 envd 启动子进程时报 `bad file descriptor`。
 
 ## 选择版本
 
 envd 不会自动协商版本。请使用连接 envd 的客户端或集成方案明确要求的版本。
-如果两者都没有指定版本，可以使用示例默认的 `0.5.4`。
+如果两者都没有指定版本，可以使用示例默认的 `0.5.14`。
 
 在 `.env` 中设置：
 
 ```dotenv
-ENVD_VERSION=0.5.4
+ENVD_VERSION=0.5.14
 ```
 
 或者：
@@ -86,7 +85,7 @@ ENVD_VERSION=0.2.11
 两个版本应使用不同的镜像标签，例如：
 
 ```dotenv
-ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.4
+ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.14
 ```
 
 Makefile 会自动选择对应的源码目录、Go 工具链和源码版本。本示例把选择参数命名为
@@ -97,11 +96,11 @@ Makefile 会自动选择对应的源码目录、Go 工具链和源码版本。�
 示例 Dockerfile 使用多阶段构建。与版本选择相关的部分如下：
 
 ```dockerfile
-ARG GO_VERSION=1.25.4
+ARG GO_VERSION=1.25.9
 ARG BASE_IMAGE=ubuntu:22.04
 
 FROM golang:${GO_VERSION}-bookworm AS envd-builder
-ARG ENVD_VERSION=0.5.4
+ARG ENVD_VERSION=0.5.14
 WORKDIR /workspace
 COPY utils/envd/versions/${ENVD_VERSION}/src ./src
 COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
@@ -128,11 +127,27 @@ ENTRYPOINT ["/usr/bin/envd"]
 }
 ```
 
-在镜像中开启完整环境继承：
+需要在 envd 启动前开启完整环境继承。可以写入镜像：
 
 ```dockerfile
 ENV EXEC_ENABLE_ALL_ENV=1
 ```
+
+也可以写入 AGS Tool 的容器环境配置：
+
+```json
+{
+  "Env": [
+    {
+      "Name": "EXEC_ENABLE_ALL_ENV",
+      "Value": "1"
+    }
+  ]
+}
+```
+
+两种方式都会让开关进入 envd 这个 1 号进程的环境，不需要同时设置。如果两处设置
+了同名变量，AGS 容器环境配置会覆盖镜像中的值。
 
 重新构建镜像和 Tool 后，通过 envd 启动的命令就可以读取镜像 `ENV`：
 
@@ -145,6 +160,9 @@ agr instance exec <instance-id> --user root -- printenv MODEL_DIR
 ```text
 /models
 ```
+
+不要使用 `agr instance exec --env EXEC_ENABLE_ALL_ENV=1` 开启该能力。这个值只会
+随某一次子进程请求传入，此时 envd 已经启动，无法再改变 envd 的继承行为。
 
 ## 同名变量如何覆盖
 
@@ -202,16 +220,17 @@ make run
 - 当前命令设置的值可以覆盖继承值。
 
 示例镜像中包含 `EXEC_ENABLE_ALL_ENV=1`。为了用同一个镜像验证关闭状态，第一个
-临时 Tool 会使用 `EXEC_ENABLE_ALL_ENV=0` 启动 envd。第二个 Tool 保持镜像入口
-不变，因此开关仍为开启状态。
+临时 Tool 会在 `CustomConfiguration.Env` 中设置 `EXEC_ENABLE_ALL_ENV=0`。这也
+验证了 AGS 容器环境配置可以覆盖镜像值。第二个 Tool 不覆盖该开关，因此镜像中的
+值仍然生效。
 
 临时沙箱和 Tool 会自动清理。
 
-`ENVD_VERSION=0.5.4` 时的预期结果：
+`ENVD_VERSION=0.5.14` 时的预期结果：
 
 ```text
-PASS: envd 0.5.4 does not inherit image env when disabled
-PASS: envd 0.5.4 PID 1, image env, and runtime env verified
+PASS: envd 0.5.14 does not inherit image env when disabled
+PASS: envd 0.5.14 PID 1, image env, and runtime env verified
 PASS: command-specific env overrides inherited image env
 All envd inheritance checks passed
 ```

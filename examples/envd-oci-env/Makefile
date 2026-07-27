@@ -14,16 +14,16 @@ export AGS_EXEC_USER
 export BASE_IMAGE
 export ENVD_VERSION
 
-ENVD_VERSION ?= 0.5.4
+ENVD_VERSION ?= 0.5.14
 
-ifeq ($(ENVD_VERSION),0.5.4)
-GO_VERSION := 1.25.4
-ENVD_UPSTREAM_REVISION := 017de201
+ifeq ($(ENVD_VERSION),0.5.14)
+GO_VERSION := 1.25.9
+ENVD_UPSTREAM_REVISION := a3fb26e
 else ifeq ($(ENVD_VERSION),0.2.11)
 GO_VERSION := 1.24.3
 ENVD_UPSTREAM_REVISION := 1af78dd3
 else
-$(error unsupported ENVD_VERSION "$(ENVD_VERSION)"; choose 0.5.4 or 0.2.11)
+$(error unsupported ENVD_VERSION "$(ENVD_VERSION)"; choose 0.5.14 or 0.2.11)
 endif
 
 .PHONY: help setup verify build push pre-cache run all

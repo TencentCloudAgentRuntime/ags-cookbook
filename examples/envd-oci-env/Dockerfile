@@ -1,14 +1,14 @@
-ARG GO_VERSION=1.25.4
+ARG GO_VERSION=1.25.9
 ARG BASE_IMAGE=ubuntu:22.04
 
 FROM golang:${GO_VERSION}-bookworm AS envd-builder
 
-ARG ENVD_VERSION=0.5.4
+ARG ENVD_VERSION=0.5.14
 WORKDIR /workspace
 COPY utils/envd/versions/${ENVD_VERSION}/src ./src
 COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
 
-ARG ENVD_BUILD_REVISION=017de201-execenv
+ARG ENVD_BUILD_REVISION=a3fb26e-execenv
 WORKDIR /workspace/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build \
@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 FROM ${BASE_IMAGE}
 
-ARG ENVD_VERSION=0.5.4
+ARG ENVD_VERSION=0.5.14
 COPY --from=envd-builder /out/envd /usr/bin/envd
 RUN chmod 0755 /usr/bin/envd
 
