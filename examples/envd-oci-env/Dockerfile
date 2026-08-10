@@ -8,9 +8,10 @@ WORKDIR /workspace
 COPY utils/envd/versions/${ENVD_VERSION}/src ./src
 COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
 
-ARG ENVD_BUILD_REVISION=a3fb26e-execenv
+ARG ENVD_BUILD_REVISION
 WORKDIR /workspace/src
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN test -n "${ENVD_BUILD_REVISION}" && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build \
     -trimpath \
     -buildvcs=false \
