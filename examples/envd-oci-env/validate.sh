@@ -21,9 +21,9 @@ AGS_EXEC_USER="${AGS_EXEC_USER:-root}"
 ENVD_VERSION="${ENVD_VERSION:-0.5.14}"
 
 case "$ENVD_VERSION" in
-  0.5.14 | 0.2.11) ;;
+  0.5.14 | 0.5.14-modified | 0.2.11) ;;
   *)
-    echo "ENVD_VERSION must be 0.5.14 or 0.2.11" >&2
+    echo "ENVD_VERSION must be 0.5.14, 0.5.14-modified, or 0.2.11" >&2
     exit 1
     ;;
 esac
@@ -146,7 +146,7 @@ if [[ "${1:-}" == "--pre-cache-only" ]]; then
 fi
 
 common_custom_config="$(
-  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/usr/bin/envd"],"Env":[{"Name":"EXEC_ENABLE_ALL_ENV","Value":"0"}],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
+  printf '{"Image":"%s","ImageRegistryType":"%s","Command":["/usr/bin/envd"],"Env":[{"Name":"EXEC_ENABLE_ALL_ENV","Value":"0"},{"Name":"ENVD_RUNTIME_OFF","Value":"from-runtime-config"}],"Ports":[{"Name":"envd","Port":49983,"Protocol":"TCP"}],"Probe":{"HttpGet":{"Path":"/health","Port":49983,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbePeriodMs":1000,"ProbeTimeoutMs":1000,"SuccessThreshold":1,"FailureThreshold":20},"Resources":{"CPU":"1","Memory":"1Gi"}}' \
     "$ENVD_DEMO_IMAGE" "$ENVD_IMAGE_REGISTRY_TYPE"
 )"
 
@@ -203,32 +203,50 @@ echo "Waiting for temporary AGS sandboxes"
 wait_for_instance "$off_instance_id"
 wait_for_instance "$on_instance_id"
 
-echo "Validating EXEC_ENABLE_ALL_ENV=0"
+echo "Validating inheritance behavior with EXEC_ENABLE_ALL_ENV=0"
 agr instance exec "$off_instance_id" \
   --user "$AGS_EXEC_USER" \
-  --env ENVD_EXPECTED_VERSION="$ENVD_VERSION" \
+  --env ENVD_EXPECTED_SOURCE="$ENVD_VERSION" \
   "${agr_args[@]}" \
   -- /bin/sh -c \
   'actual_version="$(/usr/bin/envd -version)"
-   test "$actual_version" = "$ENVD_EXPECTED_VERSION" || {
-     printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$ENVD_EXPECTED_VERSION" >&2
+   expected_version="${ENVD_EXPECTED_SOURCE%%-*}"
+   test "$actual_version" = "$expected_version" || {
+     printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$expected_version" >&2
      exit 1
    }
-   test "${ENVD_IMAGE_ONLY+x}" != x || {
-     printf "FAIL: image env is present when inheritance is disabled\n" >&2
-     exit 1
-   }
-   printf "PASS: envd %s does not inherit image env when disabled\n" "$actual_version"'
+   if test "$ENVD_EXPECTED_SOURCE" = "$expected_version-modified"; then
+     test "${ENVD_IMAGE_ONLY-}" = from-oci-image || {
+       printf "FAIL: modified envd did not inherit image env\n" >&2
+       exit 1
+     }
+     test "${ENVD_RUNTIME_OFF-}" = from-runtime-config || {
+       printf "FAIL: modified envd did not inherit runtime env\n" >&2
+       exit 1
+     }
+     printf "PASS: envd %s inherits image and runtime env independently of the opt-in switch\n" "$actual_version"
+   else
+     test "${ENVD_IMAGE_ONLY+x}" != x || {
+       printf "FAIL: image env is present when inheritance is disabled\n" >&2
+       exit 1
+     }
+     test "${ENVD_RUNTIME_OFF+x}" != x || {
+       printf "FAIL: runtime env is present when inheritance is disabled\n" >&2
+       exit 1
+     }
+     printf "PASS: envd %s does not inherit image or runtime env when disabled\n" "$actual_version"
+   fi'
 
 echo "Validating EXEC_ENABLE_ALL_ENV=1"
 agr instance exec "$on_instance_id" \
   --user "$AGS_EXEC_USER" \
-  --env ENVD_EXPECTED_VERSION="$ENVD_VERSION" \
+  --env ENVD_EXPECTED_SOURCE="$ENVD_VERSION" \
   "${agr_args[@]}" \
   -- /bin/sh -c \
   'actual_version="$(/usr/bin/envd -version)"
-   test "$actual_version" = "$ENVD_EXPECTED_VERSION" || {
-     printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$ENVD_EXPECTED_VERSION" >&2
+   expected_version="${ENVD_EXPECTED_SOURCE%%-*}"
+   test "$actual_version" = "$expected_version" || {
+     printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$expected_version" >&2
      exit 1
    }
    pid1_exe="$(readlink /proc/1/exe)"
@@ -236,8 +254,8 @@ agr instance exec "$on_instance_id" \
      printf "FAIL: PID 1 executable is %s, expected /usr/bin/envd\n" "$pid1_exe" >&2
      exit 1
    }
-   test "${ENVD_SOURCE_VERSION-}" = "$ENVD_EXPECTED_VERSION" || {
-     printf "FAIL: image version marker is %s, expected %s\n" "${ENVD_SOURCE_VERSION-}" "$ENVD_EXPECTED_VERSION" >&2
+   test "${ENVD_SOURCE_VERSION-}" = "$ENVD_EXPECTED_SOURCE" || {
+     printf "FAIL: image source marker is %s, expected %s\n" "${ENVD_SOURCE_VERSION-}" "$ENVD_EXPECTED_SOURCE" >&2
      exit 1
    }
    test "${ENVD_IMAGE_ONLY-}" = from-oci-image || {
