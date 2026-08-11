@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/e2b-dev/infra/packages/envd/internal/execcontext"
 	"github.com/e2b-dev/infra/packages/envd/internal/services/spec/filesystem"
 )
 
@@ -104,7 +105,12 @@ func TestStatUsesStartupIdentityWithoutAuthorization(t *testing.T) {
 
 	svc := mockService()
 	svc.defaults.User = u.Username
-	svc.defaults.StartupUser = u
+	svc.defaults.StartupIdentity = &execcontext.Identity{
+		UID:      uint32(os.Geteuid()),
+		GID:      uint32(os.Getegid()),
+		Username: u.Username,
+		HomeDir:  u.HomeDir,
+	}
 
 	resp, err := svc.Stat(t.Context(), connect.NewRequest(&filesystem.StatRequest{
 		Path: path,

@@ -13,7 +13,7 @@ import (
 )
 
 func (s Service) Move(ctx context.Context, req *connect.Request[rpc.MoveRequest]) (*connect.Response[rpc.MoveResponse], error) {
-	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
+	u, err := permissions.GetAuthUser(ctx, s.defaults)
 	if err != nil {
 		return nil, err
 	}

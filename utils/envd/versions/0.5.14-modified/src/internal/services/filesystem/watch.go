@@ -20,7 +20,7 @@ func (s Service) WatchDir(ctx context.Context, req *connect.Request[rpc.WatchDir
 }
 
 func (s Service) watchHandler(ctx context.Context, req *connect.Request[rpc.WatchDirRequest], stream *connect.ServerStream[rpc.WatchDirResponse]) error {
-	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
+	u, err := permissions.GetAuthUser(ctx, s.defaults)
 	if err != nil {
 		return err
 	}
