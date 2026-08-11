@@ -359,13 +359,14 @@ print(json.dumps({
   wait_for_tool "${tool_id}"
 
   local instance_id
-  # The Cloud API field is Name/Value. agr's --metadata convenience flag
-  # intentionally accepts Key/Value and maps it to that request shape.
+  # The Cloud API field is Name/Value. agr 0.6.3 help incorrectly shows
+  # Key/Value for this flag; that shape is accepted locally but ignored by the
+  # backend, so pass the real Cloud API field names here.
   instance_id="$(
     agr instance create \
       --tool-id "${tool_id}" \
       --timeout "${INSTANCE_TIMEOUT}" \
-      --metadata "[{\"Key\":\"x-envd-version\",\"Value\":\"${ENVD_VERSION_METADATA}\"}]" \
+      --metadata "[{\"Name\":\"x-envd-version\",\"Value\":\"${ENVD_VERSION_METADATA}\"}]" \
       "${agr_args[@]}" \
       --jq '.Data.InstanceId'
   )"

@@ -475,9 +475,9 @@ matches, AGS reports `0.2.10`. Passing Metadata makes the behavior deterministic
 The validation asserts that the SDK sees exactly `0.4.0` and never patches the
 SDK version gate.
 
-The Cloud API and full request body use `Name/Value`. The `agr instance create
---metadata` convenience flag uses `Key/Value` and maps it to the Cloud API shape;
-the included script follows the CLI form.
+Use `Name/Value` for both the Cloud API and `agr instance create --metadata`.
+`agr` 0.6.3 help incorrectly shows `Key/Value`: that shape is accepted by the
+CLI but ignored by the backend, leaving the reported version at `0.2.10`.
 
 The SandPortal path must also be a version that does not synthesize a default
 cwd. The current implementation forwards an omitted cwd unchanged, allowing

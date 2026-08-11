@@ -443,8 +443,8 @@ if user is None and envd_version < ENVD_DEFAULT_USER:   # 0.4.0
 显式传入 Metadata 可以消除该不确定性。验证脚本会断言 SDK 看到的值正好是 `0.4.0`，
 不会给 SDK 打版本 gate 补丁。
 
-Cloud API 和完整 request body 使用 `Name/Value`；`agr instance create --metadata`
-便捷参数使用 `Key/Value` 并负责转换为 Cloud API 结构。本示例脚本使用 CLI 形式。
+Cloud API 和 `agr instance create --metadata` 都应使用 `Name/Value`。`agr` 0.6.3
+help 错误地展示了 `Key/Value`：CLI 虽会接受，但后台会忽略，上报版本仍为 `0.2.10`。
 
 同时应使用不再合成默认 cwd 的 SandPortal 版本。当前实现会原样转发缺失的 cwd，让 envd
 使用业务镜像 OCI `WORKDIR`。可通过以下方式查看 SDK 收到的版本：
