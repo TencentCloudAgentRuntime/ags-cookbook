@@ -1,0 +1,46 @@
+# Business fixture B: an OCI user that is a bare numeric UID with no passwd entry.
+#
+# This is the case that breaks any implementation which resolves the default
+# identity by username: there is no username to resolve. `USER 61234` is legal in
+# OCI and common in hardened images, and the runtime applies the UID whether or
+# not /etc/passwd knows about it.
+#
+# envd must therefore treat its startup identity as a numeric snapshot: run
+# commands as uid 61234, never fall back to root, and never fail with "default
+# user does not exist". The OCI Workdir must still apply.
+#
+# The absence of the passwd entry is asserted at build time, so this fixture
+# cannot silently stop testing what it is for (for example if a future base image
+# happened to ship that UID).
+
+ARG BASE_IMAGE=ubuntu:22.04
+
+FROM ${BASE_IMAGE}
+
+ARG NUMERIC_UID=61234
+ARG NUMERIC_GID=61235
+
+RUN set -eux; \
+    if getent passwd "${NUMERIC_UID}" >/dev/null; then \
+        echo "uid ${NUMERIC_UID} unexpectedly has a passwd entry; pick another" >&2; \
+        exit 1; \
+    fi; \
+    if getent group "${NUMERIC_GID}" >/dev/null; then \
+        echo "gid ${NUMERIC_GID} unexpectedly has a group entry; pick another" >&2; \
+        exit 1; \
+    fi; \
+    mkdir -p /srv/numeric/work; \
+    chown "${NUMERIC_UID}:${NUMERIC_GID}" /srv/numeric /srv/numeric/work; \
+    chmod 0755 /srv/numeric; \
+    chmod 0775 /srv/numeric/work; \
+    printf 'fixture B marker\n' > /srv/numeric/work/marker.txt; \
+    chown "${NUMERIC_UID}:${NUMERIC_GID}" /srv/numeric/work/marker.txt; \
+    chmod 0664 /srv/numeric/work/marker.txt
+
+ENV FIXTURE_NAME=fixture-b
+ENV FIXTURE_IMAGE_ONLY=from-oci-image
+
+# Numeric, with no corresponding passwd entry. `USER 61234:61235` sets both the
+# UID and the primary GID, which is what a hardened image typically does.
+USER 61234:61235
+WORKDIR /srv/numeric/work

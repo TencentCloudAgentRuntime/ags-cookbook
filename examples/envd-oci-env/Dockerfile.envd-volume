@@ -1,0 +1,80 @@
+# envd Image Volume artifact.
+#
+# The product of this build is a single file: a root-owned, setuid envd at
+# /usr/bin/envd. It is meant to be mounted into a business image's rootfs through
+# StorageMounts.Image, so the business image supplies the OCI User, Workdir, and
+# environment while this image supplies only the binary and its file metadata.
+#
+# Nothing in this image's own OCI configuration is used at runtime: an Image
+# Volume mount contributes files, not USER / WORKDIR / ENTRYPOINT / CMD / ENV.
+# The final stage is therefore deliberately `scratch` and sets no USER, WORKDIR,
+# ENTRYPOINT, or CMD, so nothing here can be mistaken for business configuration.
+# (Docker still records an inherited default `PATH` in the config; it is likewise
+# ignored by an Image Volume mount.)
+#
+# The file metadata is the whole point:
+#
+#   /usr/bin/envd  uid:gid = 0:0    mode = 4755
+#
+# owner root plus the setuid bit is what lets a non-root OCI user start envd and
+# have it gain an effective UID of 0, so envd can switch a command to an
+# explicitly requested user. The mount must not be `nosuid` and the process must
+# have NoNewPrivs=0, or the setuid bit is ignored.
+#
+# Both are fixed at build time: a read-only Image Volume mount cannot be
+# chmod-ed afterwards. The ownership and mode are applied in a builder stage with
+# chown/chmod and then carried over by a plain `COPY --from`, which preserves
+# both. `COPY --chown --chmod` would express this in one line but requires
+# BuildKit, and this build has to work with the classic builder too.
+#
+# verify-envd-volume.sh checks the result in the exported layer, so the metadata
+# is asserted on the artifact rather than assumed from the Dockerfile.
+
+ARG GO_VERSION=1.25.9
+
+FROM golang:${GO_VERSION}-bookworm AS envd-builder
+
+ARG ENVD_VERSION=0.5.14-modified
+WORKDIR /workspace
+COPY utils/envd/versions/${ENVD_VERSION}/src ./src
+COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
+
+ARG ENVD_BUILD_REVISION
+ARG TARGET_ARCH=amd64
+WORKDIR /workspace/src
+
+# -trimpath, -buildvcs=false, and an empty -buildid keep the output reproducible,
+# so the recorded SHA256 identifies the source rather than the build machine.
+RUN test -n "${ENVD_BUILD_REVISION}" && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGET_ARCH} \
+    go build \
+    -trimpath \
+    -buildvcs=false \
+    -a \
+    -o /out/envd \
+    -ldflags "-X=main.commitSHA=${ENVD_BUILD_REVISION} -s -w -buildid=" \
+    .
+
+# Stamp the required ownership and mode here, where a RUN layer can do it.
+RUN set -eux; \
+    mkdir -p /staged/usr/bin; \
+    cp /out/envd /staged/usr/bin/envd; \
+    chown 0:0 /staged/usr/bin/envd; \
+    chmod 4755 /staged/usr/bin/envd; \
+    test "$(stat -c '%u:%g %04a' /staged/usr/bin/envd)" = "0:0 4755"
+
+FROM scratch
+
+ARG ENVD_VERSION=0.5.14-modified
+ARG ENVD_BUILD_REVISION
+
+# Plain COPY --from preserves the 0:0 ownership and the 4755 mode stamped above.
+COPY --from=envd-builder /staged/usr/bin/envd /usr/bin/envd
+
+LABEL org.opencontainers.image.title="envd Image Volume" \
+      org.opencontainers.image.description="setuid envd for AGS StorageMounts.Image; provides /usr/bin/envd (0:0, mode 4755) only" \
+      com.tencent.ags.envd.version="${ENVD_VERSION}" \
+      com.tencent.ags.envd.build-revision="${ENVD_BUILD_REVISION}" \
+      com.tencent.ags.envd.path="/usr/bin/envd" \
+      com.tencent.ags.envd.mode="4755" \
+      com.tencent.ags.envd.owner="0:0"
