@@ -285,3 +285,208 @@ binary version `0.5.14`.
   in the image.
 - **Tool never becomes ready**: confirm envd listens on port `49983` and that
   the image contains the commands listed under Validate on AGS.
+
+---
+
+# OCI `USER` and `WORKDIR` as command defaults
+
+Everything above is about the image's `ENV`. This section is about the other two
+pieces of OCI configuration that a command needs: **who** it runs as and **where**
+it runs.
+
+Requires `ENVD_VERSION=0.5.14-modified`.
+
+## The symptom
+
+Suppose a business image ends with:
+
+```dockerfile
+USER appuser
+WORKDIR /opt/app/work
+```
+
+and a command is started through the E2B Python SDK without naming a user or a
+directory:
+
+```python
+sandbox.commands.run("id; pwd")
+```
+
+With unmodified envd the command runs as **root** in **`/root`** — neither the
+image's `USER` nor its `WORKDIR`. Measured against this repository's own fixture:
+
+```text
+unmodified envd 0.5.14:  uid=0      pwd=/root
+0.5.14-modified:         uid=10001  pwd=/opt/app/work
+```
+
+Two separate causes. For the identity, envd recorded its *effective* UID as its
+startup identity; behind a setuid binary that is 0, so root was recorded as the
+default user. For the directory, envd never captured its startup working
+directory, so path resolution fell back to the user's home directory.
+
+## The behavior contract
+
+| SDK call | Runs as | Runs in |
+|---|---|---|
+| `run(cmd)` | the image's OCI `USER` | the image's OCI `WORKDIR` |
+| `run(cmd, user="root")` | `root` | the image's OCI `WORKDIR` |
+| `run(cmd, cwd="/tmp")` | the image's OCI `USER` | `/tmp` |
+| `run(cmd, user="root", cwd="/tmp")` | `root` | `/tmp` |
+
+An explicit `user` may be any username resolvable in the business rootfs. An OCI
+`USER` that is a bare numeric UID with no `/etc/passwd` entry still works as the
+default identity.
+
+`PWD` always matches the directory the process actually starts in. If the target
+user cannot enter the resolved directory, the request fails with an error naming
+both the user and the directory.
+
+## Why the envd Image Volume is setuid
+
+envd is delivered separately from the business image, mounted through
+`StorageMounts.Image`. An Image Volume contributes **files only**: its own OCI
+`USER`, `WORKDIR`, `ENTRYPOINT`, `CMD`, and `ENV` are not merged into the business
+process. The business image supplies all of those.
+
+For envd to switch a command to an explicitly requested user it needs privilege it
+would not otherwise have, because the OCI runtime starts it as the image's
+unprivileged `USER`. That comes from the file metadata:
+
+```text
+/usr/bin/envd   owner 0:0   mode 4755
+```
+
+The kernel then gives envd:
+
+```text
+real UID = the image's OCI USER      effective UID = 0
+```
+
+envd records the **real** identity as the default, and drops back to it for every
+command that does not request another user. `Dockerfile.envd-volume` fixes the
+ownership and mode in the layer, because the mount is read-only and cannot be
+chmod-ed at runtime.
+
+Two mount-level prerequisites: the mount must not be `nosuid`, and the process
+must have `NoNewPrivs=0`. Either one suppresses the setuid bit.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `Dockerfile.envd-volume` | the Image Volume artifact: `/usr/bin/envd` as `0:0`, mode `4755`, on `scratch` |
+| `Dockerfile.fixture-a` | business fixture: `USER appuser`, `WORKDIR /opt/app/work`, several users and a shared group |
+| `Dockerfile.fixture-b` | business fixture: `USER 61234:61235` with no passwd entry |
+| `verify-envd-volume.sh` | checks `0:0`/`4755` in the exported image layer |
+| `validate_user_workdir.py` | the assertions, through the E2B Python SDK |
+| `validate_user_workdir.sh` | prepares AGS resources, runs the assertions, cleans up |
+
+## Build and verify
+
+```bash
+make envd-volume-build ENVD_VERSION=0.5.14-modified \
+    ENVD_VOLUME_IMAGE=<registry>/<namespace>/envd-oci-user-workdir:<unique-tag>
+```
+
+`envd-volume-build` runs the envd test suite first, then builds, then verifies the
+layer metadata. Verify an existing image on its own with:
+
+```bash
+make envd-volume-verify ENVD_VOLUME_IMAGE=<reference>
+```
+
+Expected output:
+
+```text
+   tar owner:  0:0
+   OK: owner is 0:0
+   OK: mode is -rwsr-xr-x (4755), setuid bit present
+   sha256:     <binary digest>
+VERIFY OK: ... carries /usr/bin/envd as 0:0 mode 4755
+```
+
+Do not tag the artifact `latest`. A mutable tag cannot be pinned to a digest, and
+the digest is how a specific envd build is identified.
+
+Then the fixtures, and the push:
+
+```bash
+make fixtures-build FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
+make user-workdir-push ENVD_VERSION=0.5.14-modified \
+    ENVD_VOLUME_IMAGE=<ref> FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
+```
+
+## Run on AGS
+
+```bash
+make setup            # then edit .env
+make run-user-workdir
+```
+
+The Tool mounts the Image Volume read-only and points its `Command` at the
+mounted binary:
+
+```text
+StorageMounts[0].MountPath                       /opt/envd
+StorageMounts[0].StorageSource.Image.Reference   <envd Image Volume>
+CustomConfiguration.Image                        <business fixture>
+CustomConfiguration.Command                      ["/opt/envd/usr/bin/envd"]
+```
+
+`ImageRegistryType` accepts `personal` or `enterprise`. Confirm the current
+accepted values with `agr schema` rather than copying them from older documents.
+`--role-arn` is required whenever `--storage-mounts` is used, and
+`Probe.ReadyTimeoutMs` is capped at `30000`.
+
+`validate_user_workdir.sh` deletes every Tool and Instance it creates, including on
+failure, and reports how many resources still match its run prefix.
+
+## Two prerequisites when running against AGS
+
+**The SDK rejects the AGS API key format.** `e2b` validates API keys against
+`^e2b_[0-9a-f]+$` and AGS issues `ark_`-prefixed keys. Use `e2b >= 2.30` and set
+`E2B_VALIDATE_API_KEY=false`, or pass `validate_api_key=False`. Versions below
+2.30 have no opt-out.
+
+**The default-user cases need a correct envd version from the control plane.** The
+SDK injects its historical default username `user` whenever the control plane
+reports an envd version below `0.4.0`:
+
+```python
+if user is None and envd_version < ENVD_DEFAULT_USER:   # 0.4.0
+    user = default_username                             # "user"
+```
+
+A business image has no `user` account, so envd rejects it and the request fails
+with `invalid username: 'user'`. The explicit-`user` cases are unaffected. Check
+what your deployment reports before concluding that envd is at fault:
+
+```python
+print(sandbox._envd_version)          # what the control plane advertises
+sandbox.commands.run("/opt/envd/usr/bin/envd -version", user="root")   # what is actually running
+```
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| commands run as root instead of the OCI `USER` | `ENVD_VERSION` is `0.5.14-modified`; `envd -version` in the sandbox |
+| commands run in `/root` instead of the OCI `WORKDIR` | same as above; the modified distribution captures the startup cwd |
+| `invalid username: 'user'` | the control-plane envd version is below `0.4.0`; see above |
+| `Invalid API key format` | `e2b >= 2.30` plus `E2B_VALIDATE_API_KEY=false` |
+| explicit `user="root"` fails | `stat` the mounted envd: it must be `0:0` and `4755` |
+| `NoNewPrivs: 1`, or `nosuid` on the mount | the setuid bit is suppressed; the sandbox cannot switch users |
+| a command fails with a permission error on its cwd | the error names the user and the directory; check search permission on every parent |
+
+Useful probes, all runnable through the SDK:
+
+```python
+sandbox.commands.run("id; pwd; echo $PWD")
+sandbox.commands.run("stat -c '%u:%g %04a' /opt/envd/usr/bin/envd", user="root")
+sandbox.commands.run("grep -E '^(Uid|Gid|Groups|NoNewPrivs):' /proc/1/status", user="root")
+sandbox.commands.run("grep /opt/envd /proc/self/mountinfo", user="root")
+```
+
+`Uid: <oci-uid> 0 0 0` on envd's own PID 1 is the setuid state working as intended:
+the real UID is the image's `USER`, and the effective UID is 0.

@@ -267,3 +267,195 @@ All envd inheritance checks passed
 - **exec 返回 internal error**：将 `AGS_EXEC_USER` 设置为镜像中实际存在的用户。
 - **Tool 一直未就绪**：确认 envd 监听 `49983`，且镜像包含“在 AGS 中验证”列出的
   命令。
+
+---
+
+# 把 OCI `USER` 和 `WORKDIR` 作为命令默认值
+
+上面讲的是镜像的 `ENV`。这一节讲命令需要的另外两项 OCI 配置：**以谁的身份**执行，
+**在哪个目录**执行。
+
+需要 `ENVD_VERSION=0.5.14-modified`。
+
+## 现象
+
+假设业务镜像结尾是：
+
+```dockerfile
+USER appuser
+WORKDIR /opt/app/work
+```
+
+而通过 E2B Python SDK 启动命令时不指定 user 和 cwd：
+
+```python
+sandbox.commands.run("id; pwd")
+```
+
+使用未修改的 envd 时，命令会以 **root** 身份在 **`/root`** 中执行——既不是镜像的
+`USER`，也不是它的 `WORKDIR`。用本仓库自带的 fixture 实测：
+
+```text
+未修改的 envd 0.5.14:  uid=0      pwd=/root
+0.5.14-modified:       uid=10001  pwd=/opt/app/work
+```
+
+两个独立原因。身份方面，envd 把自己的 *effective* UID 当作启动身份记录；在 setuid
+二进制下该值为 0，于是 root 被误记为默认用户。目录方面，envd 从未记录启动工作目录，
+路径解析因此回落到用户 HOME。
+
+## 行为合同
+
+| SDK 调用 | 以谁执行 | 在哪执行 |
+|---|---|---|
+| `run(cmd)` | 镜像的 OCI `USER` | 镜像的 OCI `WORKDIR` |
+| `run(cmd, user="root")` | `root` | 镜像的 OCI `WORKDIR` |
+| `run(cmd, cwd="/tmp")` | 镜像的 OCI `USER` | `/tmp` |
+| `run(cmd, user="root", cwd="/tmp")` | `root` | `/tmp` |
+
+显式 `user` 可以是业务 rootfs 中任何可解析的用户名。OCI `USER` 即使是纯数字 UID 且
+`/etc/passwd` 无该条目，也能作为默认身份正常工作。
+
+`PWD` 始终与进程实际启动的目录一致。若目标用户无权进入解析后的目录，请求会失败，
+错误信息同时包含用户和目录。
+
+## envd Image Volume 为什么是 setuid
+
+envd 与业务镜像分开交付，通过 `StorageMounts.Image` 挂载。Image Volume **只提供
+文件**：它自己的 OCI `USER`、`WORKDIR`、`ENTRYPOINT`、`CMD`、`ENV` 都不会合并到业务
+进程。这些全部由业务镜像提供。
+
+要让 envd 能把命令切换到显式指定的用户，它需要本来不具备的权限——因为 OCI 运行时是以
+镜像中非特权的 `USER` 启动它的。权限来自文件元数据：
+
+```text
+/usr/bin/envd   owner 0:0   mode 4755
+```
+
+内核于是给 envd：
+
+```text
+real UID = 镜像的 OCI USER      effective UID = 0
+```
+
+envd 记录 **real** 身份作为默认值，并为每个未指定用户的命令降权回该身份。
+`Dockerfile.envd-volume` 在镜像层内固化 owner 和 mode，因为挂载是只读的，运行时无法
+`chmod`。
+
+两个挂载层面的前提：挂载不能带 `nosuid`，进程必须 `NoNewPrivs=0`。任一条不满足，
+setuid 位都会失效。
+
+## 文件
+
+| 文件 | 用途 |
+|---|---|
+| `Dockerfile.envd-volume` | Image Volume 制品：`scratch` 基础上的 `/usr/bin/envd`，`0:0`、mode `4755` |
+| `Dockerfile.fixture-a` | 业务 fixture：`USER appuser`、`WORKDIR /opt/app/work`、多个用户和一个共享组 |
+| `Dockerfile.fixture-b` | 业务 fixture：`USER 61234:61235`，无 passwd 条目 |
+| `verify-envd-volume.sh` | 在导出的镜像层中检查 `0:0`/`4755` |
+| `validate_user_workdir.py` | 断言本体，全部通过 E2B Python SDK |
+| `validate_user_workdir.sh` | 准备 AGS 资源、执行断言、清理 |
+
+## 构建与校验
+
+```bash
+make envd-volume-build ENVD_VERSION=0.5.14-modified \
+    ENVD_VOLUME_IMAGE=<registry>/<namespace>/envd-oci-user-workdir:<唯一 tag>
+```
+
+`envd-volume-build` 会先跑 envd 测试套件，再构建，最后校验层元数据。也可以单独校验
+已有镜像：
+
+```bash
+make envd-volume-verify ENVD_VOLUME_IMAGE=<reference>
+```
+
+期望输出：
+
+```text
+   tar owner:  0:0
+   OK: owner is 0:0
+   OK: mode is -rwsr-xr-x (4755), setuid bit present
+   sha256:     <二进制 digest>
+VERIFY OK: ... carries /usr/bin/envd as 0:0 mode 4755
+```
+
+不要把制品打成 `latest`。可变 tag 无法固定到 digest，而 digest 是识别某次具体 envd
+构建的唯一依据。
+
+然后构建 fixture 并推送：
+
+```bash
+make fixtures-build FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
+make user-workdir-push ENVD_VERSION=0.5.14-modified \
+    ENVD_VOLUME_IMAGE=<ref> FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
+```
+
+## 在 AGS 上运行
+
+```bash
+make setup            # 然后编辑 .env
+make run-user-workdir
+```
+
+Tool 以只读方式挂载 Image Volume，并把 `Command` 指向挂载后的二进制：
+
+```text
+StorageMounts[0].MountPath                       /opt/envd
+StorageMounts[0].StorageSource.Image.Reference   <envd Image Volume>
+CustomConfiguration.Image                        <业务 fixture>
+CustomConfiguration.Command                      ["/opt/envd/usr/bin/envd"]
+```
+
+`ImageRegistryType` 接受 `personal` 或 `enterprise`。请用 `agr schema` 确认当前接受
+的取值，不要照抄旧文档。使用 `--storage-mounts` 时 `--role-arn` 为必填，
+`Probe.ReadyTimeoutMs` 上限为 `30000`。
+
+`validate_user_workdir.sh` 会删除它创建的所有 Tool 和 Instance（失败时也会），并报告
+仍匹配本轮前缀的资源数量。
+
+## 在 AGS 上运行的两个前提
+
+**SDK 会拒绝 AGS 的 API key 格式。** `e2b` 用 `^e2b_[0-9a-f]+$` 校验 API key，而 AGS
+签发的是 `ark_` 前缀的 key。请使用 `e2b >= 2.30` 并设置 `E2B_VALIDATE_API_KEY=false`，
+或传入 `validate_api_key=False`。2.30 以下版本没有该开关。
+
+**默认用户相关用例需要控制面上报正确的 envd 版本。** 只要控制面上报的 envd 版本低于
+`0.4.0`，SDK 就会注入历史默认用户名 `user`：
+
+```python
+if user is None and envd_version < ENVD_DEFAULT_USER:   # 0.4.0
+    user = default_username                             # "user"
+```
+
+业务镜像没有 `user` 账户，envd 因此拒绝，请求以 `invalid username: 'user'` 失败。
+显式 `user` 的用例不受影响。在断定 envd 有问题之前，先确认你的部署上报了什么：
+
+```python
+print(sandbox._envd_version)          # 控制面上报的版本
+sandbox.commands.run("/opt/envd/usr/bin/envd -version", user="root")   # 实际运行的版本
+```
+
+## 排障
+
+| 现象 | 检查项 |
+|---|---|
+| 命令以 root 而非 OCI `USER` 执行 | `ENVD_VERSION` 是否为 `0.5.14-modified`；沙箱内 `envd -version` |
+| 命令在 `/root` 而非 OCI `WORKDIR` 执行 | 同上；只有修改版会记录启动 cwd |
+| `invalid username: 'user'` | 控制面 envd 版本低于 `0.4.0`，见上文 |
+| `Invalid API key format` | 需 `e2b >= 2.30` 且 `E2B_VALIDATE_API_KEY=false` |
+| 显式 `user="root"` 失败 | `stat` 挂载后的 envd：必须是 `0:0` 且 `4755` |
+| `NoNewPrivs: 1` 或挂载带 `nosuid` | setuid 位被抑制，沙箱无法切换用户 |
+| 命令因 cwd 权限失败 | 错误信息已含用户和目录；检查每一级父目录的 search 权限 |
+
+常用探针，均可通过 SDK 执行：
+
+```python
+sandbox.commands.run("id; pwd; echo $PWD")
+sandbox.commands.run("stat -c '%u:%g %04a' /opt/envd/usr/bin/envd", user="root")
+sandbox.commands.run("grep -E '^(Uid|Gid|Groups|NoNewPrivs):' /proc/1/status", user="root")
+sandbox.commands.run("grep /opt/envd /proc/self/mountinfo", user="root")
+```
+
+envd 自身 PID 1 上的 `Uid: <oci-uid> 0 0 0` 就是 setuid 正常工作的状态：real UID 是
+镜像的 `USER`，effective UID 是 0。
