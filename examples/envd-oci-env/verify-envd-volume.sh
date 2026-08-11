@@ -11,10 +11,11 @@
 # gzipped). Both are handled, and every blob is probed rather than assuming which
 # one holds the binary.
 #
-# Usage: ./verify-envd-volume.sh <image-reference>
+# Usage: ./verify-envd-volume.sh <image-reference> <expected-git-commit>
 set -Eeuo pipefail
 
-image="${1:?usage: verify-envd-volume.sh <image-reference>}"
+image="${1:?usage: verify-envd-volume.sh <image-reference> <expected-git-commit>}"
+expected_commit="${2:?usage: verify-envd-volume.sh <image-reference> <expected-git-commit>}"
 
 workdir="$(mktemp -d)"
 cleanup() { rm -rf "${workdir}"; }
@@ -94,6 +95,13 @@ fi
 extract_dir="${workdir}/extracted"
 mkdir -p "${extract_dir}"
 
+image_commit="$(docker image inspect "${image}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+echo "   image commit: ${image_commit}"
+if [[ "${image_commit}" != "${expected_commit}" ]]; then
+  echo "FAIL: image revision is ${image_commit}, expected ${expected_commit}" >&2
+  status=1
+fi
+
 extracted=false
 for member in usr/bin/envd ./usr/bin/envd; do
   if tar -xf "${found}" -C "${extract_dir}" --numeric-owner -p "${member}" 2>/dev/null; then
@@ -113,6 +121,9 @@ if [[ "${extracted}" == true ]]; then
   echo "   size:       ${binary_size}"
   echo "   sha256:     ${binary_sha}"
 
+  reported_commit="$("${extract_dir}/usr/bin/envd" -commit)"
+  echo "   envd commit: ${reported_commit}"
+
   if [[ "${numeric_mode}" != "4755" ]]; then
     echo "FAIL: extracted mode is ${numeric_mode}, expected 4755" >&2
     status=1
@@ -122,8 +133,15 @@ if [[ "${extracted}" == true ]]; then
     echo "FAIL: extracted owner is ${numeric_owner}, expected 0:0" >&2
     status=1
   fi
+
+  if [[ "${reported_commit}" != "${expected_commit}" ]]; then
+    echo "FAIL: envd -commit is ${reported_commit}, expected ${expected_commit}" >&2
+    status=1
+  fi
+
 else
-  echo "   note: could not extract for a stat cross-check; the tar listing above stands"
+  echo "FAIL: could not extract envd to verify its digest and embedded commit" >&2
+  status=1
 fi
 
 if [[ "${status}" -ne 0 ]]; then

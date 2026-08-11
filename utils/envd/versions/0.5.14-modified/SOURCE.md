@@ -80,7 +80,9 @@ valid version: the directory name `0.5.14-modified` is **not** parseable by
 
 Because the reported version does not change even though behavior did, the image
 tag, envd commit, build revision, manifest digest, and binary SHA256 are the only
-way to identify this artifact. Whether to raise `pkg.Version` to a new semver
+way to identify this artifact. Release builds therefore embed the full cookbook
+repository commit in both `envd -commit` and the OCI revision label and reject a
+dirty source tree. Whether to raise `pkg.Version` to a new semver
 (for example `0.5.15`) is a maintainer decision and is deliberately not made
 here.
 
@@ -88,6 +90,7 @@ here.
 
 ```bash
 make -C utils/envd test VERSION=0.5.14-modified
+make -C utils/envd test-privileged VERSION=0.5.14-modified
 make -C utils/envd test-race VERSION=0.5.14-modified
 make -C utils/envd build VERSION=0.5.14-modified
 ```
@@ -97,10 +100,9 @@ resolution, credential selection, cwd precedence, `PWD` and identity-variable
 consistency, and the diagnostic built for a cwd failure.
 
 The privileged tests below are what make the security claims real, so they must
-actually run. `make -C utils/envd test VERSION=0.5.14-modified` runs the container
-as the invoking user; verify with `-v` that the `TestSetuid*` and
-`TestPrivileged*` cases report PASS rather than SKIP before treating this
-distribution as verified.
+actually run. `make -C utils/envd test-privileged VERSION=0.5.14-modified` runs a
+root test container with `ENVD_REQUIRE_PRIVILEGED_TESTS=1`; any unavailable
+setuid environment or matching SKIP is a hard failure.
 
 Changing a process UID requires privileges, so the assertions that a command
 *really* ends up with the intended identity live in build-tagged Linux tests that

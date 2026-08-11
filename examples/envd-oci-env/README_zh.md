@@ -63,7 +63,7 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 只有值为 `1` 时才会开启。没有设置该变量，或者设置成其他值，envd 都保持原来的
 行为。
 
-`0.5.14-modified` 采用不同方式：它记录 envd 启动时的环境和有效身份，并将其作为
+`0.5.14-modified` 采用不同方式：它记录 envd 启动时的环境和真实身份，并将其作为
 命令及文件系统操作的默认值。该分发版本始终继承环境，不受
 `EXEC_ENABLE_ALL_ENV` 控制；同时，非特权 envd 无需重新设置自身凭据。二进制报告的
 版本仍为 `0.5.14`。
@@ -377,6 +377,8 @@ make envd-volume-verify ENVD_VOLUME_IMAGE=<reference>
    OK: owner is 0:0
    OK: mode is -rwsr-xr-x (4755), setuid bit present
    sha256:     <二进制 digest>
+   envd commit:<仓库 commit>
+   image commit:<仓库 commit>
 VERIFY OK: ... carries /usr/bin/envd as 0:0 mode 4755
 ```
 
@@ -411,25 +413,41 @@ CustomConfiguration.Command                      ["/opt/envd/usr/bin/envd"]
 的取值，不要照抄旧文档。使用 `--storage-mounts` 时 `--role-arn` 为必填，
 `Probe.ReadyTimeoutMs` 上限为 `30000`。
 
-`validate_user_workdir.sh` 会删除它创建的所有 Tool 和 Instance（失败时也会），并报告
-仍匹配本轮前缀的资源数量。
+`validate_user_workdir.sh` 会删除它创建的所有 Tool 和 Instance（失败时也会）；无法证明
+资源已清理时整轮测试失败。脚本会预热 envd Image Volume 和两个业务 fixture，并要求
+AGS 返回的 envd volume digest 与 `ENVD_VOLUME_IMAGE_DIGEST` 完全一致。
 
-## 在 AGS 上运行的两个前提
+## AGS 接入的两个配置
 
-**SDK 会拒绝 AGS 的 API key 格式。** `e2b` 用 `^e2b_[0-9a-f]+$` 校验 API key，而 AGS
-签发的是 `ark_` 前缀的 key。请使用 `e2b >= 2.30` 并设置 `E2B_VALIDATE_API_KEY=false`，
-或传入 `validate_api_key=False`。2.30 以下版本没有该开关。
+**转换 API key 前缀。** AGS 签发 `ark_...` key；交给 E2B SDK 前只把 `ark_` 替换为
+`e2b_`，AGS 数据面会兼容该形式。脚本从 `AGS_API_KEY` 自动完成转换，不打印密钥，也不
+会修改 SDK 代码。SDK 2.35 对 AGS 的非十六进制 key 后缀仍会在本地拒绝，因此还需使用
+`e2b >= 2.30` 并设置 `E2B_VALIDATE_API_KEY=false`；脚本会自动完成这一步。
 
-**默认用户相关用例需要控制面上报正确的 envd 版本。** 只要控制面上报的 envd 版本低于
-`0.4.0`，SDK 就会注入历史默认用户名 `user`：
+**通过 Instance Metadata 指定 envd 兼容版本。** 使用 Cloud API 或完整 `--request`
+body 创建沙箱时传入：
+
+```yaml
+- Name: x-envd-version
+  Value: 0.4.0
+```
+
+只要上报版本低于 `0.4.0`，SDK 就会注入历史默认用户名 `user`：
 
 ```python
 if user is None and envd_version < ENVD_DEFAULT_USER:   # 0.4.0
     user = default_username                             # "user"
 ```
 
-业务镜像没有 `user` 账户，envd 因此拒绝，请求以 `invalid username: 'user'` 失败。
-显式 `user` 的用例不受影响。在断定 envd 有问题之前，先确认你的部署上报了什么：
+不传 Metadata 时，后台可以通过白名单自动匹配；所有规则均未命中则默认返回 `0.2.10`。
+显式传入 Metadata 可以消除该不确定性。验证脚本会断言 SDK 看到的值正好是 `0.4.0`，
+不会给 SDK 打版本 gate 补丁。
+
+Cloud API 和完整 request body 使用 `Name/Value`；`agr instance create --metadata`
+便捷参数使用 `Key/Value` 并负责转换为 Cloud API 结构。本示例脚本使用 CLI 形式。
+
+同时应使用不再合成默认 cwd 的 SandPortal 版本。当前实现会原样转发缺失的 cwd，让 envd
+使用业务镜像 OCI `WORKDIR`。可通过以下方式查看 SDK 收到的版本：
 
 ```python
 print(sandbox._envd_version)          # 控制面上报的版本
@@ -442,8 +460,8 @@ sandbox.commands.run("/opt/envd/usr/bin/envd -version", user="root")   # 实际�
 |---|---|
 | 命令以 root 而非 OCI `USER` 执行 | `ENVD_VERSION` 是否为 `0.5.14-modified`；沙箱内 `envd -version` |
 | 命令在 `/root` 而非 OCI `WORKDIR` 执行 | 同上；只有修改版会记录启动 cwd |
-| `invalid username: 'user'` | 控制面 envd 版本低于 `0.4.0`，见上文 |
-| `Invalid API key format` | 需 `e2b >= 2.30` 且 `E2B_VALIDATE_API_KEY=false` |
+| `invalid username: 'user'` | Instance Metadata 缺少 `x-envd-version=0.4.0` |
+| `Invalid API key format` | 将 `ark_` 换为 `e2b_`，使用 `e2b >= 2.30` 并设置 `E2B_VALIDATE_API_KEY=false` |
 | 显式 `user="root"` 失败 | `stat` 挂载后的 envd：必须是 `0:0` 且 `4755` |
 | `NoNewPrivs: 1` 或挂载带 `nosuid` | setuid 位被抑制，沙箱无法切换用户 |
 | 命令因 cwd 权限失败 | 错误信息已含用户和目录；检查每一级父目录的 search 权限 |

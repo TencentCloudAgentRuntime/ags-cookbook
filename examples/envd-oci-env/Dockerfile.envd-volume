@@ -73,6 +73,7 @@ COPY --from=envd-builder /staged/usr/bin/envd /usr/bin/envd
 
 LABEL org.opencontainers.image.title="envd Image Volume" \
       org.opencontainers.image.description="setuid envd for AGS StorageMounts.Image; provides /usr/bin/envd (0:0, mode 4755) only" \
+      org.opencontainers.image.revision="${ENVD_BUILD_REVISION}" \
       com.tencent.ags.envd.version="${ENVD_VERSION}" \
       com.tencent.ags.envd.build-revision="${ENVD_BUILD_REVISION}" \
       com.tencent.ags.envd.path="/usr/bin/envd" \

@@ -30,7 +30,9 @@ import (
 // CaptureStartupIdentity and MatchesCurrentProcess report in that state.
 //
 // They need root to chown/chmod the wrapper and are skipped otherwise. Set
-// ENVD_SKIP_PRIVILEGED_TESTS=1 to skip them even as root.
+// ENVD_SKIP_PRIVILEGED_TESTS=1 to skip them even as root. Release validation sets
+// ENVD_REQUIRE_PRIVILEGED_TESTS=1, which turns every unavailable/skip condition
+// into a hard failure.
 
 const (
 	setuidProbeEnv = "ENVD_SETUID_IDENTITY_PROBE"
@@ -152,11 +154,11 @@ func runUnderSetuid(t *testing.T) identityProbe {
 	t.Helper()
 
 	if os.Getenv("ENVD_SKIP_PRIVILEGED_TESTS") == "1" {
-		t.Skip("ENVD_SKIP_PRIVILEGED_TESTS=1: skipping setuid identity tests")
+		privilegedUnavailable(t, "ENVD_SKIP_PRIVILEGED_TESTS=1: skipping setuid identity tests")
 	}
 
 	if os.Geteuid() != 0 {
-		t.Skip("setuid identity tests need an effective UID of 0 to prepare the wrapper")
+		privilegedUnavailable(t, "setuid identity tests need an effective UID of 0 to prepare the wrapper")
 	}
 
 	self, err := os.Executable()
@@ -200,7 +202,7 @@ func runUnderSetuid(t *testing.T) identityProbe {
 
 	output, err := cmd.Output()
 	if err != nil {
-		t.Skipf("could not execute the setuid probe (filesystem may be mounted nosuid): %v", err)
+		privilegedUnavailable(t, "could not execute the setuid probe (filesystem may be mounted nosuid): %v", err)
 	}
 
 	var probe identityProbe
@@ -208,6 +210,16 @@ func runUnderSetuid(t *testing.T) identityProbe {
 		"probe output was: %q", output)
 
 	return probe
+}
+
+func privilegedUnavailable(t *testing.T, format string, args ...any) {
+	t.Helper()
+
+	if os.Getenv("ENVD_REQUIRE_PRIVILEGED_TESTS") == "1" {
+		t.Fatalf(format, args...)
+	}
+
+	t.Skipf(format, args...)
 }
 
 // TestSetuidCaptureUsesRealIdentity is the contract under genuine setuid: the

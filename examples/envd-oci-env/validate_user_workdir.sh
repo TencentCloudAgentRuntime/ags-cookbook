@@ -10,17 +10,19 @@
 #
 # Required:
 #   TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY  control plane
-#   E2B_API_KEY / E2B_DOMAIN                          data plane
+#   AGS_API_KEY / E2B_DOMAIN                          data plane
 #   ENVD_VOLUME_IMAGE                                 envd Image Volume reference
+#   ENVD_VOLUME_IMAGE_DIGEST                          expected manifest digest
 #   FIXTURE_A_IMAGE                                   business fixture A
+#   FIXTURE_B_IMAGE                                   numeric-UID business fixture B
 #   AGS_ROLE_ARN                                      CAM role that can read the registry
 #
 # Optional:
-#   FIXTURE_B_IMAGE            also test the numeric-UID fixture
 #   TENCENTCLOUD_REGION        default ap-guangzhou
 #   ENVD_VOLUME_MOUNT_PATH     default /opt/envd
 #   AGS_INSTANCE_TIMEOUT       default 20m (the spec caps this at 30m)
 #   ENVD_IMAGE_REGISTRY_TYPE   default personal
+#   AGS_ENVD_VERSION_METADATA  default 0.4.0
 set -Eeuo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,16 +35,32 @@ fi
 
 : "${TENCENTCLOUD_SECRET_ID:?TENCENTCLOUD_SECRET_ID is required}"
 : "${TENCENTCLOUD_SECRET_KEY:?TENCENTCLOUD_SECRET_KEY is required}"
-: "${E2B_API_KEY:?E2B_API_KEY is required}"
+: "${AGS_API_KEY:=${E2B_API_KEY:-}}"
+: "${AGS_API_KEY:?AGS_API_KEY is required}"
 : "${E2B_DOMAIN:?E2B_DOMAIN is required}"
 : "${ENVD_VOLUME_IMAGE:?ENVD_VOLUME_IMAGE is required}"
+: "${ENVD_VOLUME_IMAGE_DIGEST:?ENVD_VOLUME_IMAGE_DIGEST is required}"
 : "${FIXTURE_A_IMAGE:?FIXTURE_A_IMAGE is required}"
+: "${FIXTURE_B_IMAGE:?FIXTURE_B_IMAGE is required}"
 : "${AGS_ROLE_ARN:?AGS_ROLE_ARN is required}"
+: "${ENVD_EXPECTED_COMMIT:?ENVD_EXPECTED_COMMIT is required}"
 
 REGION="${TENCENTCLOUD_REGION:-ap-guangzhou}"
 MOUNT_PATH="${ENVD_VOLUME_MOUNT_PATH:-/opt/envd}"
 INSTANCE_TIMEOUT="${AGS_INSTANCE_TIMEOUT:-20m}"
 REGISTRY_TYPE="${ENVD_IMAGE_REGISTRY_TYPE:-personal}"
+ENVD_VERSION_METADATA="${AGS_ENVD_VERSION_METADATA:-0.4.0}"
+
+# AGS issues ark_ keys. Its E2B-compatible data plane accepts the same secret
+# with an e2b_ prefix. SDK 2.35 still rejects AGS's non-hex suffix locally, so
+# use its supported validation opt-out; the backend continues to authenticate
+# the normalized key. The envd version gate is never patched.
+case "${AGS_API_KEY}" in
+  ark_*) export E2B_API_KEY="e2b_${AGS_API_KEY#ark_}" ;;
+  e2b_*) export E2B_API_KEY="${AGS_API_KEY}" ;;
+  *) echo "AGS_API_KEY must start with ark_ (or already be normalized to e2b_)" >&2; exit 1 ;;
+esac
+export E2B_VALIDATE_API_KEY=false
 
 # `latest` cannot be pinned to a digest, so the delivery would not be identifiable.
 # A reference with no tag at all also resolves to `latest`, and tags are matched
@@ -74,13 +92,16 @@ if ! [[ "${timeout_minutes}" =~ ^[0-9]+$ ]] || (( timeout_minutes > 30 )) || (( 
 fi
 
 command -v agr >/dev/null 2>&1 || { echo "agr is required" >&2; exit 1; }
+command -v uv >/dev/null 2>&1 || { echo "uv is required" >&2; exit 1; }
 
 agr_args=(--region "${REGION}" -o json)
 
 # One prefix per run, so cleanup and the leftover check can be scoped exactly.
 run_prefix="envd-userworkdir-$(date +%s)-$$"
+expected_tool_names=("${run_prefix}-a" "${run_prefix}-b")
 created_tools=()
 created_instances=()
+cleanup_failed=0
 
 cleanup() {
   local exit_code=$?
@@ -92,49 +113,64 @@ cleanup() {
   for instance in "${created_instances[@]:-}"; do
     [[ -n "${instance}" ]] || continue
     printf '   instance %s: ' "${instance:0:12}..."
-    agr instance delete "${instance}" "${agr_args[@]}" --ignore-not-found \
-      --jq '.Status' 2>/dev/null || echo "delete failed"
+    if ! agr instance delete "${instance}" "${agr_args[@]}" --ignore-not-found \
+      --jq '.Status' 2>/dev/null; then
+      echo "delete failed"
+      cleanup_failed=1
+    fi
   done
 
   for tool in "${created_tools[@]:-}"; do
     [[ -n "${tool}" ]] || continue
     printf '   tool %s: ' "${tool}"
-    agr tool delete "${tool}" "${agr_args[@]}" --jq '.Status' 2>/dev/null || echo "delete failed"
+    if ! agr tool delete "${tool}" "${agr_args[@]}" --jq '.Status' 2>/dev/null; then
+      echo "delete failed"
+      cleanup_failed=1
+    fi
   done
 
   # Prove the cleanup rather than assume it.
   #
-  # `agr tool list` caps --limit at 100 and returns the rows under Data.Items.
-  # Getting either wrong, or swallowing the error, produces a reassuring "0" that
-  # means nothing — so the count is only trusted when the query itself succeeded.
+  # Query each exact expected name server-side. An unfiltered first page can miss
+  # a leftover in an account with more than 100 Tools, especially if create
+  # succeeded remotely but local response parsing failed before its id was saved.
   echo "   leftover check for prefix ${run_prefix}:"
 
-  local listing
-  if ! listing="$(agr tool list --limit 100 "${agr_args[@]}" 2>&1)"; then
-    echo "     WARNING: could not list tools; verify manually with:" >&2
-    echo "       agr tool list --limit 100 --region ${REGION} -o json" >&2
-  else
-    printf '%s' "${listing}" | python3 -c "
+  local expected_name listing
+  for expected_name in "${expected_tool_names[@]}"; do
+    if ! listing="$(agr tool list --limit 100 \
+      --filters "[{\"Name\":\"ToolName\",\"Values\":[\"${expected_name}\"]}]" \
+      "${agr_args[@]}" 2>&1)"; then
+      echo "     FAIL: could not query Tool ${expected_name}" >&2
+      cleanup_failed=1
+      continue
+    fi
+
+    if ! printf '%s' "${listing}" | EXPECTED_TOOL_NAME="${expected_name}" python3 -c "
 import json, sys
+import os
 
 payload = json.load(sys.stdin)
 if payload.get('Status') != 'succeeded':
-    print('     WARNING: tool list failed:', str(payload.get('Failure'))[:160])
-    raise SystemExit(0)
+    print('     FAIL: tool list failed:', str(payload.get('Failure'))[:160])
+    raise SystemExit(1)
 
 items = (payload.get('Data') or {}).get('Items')
 if items is None:
-    print('     WARNING: unexpected response shape; keys:',
+    print('     FAIL: unexpected response shape; keys:',
           list((payload.get('Data') or {}).keys()))
-    raise SystemExit(0)
+    raise SystemExit(1)
 
-prefix = '${run_prefix}'
-leftover = [t for t in items if prefix in str(t.get('ToolName', ''))]
-print(f'     tools matching prefix: {len(leftover)} (of {len(items)} listed)')
+expected = os.environ['EXPECTED_TOOL_NAME']
+leftover = [t for t in items if t.get('ToolName') == expected]
+print(f'     {expected}: {len(leftover)} matching tools')
 for tool in leftover:
     print('       LEFTOVER:', tool.get('ToolName'), tool.get('ToolId'))
-"
-  fi
+raise SystemExit(1 if leftover else 0)
+"; then
+      cleanup_failed=1
+    fi
+  done
 
   # Instances are checked too: deleting a Tool does not imply its Instances are
   # gone. An unfiltered `agr instance list` is useless for this: it returns only
@@ -146,42 +182,52 @@ for tool in leftover:
 
     local instance_listing
     if ! instance_listing="$(agr instance list --tool-id "${tool}" "${agr_args[@]}" 2>&1)"; then
-      echo "     WARNING: could not list instances for ${tool}; verify manually with:" >&2
+      echo "     FAIL: could not list instances for ${tool}; verify manually with:" >&2
       echo "       agr instance list --tool-id ${tool} --region ${REGION} -o json" >&2
+      cleanup_failed=1
       continue
     fi
 
-    printf '%s' "${instance_listing}" | TOOL_ID="${tool}" python3 -c "
+    if ! printf '%s' "${instance_listing}" | TOOL_ID="${tool}" python3 -c "
 import json, os, sys
 
 payload = json.load(sys.stdin)
 tool_id = os.environ['TOOL_ID']
 
 if payload.get('Status') != 'succeeded':
-    print(f'     WARNING: instance list for {tool_id} failed:',
+    print(f'     FAIL: instance list for {tool_id} failed:',
           str(payload.get('Failure'))[:160])
-    raise SystemExit(0)
+    raise SystemExit(1)
 
 data = payload.get('Data') or {}
 items = data.get('Items')
 if items is None:
-    print('     WARNING: unexpected response shape; keys:', list(data.keys()))
-    raise SystemExit(0)
+    print('     FAIL: unexpected response shape; keys:', list(data.keys()))
+    raise SystemExit(1)
 
-terminal = {'STOPPED', 'DELETED', 'TERMINATED', 'STOP_FAILED', 'FAILED'}
+terminal = {'STOPPED', 'DELETED', 'TERMINATED'}
 live = [i for i in items if i.get('Status') not in terminal]
 print(f'     {tool_id}: {len(live)} non-terminal of {len(items)} instances')
 for inst in live:
     print('       LIVE:', str(inst.get('InstanceId'))[:14] + '...', inst.get('Status'))
-"
+raise SystemExit(1 if live else 0)
+"; then
+      cleanup_failed=1
+    fi
   done
 
-  exit "${exit_code}"
+  trap - EXIT
+  if (( exit_code != 0 || cleanup_failed != 0 )); then
+    exit 1
+  fi
+
+  exit 0
 }
 trap cleanup EXIT
 
 pre_cache() {
   local image="$1"
+  local expected_digest="${2:-}"
   echo "== pre-caching ${image}"
 
   local digest
@@ -203,7 +249,14 @@ pre_cache() {
         --jq '.Data.Status'
     )"
     case "${status}" in
-      Success) echo "   ready, digest ${digest}"; return 0 ;;
+      Success)
+        echo "   ready, digest ${digest}"
+        if [[ -n "${expected_digest}" && "${digest}" != "${expected_digest}" ]]; then
+          echo "   pre-cache digest mismatch: expected ${expected_digest}" >&2
+          return 1
+        fi
+        return 0
+        ;;
       Failed)  echo "   pre-cache failed for ${image}" >&2; return 1 ;;
     esac
     sleep 5
@@ -233,7 +286,7 @@ wait_for_instance() {
     status="$(agr instance get "${instance_id}" "${agr_args[@]}" --jq '.Data.Status')"
     case "${status}" in
       RUNNING) return 0 ;;
-      FAILED | STARTING_FAILED | STOPPING_FAILED)
+      FAILED | STARTING_FAILED | STOP_FAILED | STOPPING_FAILED)
         echo "instance ${instance_id} is ${status}" >&2; return 1 ;;
     esac
     sleep 5
@@ -306,10 +359,13 @@ print(json.dumps({
   wait_for_tool "${tool_id}"
 
   local instance_id
+  # The Cloud API field is Name/Value. agr's --metadata convenience flag
+  # intentionally accepts Key/Value and maps it to that request shape.
   instance_id="$(
     agr instance create \
       --tool-id "${tool_id}" \
       --timeout "${INSTANCE_TIMEOUT}" \
+      --metadata "[{\"Key\":\"x-envd-version\",\"Value\":\"${ENVD_VERSION_METADATA}\"}]" \
       "${agr_args[@]}" \
       --jq '.Data.InstanceId'
   )"
@@ -317,17 +373,15 @@ print(json.dumps({
   echo "   instance ${instance_id:0:12}..."
   wait_for_instance "${instance_id}"
 
-  AGS_SANDBOX_ID="${instance_id}" python3 "${script_dir}/validate_user_workdir.py" "${key}"
+  (
+    cd "${script_dir}"
+    AGS_SANDBOX_ID="${instance_id}" uv run --frozen python validate_user_workdir.py "${key}"
+  )
 }
 
+pre_cache "${ENVD_VOLUME_IMAGE}" "${ENVD_VOLUME_IMAGE_DIGEST}"
 run_fixture a "${FIXTURE_A_IMAGE}"
-
-if [[ -n "${FIXTURE_B_IMAGE:-}" ]]; then
-  run_fixture b "${FIXTURE_B_IMAGE}"
-else
-  echo
-  echo "== FIXTURE_B_IMAGE not set: the numeric-UID case is UNVERIFIED in this run"
-fi
+run_fixture b "${FIXTURE_B_IMAGE}"
 
 echo
 echo "== all requested fixtures passed"

@@ -29,7 +29,9 @@ import (
 // developer while CI (which runs as root in the golang container) exercises
 // them.
 //
-// Set ENVD_SKIP_PRIVILEGED_TESTS=1 to skip them even as root.
+// Set ENVD_SKIP_PRIVILEGED_TESTS=1 to skip them even as root. Release validation
+// sets ENVD_REQUIRE_PRIVILEGED_TESTS=1, which turns an unavailable privileged
+// environment into a hard failure.
 
 const (
 	// A UID/GID pair that is very unlikely to collide with a real account in the
@@ -45,10 +47,18 @@ func requirePrivileged(t *testing.T) {
 	t.Helper()
 
 	if os.Getenv("ENVD_SKIP_PRIVILEGED_TESTS") == "1" {
+		if os.Getenv("ENVD_REQUIRE_PRIVILEGED_TESTS") == "1" {
+			t.Fatal("ENVD_SKIP_PRIVILEGED_TESTS conflicts with ENVD_REQUIRE_PRIVILEGED_TESTS")
+		}
+
 		t.Skip("ENVD_SKIP_PRIVILEGED_TESTS=1: skipping privileged identity tests")
 	}
 
 	if os.Geteuid() != 0 {
+		if os.Getenv("ENVD_REQUIRE_PRIVILEGED_TESTS") == "1" {
+			t.Fatal("privileged identity tests require effective UID 0")
+		}
+
 		t.Skip("privileged identity tests need an effective UID of 0 to set credentials")
 	}
 }

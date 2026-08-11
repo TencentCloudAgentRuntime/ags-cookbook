@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 
 ROOT_DIR := ../..
+REPO_COMMIT := $(shell git -C "$(ROOT_DIR)" rev-parse HEAD)
 
 -include .env
 
@@ -14,12 +15,16 @@ export AGS_EXEC_USER
 export BASE_IMAGE
 export ENVD_VERSION
 export ENVD_VOLUME_IMAGE
+export ENVD_VOLUME_IMAGE_DIGEST
 export FIXTURE_A_IMAGE
 export FIXTURE_B_IMAGE
 export ENVD_VOLUME_MOUNT_PATH
 export AGS_INSTANCE_TIMEOUT
+export AGS_ENVD_VERSION_METADATA
+export AGS_API_KEY
 export E2B_API_KEY
 export E2B_DOMAIN
+export ENVD_EXPECTED_COMMIT
 
 # `?=` alone is not enough here: the `export ENVD_VERSION` above defines the
 # variable as empty when it is absent from the environment and from .env, so the
@@ -33,7 +38,7 @@ GO_VERSION := 1.25.9
 ENVD_BUILD_REVISION := a3fb26e-execenv
 else ifeq ($(ENVD_VERSION),0.5.14-modified)
 GO_VERSION := 1.25.9
-ENVD_BUILD_REVISION := a3fb26e-modified
+ENVD_BUILD_REVISION := $(REPO_COMMIT)
 else ifeq ($(ENVD_VERSION),0.2.11)
 GO_VERSION := 1.24.3
 ENVD_BUILD_REVISION := 1af78dd3-execenv
@@ -41,10 +46,19 @@ else
 $(error unsupported ENVD_VERSION "$(ENVD_VERSION)"; choose 0.5.14, 0.5.14-modified, or 0.2.11)
 endif
 
-ENVD_VOLUME_MOUNT_PATH ?= /opt/envd
-AGS_INSTANCE_TIMEOUT ?= 20m
+ifeq ($(strip $(ENVD_VOLUME_MOUNT_PATH)),)
+ENVD_VOLUME_MOUNT_PATH := /opt/envd
+endif
+ifeq ($(strip $(AGS_INSTANCE_TIMEOUT)),)
+AGS_INSTANCE_TIMEOUT := 20m
+endif
+ifeq ($(strip $(AGS_ENVD_VERSION_METADATA)),)
+AGS_ENVD_VERSION_METADATA := 0.4.0
+endif
+ENVD_EXPECTED_COMMIT := $(ENVD_BUILD_REVISION)
 
 .PHONY: help setup verify build push pre-cache run all \
+        assert-clean-source \
         envd-volume-build envd-volume-verify envd-volume-push \
         fixtures-build fixtures-push user-workdir-build user-workdir-push \
         run-user-workdir
@@ -72,6 +86,8 @@ help:
 
 setup:
 	@test -e .env || cp .env.example .env
+	@command -v uv >/dev/null 2>&1 || { echo "uv is required"; exit 1; }
+	@uv sync --frozen
 	@echo "Edit examples/envd-oci-env/.env before continuing."
 
 verify:
@@ -110,11 +126,21 @@ all: verify build push run
 # ENVD_VERSION must be 0.5.14-modified for these targets: the OCI User/Workdir
 # defaults only exist in that distribution.
 
-envd-volume-build:
+assert-clean-source:
+	@status="$$(git -C "$(ROOT_DIR)" status --porcelain --untracked-files=normal)"; \
+		test -z "$$status" || { \
+			echo "the repository must be clean before building a traceable Image Volume"; \
+			printf '%s\n' "$$status"; exit 1; \
+		}
+	@test "$$(git -C "$(ROOT_DIR)" rev-parse HEAD)" = "$(ENVD_BUILD_REVISION)" || { \
+		echo "ENVD_BUILD_REVISION must equal the repository HEAD"; exit 1; }
+
+envd-volume-build: assert-clean-source
 	@test -n "$(ENVD_VOLUME_IMAGE)" || { echo "ENVD_VOLUME_IMAGE is required"; exit 1; }
 	@test "$(ENVD_VERSION)" = 0.5.14-modified || { \
 		echo "ENVD_VERSION must be 0.5.14-modified for the Image Volume artifact"; exit 1; }
 	@$(MAKE) -C "$(ROOT_DIR)/utils/envd" test VERSION="$(ENVD_VERSION)"
+	@$(MAKE) -C "$(ROOT_DIR)/utils/envd" test-privileged VERSION="$(ENVD_VERSION)"
 	docker build \
 		--platform linux/amd64 \
 		--build-arg ENVD_VERSION="$(ENVD_VERSION)" \
@@ -130,7 +156,8 @@ envd-volume-build:
 # and a runtime chmod is not an option.
 envd-volume-verify:
 	@test -n "$(ENVD_VOLUME_IMAGE)" || { echo "ENVD_VOLUME_IMAGE is required"; exit 1; }
-	@./verify-envd-volume.sh "$(ENVD_VOLUME_IMAGE)"
+	@test -n "$(ENVD_BUILD_REVISION)" || { echo "ENVD_BUILD_REVISION is required"; exit 1; }
+	@./verify-envd-volume.sh "$(ENVD_VOLUME_IMAGE)" "$(ENVD_BUILD_REVISION)"
 
 envd-volume-push: envd-volume-verify
 	docker push "$(ENVD_VOLUME_IMAGE)"

@@ -68,7 +68,7 @@ The switch is enabled only when its value is exactly `1`. If it is absent or
 has another value, envd keeps its original behavior.
 
 `0.5.14-modified` takes a different approach: it snapshots envd's startup
-environment and effective identity and uses them as defaults for commands and
+environment and real identity and uses them as defaults for commands and
 filesystem operations. Environment inheritance is always active in this
 distribution, independently of `EXEC_ENABLE_ALL_ENV`. This also allows envd to
 run unprivileged without trying to reapply its own credentials. Its binary
@@ -403,6 +403,8 @@ Expected output:
    OK: owner is 0:0
    OK: mode is -rwsr-xr-x (4755), setuid bit present
    sha256:     <binary digest>
+   envd commit:<repository commit>
+   image commit:<repository commit>
 VERIFY OK: ... carries /usr/bin/envd as 0:0 mode 4755
 ```
 
@@ -440,27 +442,48 @@ accepted values with `agr schema` rather than copying them from older documents.
 `Probe.ReadyTimeoutMs` is capped at `30000`.
 
 `validate_user_workdir.sh` deletes every Tool and Instance it creates, including on
-failure, and reports how many resources still match its run prefix.
+failure, and fails the run if cleanup cannot be proven. It pre-caches the envd
+Image Volume and both business fixtures; the volume digest returned by AGS must
+equal `ENVD_VOLUME_IMAGE_DIGEST`.
 
-## Two prerequisites when running against AGS
+## Two AGS integration settings
 
-**The SDK rejects the AGS API key format.** `e2b` validates API keys against
-`^e2b_[0-9a-f]+$` and AGS issues `ark_`-prefixed keys. Use `e2b >= 2.30` and set
-`E2B_VALIDATE_API_KEY=false`, or pass `validate_api_key=False`. Versions below
-2.30 have no opt-out.
+**Normalize the API-key prefix.** AGS issues an `ark_...` key. Replace only the
+`ark_` prefix with `e2b_` before giving it to the E2B SDK; the AGS data plane
+accepts the normalized key. SDK 2.35 still rejects AGS's non-hex suffix locally,
+so use `e2b >= 2.30` with `E2B_VALIDATE_API_KEY=false`. The script performs both
+steps from `AGS_API_KEY` without printing the secret.
 
-**The default-user cases need a correct envd version from the control plane.** The
-SDK injects its historical default username `user` whenever the control plane
-reports an envd version below `0.4.0`:
+**Set the envd compatibility version in Instance Metadata.** In the Cloud API or
+a full `--request` body, create each sandbox with:
+
+```yaml
+- Name: x-envd-version
+  Value: 0.4.0
+```
+
+The SDK injects its historical default username `user` whenever the reported
+version is below `0.4.0`:
 
 ```python
 if user is None and envd_version < ENVD_DEFAULT_USER:   # 0.4.0
     user = default_username                             # "user"
 ```
 
-A business image has no `user` account, so envd rejects it and the request fails
-with `invalid username: 'user'`. The explicit-`user` cases are unaffected. Check
-what your deployment reports before concluding that envd is at fault:
+A backend whitelist may supply the value when Metadata is absent; if no rule
+matches, AGS reports `0.2.10`. Passing Metadata makes the behavior deterministic.
+The validation asserts that the SDK sees exactly `0.4.0` and never patches the
+SDK version gate.
+
+The Cloud API and full request body use `Name/Value`. The `agr instance create
+--metadata` convenience flag uses `Key/Value` and maps it to the Cloud API shape;
+the included script follows the CLI form.
+
+The SandPortal path must also be a version that does not synthesize a default
+cwd. The current implementation forwards an omitted cwd unchanged, allowing
+envd to use the business image's OCI `WORKDIR`.
+
+To inspect the value seen by the SDK:
 
 ```python
 print(sandbox._envd_version)          # what the control plane advertises
@@ -473,8 +496,8 @@ sandbox.commands.run("/opt/envd/usr/bin/envd -version", user="root")   # what is
 |---|---|
 | commands run as root instead of the OCI `USER` | `ENVD_VERSION` is `0.5.14-modified`; `envd -version` in the sandbox |
 | commands run in `/root` instead of the OCI `WORKDIR` | same as above; the modified distribution captures the startup cwd |
-| `invalid username: 'user'` | the control-plane envd version is below `0.4.0`; see above |
-| `Invalid API key format` | `e2b >= 2.30` plus `E2B_VALIDATE_API_KEY=false` |
+| `invalid username: 'user'` | Instance Metadata is missing `x-envd-version=0.4.0` |
+| `Invalid API key format` | normalize `ark_` to `e2b_`, use `e2b >= 2.30`, and set `E2B_VALIDATE_API_KEY=false` |
 | explicit `user="root"` fails | `stat` the mounted envd: it must be `0:0` and `4755` |
 | `NoNewPrivs: 1`, or `nosuid` on the mount | the setuid bit is suppressed; the sandbox cannot switch users |
 | a command fails with a permission error on its cwd | the error names the user and the directory; check search permission on every parent |
