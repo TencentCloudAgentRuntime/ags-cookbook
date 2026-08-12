@@ -141,7 +141,7 @@ func (fw *FileWatcher) Close() {
 }
 
 func (s Service) CreateWatcher(ctx context.Context, req *connect.Request[rpc.CreateWatcherRequest]) (*connect.Response[rpc.CreateWatcherResponse], error) {
-	u, err := permissions.GetAuthUser(ctx, s.defaults)
+	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
 	if err != nil {
 		return nil, err
 	}

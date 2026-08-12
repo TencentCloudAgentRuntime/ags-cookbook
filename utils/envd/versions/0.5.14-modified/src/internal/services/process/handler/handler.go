@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -45,10 +47,6 @@ type Handler struct {
 	cmd *exec.Cmd
 	tty *os.File
 
-	// identity is the resolved target identity, kept so a start failure can be
-	// reported with the user and cwd that produced it.
-	identity *execcontext.Identity
-
 	cancel context.CancelFunc
 
 	outCtx    context.Context //nolint:containedctx // todo: refactor so this can be removed
@@ -74,7 +72,7 @@ func (p *Handler) userCommand() string {
 
 func New(
 	ctx context.Context,
-	identity *execcontext.Identity,
+	user *user.User,
 	req *rpc.StartRequest,
 	logger *zerolog.Logger,
 	defaults *execcontext.Defaults,
@@ -84,14 +82,15 @@ func New(
 	// User command string for logging (without the internal wrapper details).
 	userCmd := strings.Join(append([]string{req.GetProcess().GetCmd()}, req.GetProcess().GetArgs()...), " ")
 
-	if identity == nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("no identity resolved for command"))
-	}
-
 	// Start the requested executable directly. In particular, do not adjust its
 	// nice or OOM score: those operations may require privileges that envd does
 	// not have when it is itself running as an unprivileged user.
 	cmd := exec.CommandContext(ctx, req.GetProcess().GetCmd(), req.GetProcess().GetArgs()...)
+
+	uid, gid, err := permissions.GetUserIdUints(user)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 
 	cgroupFD, ok := cgroupManager.GetFileDescriptor(getProcType(req))
 
@@ -100,35 +99,30 @@ func New(
 		CgroupFD:    cgroupFD,
 	}
 
-	// Only inherit credentials when the child would already have exactly this
-	// identity. The comparison is against envd's *effective* IDs and current
-	// group list: under setuid the real UID equals the default target while the
-	// effective UID is 0, so comparing real IDs would skip the Credential and
-	// leak a root effective UID to the command.
-	//
-	// Inheriting when the identity already matches also keeps an unprivileged
-	// envd working: setgroups requires privileges even when the group list is
-	// unchanged.
-	if !identity.MatchesCurrentProcess() {
+	// When the requested identity is envd's own identity, inheriting credentials
+	// both preserves supplementary groups exactly and works for an unprivileged
+	// envd process. Calling setgroups, even with the same groups, requires extra
+	// privileges on Linux.
+	if uid != uint32(os.Geteuid()) || gid != uint32(os.Getegid()) {
+		groups := []uint32{gid}
+		if gids, err := user.GroupIds(); err != nil {
+			logger.Warn().Err(err).Str("user", user.Username).Msg("failed to get supplementary groups")
+		} else {
+			for _, g := range gids {
+				if parsed, err := strconv.ParseUint(g, 10, 32); err == nil {
+					groups = append(groups, uint32(parsed))
+				}
+			}
+		}
+
 		cmd.SysProcAttr.Credential = &syscall.Credential{
-			Uid:    identity.UID,
-			Gid:    identity.GID,
-			Groups: identity.Groups,
+			Uid:    uid,
+			Gid:    gid,
+			Groups: groups,
 		}
 	}
 
-	if identity.GroupsIncomplete {
-		// The command still runs with the correct primary identity, but a group
-		// membership it should have had may be missing. Say so rather than letting
-		// a later permission error look inexplicable.
-		logger.Warn().
-			Str("user", identity.Username).
-			Uint32("uid", identity.UID).
-			Uint32("gid", identity.GID).
-			Msg("supplementary groups could not be read; running with the primary group only")
-	}
-
-	resolvedPath, err := permissions.ExpandAndResolve(req.GetProcess().GetCwd(), identity.User(), defaults.Workdir)
+	resolvedPath, err := permissions.ExpandAndResolve(req.GetProcess().GetCwd(), user, defaults.Workdir)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -145,6 +139,9 @@ func New(
 	// Take only 'PATH' variable from the current environment
 	// The 'PATH' should ideally be set in the environment
 	formattedVars = append(formattedVars, "PATH="+os.Getenv("PATH"))
+	formattedVars = append(formattedVars, "HOME="+user.HomeDir)
+	formattedVars = append(formattedVars, "USER="+user.Username)
+	formattedVars = append(formattedVars, "LOGNAME="+user.Username)
 
 	// Add the environment variables from the global environment
 	if defaults.EnvVars != nil {
@@ -154,16 +151,6 @@ func New(
 			return true
 		})
 	}
-
-	// Identity and location variables are written after the startup snapshot so
-	// they describe the process actually being started. The snapshot carries
-	// envd's own HOME/USER/LOGNAME/PWD, which are wrong for an explicit user or an
-	// explicit cwd; leaving them last would tell the command it is someone else,
-	// somewhere else. Request-level variables still come after and win.
-	formattedVars = append(formattedVars, "HOME="+identity.HomeDir)
-	formattedVars = append(formattedVars, "USER="+identity.Username)
-	formattedVars = append(formattedVars, "LOGNAME="+identity.Username)
-	formattedVars = append(formattedVars, "PWD="+resolvedPath)
 
 	// Only the last values of the env vars are used - this allows for overwriting defaults
 	for key, value := range req.GetProcess().GetEnvs() {
@@ -183,7 +170,6 @@ func New(
 	h := &Handler{
 		Config:    req.GetProcess(),
 		cmd:       cmd,
-		identity:  identity,
 		Tag:       req.Tag,
 		DataEvent: outMultiplex,
 		cancel:    cancel,
@@ -201,14 +187,7 @@ func New(
 			Rows: uint16(req.GetPty().GetSize().GetRows()),
 		})
 		if err != nil {
-			// The kernel decides whether the target identity may enter cmd.Dir. When
-			// it refuses, exec reports a bare EACCES/EPERM naming neither the user nor
-			// the directory, so the context is added here.
-			return nil, connect.NewError(StartErrorCode(err), fmt.Errorf(
-				"error starting pty with command '%s' with '%d' cols and '%d' rows: %s: %w",
-				userCmd, req.GetPty().GetSize().GetCols(), req.GetPty().GetSize().GetRows(),
-				permissions.CwdFailureContext(cmd.Dir, identity), err,
-			))
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("error starting pty with command '%s' in dir '%s' with '%d' cols and '%d' rows: %w", userCmd, cmd.Dir, req.GetPty().GetSize().GetCols(), req.GetPty().GetSize().GetRows(), err))
 		}
 
 		outWg.Go(func() {
@@ -348,17 +327,6 @@ func New(
 	return h, nil
 }
 
-// StartErrorCode maps an exec failure to a Connect code. A permission refusal
-// from the kernel is reported as PermissionDenied so a caller can tell it apart
-// from a malformed request.
-func StartErrorCode(err error) connect.Code {
-	if errors.Is(err, os.ErrPermission) {
-		return connect.CodePermissionDenied
-	}
-
-	return connect.CodeInvalidArgument
-}
-
 func getProcType(req *rpc.StartRequest) cgroups.ProcessType {
 	if req != nil && req.GetPty() != nil {
 		return cgroups.ProcessTypePTY
@@ -447,11 +415,7 @@ func (p *Handler) Start(requestTimeout time.Duration) (uint32, error) {
 	if p.tty == nil {
 		err := p.cmd.Start()
 		if err != nil {
-			// The kernel is the authority on whether the target identity can enter
-			// cmd.Dir. Its refusal is a bare EACCES/EPERM that names neither the user
-			// nor the directory, so the context is added here.
-			return 0, fmt.Errorf("error starting process '%s': %s: %w",
-				p.userCommand(), permissions.CwdFailureContext(p.cmd.Dir, p.identity), err)
+			return 0, fmt.Errorf("error starting process '%s': %w", p.userCommand(), err)
 		}
 	}
 

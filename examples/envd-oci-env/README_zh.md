@@ -32,12 +32,13 @@ envd 创建新进程时，会明确设置这个进程的环境变量列表。
 
 ## 我们修改了什么
 
-仓库提供三个可以独立构建的源码分发版本：
+仓库提供四个可以独立构建的源码分发版本：
 
 | envd 版本 | 源码路径 | 公开源码版本 |
 |---|---|---|
 | `0.5.14` | `utils/envd/versions/0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
 | `0.5.14-modified` | `utils/envd/versions/0.5.14-modified` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
+| `0.5.14-oci` | `utils/envd/versions/0.5.14-oci` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
 | `0.2.11` | `utils/envd/versions/0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` |
 
 `0.5.14` 和 `0.2.11` 增加了以下开关：
@@ -63,10 +64,14 @@ if os.Getenv("EXEC_ENABLE_ALL_ENV") == "1" {
 只有值为 `1` 时才会开启。没有设置该变量，或者设置成其他值，envd 都保持原来的
 行为。
 
-`0.5.14-modified` 采用不同方式：它记录 envd 启动时的环境和真实身份，并将其作为
+`0.5.14-modified` 采用不同方式：它记录 envd 启动时的环境和有效身份，并将其作为
 命令及文件系统操作的默认值。该分发版本始终继承环境，不受
 `EXEC_ENABLE_ALL_ENV` 控制；同时，非特权 envd 无需重新设置自身凭据。二进制报告的
 版本仍为 `0.5.14`。
+
+`0.5.14-oci` 是与其同级的独立分发版本：保留始终启用的默认值，改为从 real UID、
+GID 和 supplementary groups 记录 OCI 启动身份，并增加本文后续说明的 Workdir
+行为。已有的 `0.5.14-modified` 源码保持不变。
 
 `0.5.14` 源码已经包含上游的 cgroup 检测逻辑。它会在启用 cgroup v2 进程管理
 前识别 cgroup v1，避免 envd 启动子进程时报 `bad file descriptor`。
@@ -91,6 +96,12 @@ ENVD_VERSION=0.5.14-modified
 或者：
 
 ```dotenv
+ENVD_VERSION=0.5.14-oci
+```
+
+或者：
+
+```dotenv
 ENVD_VERSION=0.2.11
 ```
 
@@ -102,8 +113,8 @@ ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.1
 
 Makefile 会自动选择对应的源码目录、Go 工具链和源码版本。本示例把选择参数命名为
 `ENVD_VERSION`；直接在 `utils/envd` 下执行命令时，同一参数名为 `VERSION`。
-对于 `0.5.14-modified` 这类带后缀的源码选择器，验证时会去掉后缀，再与
-`/usr/bin/envd -version` 比较。
+对于 `0.5.14-modified`、`0.5.14-oci` 这类带后缀的源码选择器，验证时会去掉
+后缀，再与 `/usr/bin/envd -version` 比较。
 
 ## 把 envd 编译到镜像中
 
@@ -162,8 +173,8 @@ ENV EXEC_ENABLE_ALL_ENV=1
 ```
 
 两种方式都会让开关进入 envd 这个 1 号进程的环境，不需要同时设置。如果两处设置
-了同名变量，AGS 容器环境配置会覆盖镜像中的值。`0.5.14-modified` 始终继承启动
-环境，不需要设置这个开关。
+了同名变量，AGS 容器环境配置会覆盖镜像中的值。`0.5.14-modified` 与
+`0.5.14-oci` 始终继承启动环境，不需要设置这个开关。
 
 重新构建镜像和 Tool 后，通过 envd 启动的命令就可以读取镜像 `ENV`：
 
@@ -230,9 +241,9 @@ make run
 
 `make run` 会预热所选镜像，创建两个临时沙箱，并检查：
 
-- 二进制报告底层 envd 版本（`0.5.14-modified` 对应 `0.5.14`）；
+- 二进制报告底层 envd 版本（`0.5.14-modified` 和 `0.5.14-oci` 都对应 `0.5.14`）；
 - 按需继承版本在 `EXEC_ENABLE_ALL_ENV=0` 时不继承完整环境，而
-  `0.5.14-modified` 仍会继承启动环境；
+  `0.5.14-modified` 与 `0.5.14-oci` 仍会继承启动环境；
 - 设置 `EXEC_ENABLE_ALL_ENV=1` 后可以读取镜像和沙箱级变量；
 - 当前命令设置的值可以覆盖继承值。
 
@@ -240,8 +251,8 @@ make run
 临时 Tool 会在 `CustomConfiguration.Env` 中设置 `EXEC_ENABLE_ALL_ENV=0`。这也
 验证了 AGS 容器环境配置可以覆盖镜像值。第二个 Tool 不覆盖该开关，因此镜像中的
 值仍然生效。
-对 `0.5.14-modified`，第一个 Tool 改为验证启动环境继承仍然生效，因为该版本不
-使用这个开关。
+对 `0.5.14-modified` 与 `0.5.14-oci`，第一个 Tool 改为验证启动环境继承仍然
+生效，因为这两个版本不使用这个开关。
 
 临时沙箱和 Tool 会自动清理。
 
@@ -255,8 +266,9 @@ All envd inheritance checks passed
 ```
 
 换用 `ENVD_VERSION=0.2.11` 和另一个镜像标签可以验证旧版本。设置
-`ENVD_VERSION=0.5.14-modified` 可以验证始终启用的启动身份和环境行为，其 PASS
-输出中的二进制版本为 `0.5.14`。
+`ENVD_VERSION=0.5.14-modified` 可以验证原有的始终启用启动身份与环境行为；
+设置 `ENVD_VERSION=0.5.14-oci` 则同时包含 OCI User/Workdir 默认值。两者 PASS
+输出中的二进制版本都为 `0.5.14`。
 
 ## 常见问题
 
@@ -275,7 +287,7 @@ All envd inheritance checks passed
 上面讲的是镜像的 `ENV`。这一节讲命令需要的另外两项 OCI 配置：**以谁的身份**执行，
 **在哪个目录**执行。
 
-需要 `ENVD_VERSION=0.5.14-modified`。
+需要 `ENVD_VERSION=0.5.14-oci`。
 
 ## 现象
 
@@ -297,7 +309,7 @@ sandbox.commands.run("id; pwd")
 
 ```text
 未修改的 envd 0.5.14:  uid=0      pwd=/root
-0.5.14-modified:       uid=10001  pwd=/opt/app/work
+0.5.14-oci:             uid=10001  pwd=/opt/app/work
 ```
 
 两个独立原因。身份方面，envd 把自己的 *effective* UID 当作启动身份记录；在 setuid
@@ -359,7 +371,7 @@ setuid 位都会失效。
 ## 构建与校验
 
 ```bash
-make envd-volume-build ENVD_VERSION=0.5.14-modified \
+make envd-volume-build ENVD_VERSION=0.5.14-oci \
     ENVD_VOLUME_IMAGE=<registry>/<namespace>/envd-oci-user-workdir:<唯一 tag>
 ```
 
@@ -389,7 +401,7 @@ VERIFY OK: ... carries /usr/bin/envd as 0:0 mode 4755
 
 ```bash
 make fixtures-build FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
-make user-workdir-push ENVD_VERSION=0.5.14-modified \
+make user-workdir-push ENVD_VERSION=0.5.14-oci \
     ENVD_VOLUME_IMAGE=<ref> FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
 ```
 
@@ -458,8 +470,8 @@ sandbox.commands.run("/opt/envd/usr/bin/envd -version", user="root")   # 实际�
 
 | 现象 | 检查项 |
 |---|---|
-| 命令以 root 而非 OCI `USER` 执行 | `ENVD_VERSION` 是否为 `0.5.14-modified`；沙箱内 `envd -version` |
-| 命令在 `/root` 而非 OCI `WORKDIR` 执行 | 同上；只有修改版会记录启动 cwd |
+| 命令以 root 而非 OCI `USER` 执行 | `ENVD_VERSION` 是否为 `0.5.14-oci`；沙箱内 `envd -version` |
+| 命令在 `/root` 而非 OCI `WORKDIR` 执行 | 同上；只有 `0.5.14-oci` 会记录启动 cwd |
 | `invalid username: 'user'` | Instance Metadata 缺少 `x-envd-version=0.4.0` |
 | `Invalid API key format` | 将 `ark_` 换为 `e2b_`，使用 `e2b >= 2.30` 并设置 `E2B_VALIDATE_API_KEY=false` |
 | 显式 `user="root"` 失败 | `stat` 挂载后的 envd：必须是 `0:0` 且 `4755` |

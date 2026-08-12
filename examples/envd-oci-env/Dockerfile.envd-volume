@@ -34,7 +34,7 @@ ARG GO_VERSION=1.25.9
 
 FROM golang:${GO_VERSION}-bookworm AS envd-builder
 
-ARG ENVD_VERSION=0.5.14-modified
+ARG ENVD_VERSION=0.5.14-oci
 WORKDIR /workspace
 COPY utils/envd/versions/${ENVD_VERSION}/src ./src
 COPY utils/envd/versions/${ENVD_VERSION}/shared ./shared
@@ -65,7 +65,7 @@ RUN set -eux; \
 
 FROM scratch
 
-ARG ENVD_VERSION=0.5.14-modified
+ARG ENVD_VERSION=0.5.14-oci
 ARG ENVD_BUILD_REVISION
 
 # Plain COPY --from preserves the 0:0 ownership and the 4755 mode stamped above.

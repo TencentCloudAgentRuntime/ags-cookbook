@@ -5,19 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os/user"
 	"strconv"
 	"time"
 
 	"connectrpc.com/connect"
 
-	"github.com/e2b-dev/infra/packages/envd/internal/execcontext"
 	"github.com/e2b-dev/infra/packages/envd/internal/logs"
 	"github.com/e2b-dev/infra/packages/envd/internal/permissions"
 	"github.com/e2b-dev/infra/packages/envd/internal/services/process/handler"
 	rpc "github.com/e2b-dev/infra/packages/envd/internal/services/spec/process"
 )
 
-func (s *Service) InitializeStartProcess(ctx context.Context, identity *execcontext.Identity, req *rpc.StartRequest) error {
+func (s *Service) InitializeStartProcess(ctx context.Context, user *user.User, req *rpc.StartRequest) error {
 	var err error
 
 	ctx = logs.AddRequestIDToContext(ctx)
@@ -31,7 +31,7 @@ func (s *Service) InitializeStartProcess(ctx context.Context, identity *execcont
 	handlerL := s.logger.With().Str(string(logs.OperationIDKey), ctx.Value(logs.OperationIDKey).(string)).Logger()
 
 	startProcCtx, startProcCancel := context.WithCancel(ctx)
-	proc, err := handler.New(startProcCtx, identity, req, &handlerL, s.defaults, s.cgroupManager, startProcCancel)
+	proc, err := handler.New(startProcCtx, user, req, &handlerL, s.defaults, s.cgroupManager, startProcCancel)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (s *Service) handleStart(ctx context.Context, req *connect.Request[rpc.Star
 
 	handlerL := s.logger.With().Str(string(logs.OperationIDKey), ctx.Value(logs.OperationIDKey).(string)).Logger()
 
-	identity, err := permissions.GetAuthIdentity(ctx, s.defaults)
+	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (s *Service) handleStart(ctx context.Context, req *connect.Request[rpc.Star
 
 	proc, err := handler.New( //nolint:contextcheck // TODO: fix this later
 		procCtx,
-		identity,
+		u,
 		req.Msg,
 		&handlerL,
 		s.defaults,
@@ -206,10 +206,7 @@ func (s *Service) handleStart(ctx context.Context, req *connect.Request[rpc.Star
 
 	pid, err := proc.Start(requestTimeout)
 	if err != nil {
-		// Preserve a permission refusal from the kernel instead of flattening
-		// every start failure to InvalidArgument: a caller needs to tell "the
-		// target user cannot run here" apart from "the request was malformed".
-		return connect.NewError(handler.StartErrorCode(err), err)
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	s.processes.Store(pid, proc)

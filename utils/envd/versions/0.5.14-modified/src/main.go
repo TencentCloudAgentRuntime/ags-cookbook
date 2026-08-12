@@ -140,29 +140,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Snapshot the environment first: the startup identity uses it for HOME, so
-	// a setuid envd does not adopt root's home directory.
-	startupEnv := execcontext.EnvironmentSnapshot(os.Environ())
-	startupIdentity := execcontext.CaptureStartupIdentity(startupEnv)
-
+	startupUser := permissions.GetCurrentUser()
 	defaults := &execcontext.Defaults{
-		User:            startupIdentity.Username,
-		StartupIdentity: startupIdentity,
-		EnvVars:         startupEnv,
+		User:        startupUser.Username,
+		StartupUser: startupUser,
+		EnvVars:     execcontext.EnvironmentSnapshot(os.Environ()),
 	}
-
-	// Capture the startup working directory. Under AGS this is the business OCI
-	// image's Workdir, and it becomes the default cwd for commands that do not
-	// request one. A failure falls back to "/" rather than leaving the default
-	// unset, because an unset default reinstates the home-directory fallback the
-	// behavior contract forbids.
-	cwd, err := execcontext.CaptureStartupWorkdir(os.Getwd)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v; defaulting to %q\n", err, cwd)
-	}
-
-	defaults.Workdir = &cwd
-
 	isFCBoolStr := strconv.FormatBool(!isNotFC)
 	defaults.EnvVars.Store("E2B_SANDBOX", isFCBoolStr)
 
@@ -213,12 +196,12 @@ func main() {
 	if startCmdFlag != "" {
 		tag := "startCmd"
 		cwd := "/home/user"
-		identity, err := execcontext.IdentityForUsername("root")
+		user, err := permissions.GetUser("root")
 		if err != nil {
 			log.Fatalf("error getting user: %v", err) //nolint:gocritic // probably fine to bail if we're done?
 		}
 
-		if err = processService.InitializeStartProcess(ctx, identity, &processSpec.StartRequest{
+		if err = processService.InitializeStartProcess(ctx, user, &processSpec.StartRequest{
 			Tag: &tag,
 			Process: &processSpec.ProcessConfig{
 				Envs: make(map[string]string),
@@ -231,7 +214,7 @@ func main() {
 		}
 	}
 
-	err = s.ListenAndServe()
+	err := s.ListenAndServe()
 	if err != nil {
 		log.Fatalf("error starting server: %v", err)
 	}

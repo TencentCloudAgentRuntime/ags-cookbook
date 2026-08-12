@@ -38,12 +38,17 @@ GO_VERSION := 1.25.9
 ENVD_BUILD_REVISION := a3fb26e-execenv
 else ifeq ($(ENVD_VERSION),0.5.14-modified)
 GO_VERSION := 1.25.9
+ENVD_BUILD_REVISION := a3fb26e-modified
+else ifeq ($(ENVD_VERSION),0.5.14-oci)
+GO_VERSION := 1.25.9
+# The OCI User/Workdir defaults keep reporting 0.5.14, so the full commit is what
+# makes a built artifact traceable back to its source.
 ENVD_BUILD_REVISION := $(REPO_COMMIT)
 else ifeq ($(ENVD_VERSION),0.2.11)
 GO_VERSION := 1.24.3
 ENVD_BUILD_REVISION := 1af78dd3-execenv
 else
-$(error unsupported ENVD_VERSION "$(ENVD_VERSION)"; choose 0.5.14, 0.5.14-modified, or 0.2.11)
+$(error unsupported ENVD_VERSION "$(ENVD_VERSION)"; choose 0.5.14, 0.5.14-modified, 0.5.14-oci, or 0.2.11)
 endif
 
 ifeq ($(strip $(ENVD_VOLUME_MOUNT_PATH)),)
@@ -73,7 +78,7 @@ help:
 	@echo "  make run        # Reproduce the problem and validate the solution"
 	@echo "  make all        # Verify, build, push, and run"
 	@echo ""
-	@echo "OCI User/Workdir defaults (envd $(ENVD_VERSION)):"
+	@echo "OCI User/Workdir defaults (requires ENVD_VERSION=0.5.14-oci):"
 	@echo "  make envd-volume-build   # Build the setuid envd Image Volume (0:0, 4755)"
 	@echo "  make envd-volume-verify  # Check 0:0/4755 in the exported image layer"
 	@echo "  make envd-volume-push    # Push the Image Volume artifact"
@@ -123,7 +128,7 @@ all: verify build push run
 # The two fixtures stand in for a customer's business image: A uses a named OCI
 # user with supplementary groups, B uses a bare numeric UID with no passwd entry.
 #
-# ENVD_VERSION must be 0.5.14-modified for these targets: the OCI User/Workdir
+# ENVD_VERSION must be 0.5.14-oci for these targets: the OCI User/Workdir
 # defaults only exist in that distribution.
 
 assert-clean-source:
@@ -137,8 +142,8 @@ assert-clean-source:
 
 envd-volume-build: assert-clean-source
 	@test -n "$(ENVD_VOLUME_IMAGE)" || { echo "ENVD_VOLUME_IMAGE is required"; exit 1; }
-	@test "$(ENVD_VERSION)" = 0.5.14-modified || { \
-		echo "ENVD_VERSION must be 0.5.14-modified for the Image Volume artifact"; exit 1; }
+	@test "$(ENVD_VERSION)" = 0.5.14-oci || { \
+		echo "ENVD_VERSION must be 0.5.14-oci for the Image Volume artifact"; exit 1; }
 	@$(MAKE) -C "$(ROOT_DIR)/utils/envd" test VERSION="$(ENVD_VERSION)"
 	@$(MAKE) -C "$(ROOT_DIR)/utils/envd" test-privileged VERSION="$(ENVD_VERSION)"
 	docker build \

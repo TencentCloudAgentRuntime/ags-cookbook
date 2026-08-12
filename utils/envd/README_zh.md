@@ -1,17 +1,19 @@
 # 支持 OCI 环境变量继承的 envd 源码
 
-本目录提供三个可以直接构建的 envd 源码分发版本，不包含预编译二进制。
+本目录提供四个可以直接构建的 envd 源码分发版本，不包含预编译二进制。
 
 标准分发版本增加了按需继承 envd 进程环境的能力；`0.5.14-modified` 则始终把
-envd 启动时的身份和环境作为默认值：
+envd 启动时的身份和环境作为默认值。与它同级的 `0.5.14-oci` 在不改变
+`0.5.14-modified` 的前提下，增加 OCI User 与 Workdir 命令默认值：
 
 | envd 版本 | 公开源码版本 | Go 版本 | 源码路径 |
 |---|---|---|---|
 | `0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` | `1.25.9` | `versions/0.5.14/` |
 | `0.5.14-modified` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` | `1.25.9` | `versions/0.5.14-modified/` |
+| `0.5.14-oci` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` | `1.25.9` | `versions/0.5.14-oci/` |
 | `0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` | `1.24.3` | `versions/0.2.11/` |
 
-三个分发版本相互独立，envd 不会与客户端自动协商版本。请使用客户端或集成方案明确
+四个分发版本相互独立，envd 不会与客户端自动协商版本。请使用客户端或集成方案明确
 要求的版本。如果两者都没有指定版本，可以先使用默认的 `0.5.14`。
 
 `0.5.14` 已经包含上游的 cgroup v2 检测逻辑。它会在 cgroup v1 环境中回退到
@@ -40,6 +42,7 @@ envd 模块保留原有的 Go module path。`go.mod` 会使用同版本目录下
 ```bash
 make build VERSION=0.5.14
 make build VERSION=0.5.14-modified
+make build VERSION=0.5.14-oci
 make build VERSION=0.2.11
 ```
 
@@ -58,6 +61,7 @@ Linux/amd64 产物为：
 ```text
 bin/envd-0.5.14
 bin/envd-0.5.14-modified
+bin/envd-0.5.14-oci
 bin/envd-0.2.11
 ```
 
@@ -82,6 +86,7 @@ make test-all
 ```bash
 make test VERSION=0.5.14
 make test VERSION=0.5.14-modified
+make test VERSION=0.5.14-oci
 make test VERSION=0.2.11
 ```
 
@@ -121,12 +126,12 @@ envd 启动前存在；只在某一次子进程请求中设置已经太晚。
 versions/<version>/src/internal/services/process/handler/environment_test.go
 ```
 
-`0.5.14-modified` 会在 envd 启动时记录完整环境和启动身份（进程的 real UID、GID 和
-supplementary groups）。请求未指定其他用户时，命令和文件系统操作会使用这些默认值。该分发版本始终继承环境，
+`0.5.14-modified` 会在 envd 启动时记录完整环境和启动身份（进程的 effective UID
+和 GID）。请求未指定其他用户时，命令和文件系统操作会使用这些默认值。该分发版本始终继承环境，
 `EXEC_ENABLE_ALL_ENV` 不控制这一行为；相关测试位于 `internal/execcontext`、
 `internal/permissions` 和受影响的服务包中。二进制报告的版本仍为 `0.5.14`。
 
-### 把 OCI User / Workdir 作为命令默认值（`0.5.14-modified`）
+### 把 OCI User / Workdir 作为命令默认值（`0.5.14-oci`）
 
 该分发版本还会记录 envd 的启动身份和启动工作目录，并把它们用作未显式指定时的命令
 默认值：
@@ -171,6 +176,6 @@ warning。丢失 supplementary groups 不会导致请求被拒绝，因为主身
 `HOME`、`USER`、`LOGNAME` 的 `/init` 调用方不再能覆盖它们；请求级变量仍然可以。E2B 兼容数据面链路不会设置这两项。
 
 完整改动清单以及特权 setuid 测试的运行方式见
-`versions/0.5.14-modified/SOURCE.md`。
+`versions/0.5.14-oci/SOURCE.md`。
 
 可选择版本的多阶段 Docker 构建和 AGS 使用方法见 `examples/envd-oci-env`。

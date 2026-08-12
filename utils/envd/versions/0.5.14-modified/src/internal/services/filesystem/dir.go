@@ -20,7 +20,7 @@ func (s Service) ListDir(ctx context.Context, req *connect.Request[rpc.ListDirRe
 		depth = 1 // default depth to current directory
 	}
 
-	u, err := permissions.GetAuthUser(ctx, s.defaults)
+	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (s Service) ListDir(ctx context.Context, req *connect.Request[rpc.ListDirRe
 }
 
 func (s Service) MakeDir(ctx context.Context, req *connect.Request[rpc.MakeDirRequest]) (*connect.Response[rpc.MakeDirResponse], error) {
-	u, err := permissions.GetAuthUser(ctx, s.defaults)
+	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
 	if err != nil {
 		return nil, err
 	}

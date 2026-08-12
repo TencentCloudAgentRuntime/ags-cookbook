@@ -36,12 +36,13 @@ sandbox or command. It does not copy envd's complete environment. The image
 
 ## What we changed
 
-The repository contains three independently buildable source distributions:
+The repository contains four independently buildable source distributions:
 
 | envd version | Source path | Public source revision |
 |---|---|---|
 | `0.5.14` | `utils/envd/versions/0.5.14` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
 | `0.5.14-modified` | `utils/envd/versions/0.5.14-modified` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
+| `0.5.14-oci` | `utils/envd/versions/0.5.14-oci` | `a3fb26eb4344bbaf66c0d2478c086623b560ef41` |
 | `0.2.11` | `utils/envd/versions/0.2.11` | `1af78dd38a2cedce7f513c26aa2deb443cb0f0ef` |
 
 The `0.5.14` and `0.2.11` distributions add this switch:
@@ -68,11 +69,16 @@ The switch is enabled only when its value is exactly `1`. If it is absent or
 has another value, envd keeps its original behavior.
 
 `0.5.14-modified` takes a different approach: it snapshots envd's startup
-environment and real identity and uses them as defaults for commands and
+environment and effective identity and uses them as defaults for commands and
 filesystem operations. Environment inheritance is always active in this
 distribution, independently of `EXEC_ENABLE_ALL_ENV`. This also allows envd to
 run unprivileged without trying to reapply its own credentials. Its binary
 still reports `0.5.14`.
+
+`0.5.14-oci` is a sibling distribution that retains the always-on defaults,
+records the OCI startup identity from real UID, GID, and supplementary groups,
+and applies the Workdir behavior documented later in this guide. The existing
+`0.5.14-modified` source remains unchanged.
 
 The `0.5.14` source includes upstream detection for cgroup v1 before enabling
 cgroup v2 process placement. This prevents child-process startup from failing
@@ -99,6 +105,12 @@ ENVD_VERSION=0.5.14-modified
 or:
 
 ```dotenv
+ENVD_VERSION=0.5.14-oci
+```
+
+or:
+
+```dotenv
 ENVD_VERSION=0.2.11
 ```
 
@@ -111,8 +123,8 @@ ENVD_DEMO_IMAGE=ccr.ccs.tencentyun.com/your-namespace/your-repository:envd-0.5.1
 The Makefile selects the matching source directory, Go toolchain, and source
 revision automatically. This example calls the selection `ENVD_VERSION`;
 commands run directly in `utils/envd` call the same selection `VERSION`.
-For a suffixed source selector such as `0.5.14-modified`, validation removes
-the suffix before comparing `/usr/bin/envd -version`.
+For a suffixed source selector such as `0.5.14-modified` or `0.5.14-oci`,
+validation removes the suffix before comparing `/usr/bin/envd -version`.
 
 ## Build envd into an image
 
@@ -172,8 +184,8 @@ Or set it in the AGS Tool's container environment:
 
 Either method places the switch in envd's PID 1 environment. You do not need
 both. If both set the same name, the AGS container configuration overrides the
-image value. `0.5.14-modified` always inherits its startup environment and does
-not require this switch.
+image value. `0.5.14-modified` and `0.5.14-oci` always inherit their startup
+environment and do not require this switch.
 
 After rebuilding the image and Tool, commands started through envd can read
 the image `ENV`:
@@ -244,10 +256,10 @@ make run
 `make run` pre-caches the selected image, creates two temporary sandboxes, and
 checks:
 
-- the binary reports the underlying envd version (`0.5.14` for
-  `0.5.14-modified`);
+- the binary reports the underlying envd version (`0.5.14` for both
+  `0.5.14-modified` and `0.5.14-oci`);
 - opt-in versions disable inheritance with `EXEC_ENABLE_ALL_ENV=0`, while
-  `0.5.14-modified` continues to inherit its startup environment;
+  `0.5.14-modified` and `0.5.14-oci` continue to inherit their startup environment;
 - `EXEC_ENABLE_ALL_ENV=1` exposes image and sandbox-level variables;
 - a current-command value overrides an inherited value.
 
@@ -256,8 +268,8 @@ with that same image, the first temporary Tool sets
 `CustomConfiguration.Env` to `EXEC_ENABLE_ALL_ENV=0`. This also verifies that
 the AGS container environment overrides the image value. The second Tool does
 not override the switch, so the image value remains enabled.
-For `0.5.14-modified`, the first Tool instead verifies that startup environment
-inheritance remains active because that distribution does not use the switch.
+For `0.5.14-modified` and `0.5.14-oci`, the first Tool instead verifies that
+startup environment inheritance remains active because those distributions do not use the switch.
 
 The temporary sandboxes and Tools are removed automatically.
 
@@ -272,7 +284,8 @@ All envd inheritance checks passed
 
 Repeat with `ENVD_VERSION=0.2.11` and a different image tag to validate the
 older source version. Use `ENVD_VERSION=0.5.14-modified` to validate the
-always-on startup identity and environment behavior; its PASS output reports
+original always-on startup identity and environment behavior, or
+`ENVD_VERSION=0.5.14-oci` to include OCI User/Workdir defaults; both PASS outputs report
 binary version `0.5.14`.
 
 ## Common failures
@@ -294,7 +307,7 @@ Everything above is about the image's `ENV`. This section is about the other two
 pieces of OCI configuration that a command needs: **who** it runs as and **where**
 it runs.
 
-Requires `ENVD_VERSION=0.5.14-modified`.
+Requires `ENVD_VERSION=0.5.14-oci`.
 
 ## The symptom
 
@@ -317,7 +330,7 @@ image's `USER` nor its `WORKDIR`. Measured against this repository's own fixture
 
 ```text
 unmodified envd 0.5.14:  uid=0      pwd=/root
-0.5.14-modified:         uid=10001  pwd=/opt/app/work
+0.5.14-oci:              uid=10001  pwd=/opt/app/work
 ```
 
 Two separate causes. For the identity, envd recorded its *effective* UID as its
@@ -385,7 +398,7 @@ must have `NoNewPrivs=0`. Either one suppresses the setuid bit.
 ## Build and verify
 
 ```bash
-make envd-volume-build ENVD_VERSION=0.5.14-modified \
+make envd-volume-build ENVD_VERSION=0.5.14-oci \
     ENVD_VOLUME_IMAGE=<registry>/<namespace>/envd-oci-user-workdir:<unique-tag>
 ```
 
@@ -415,7 +428,7 @@ Then the fixtures, and the push:
 
 ```bash
 make fixtures-build FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
-make user-workdir-push ENVD_VERSION=0.5.14-modified \
+make user-workdir-push ENVD_VERSION=0.5.14-oci \
     ENVD_VOLUME_IMAGE=<ref> FIXTURE_A_IMAGE=<ref-a> FIXTURE_B_IMAGE=<ref-b>
 ```
 
@@ -494,8 +507,8 @@ sandbox.commands.run("/opt/envd/usr/bin/envd -version", user="root")   # what is
 
 | Symptom | Check |
 |---|---|
-| commands run as root instead of the OCI `USER` | `ENVD_VERSION` is `0.5.14-modified`; `envd -version` in the sandbox |
-| commands run in `/root` instead of the OCI `WORKDIR` | same as above; the modified distribution captures the startup cwd |
+| commands run as root instead of the OCI `USER` | `ENVD_VERSION` is `0.5.14-oci`; `envd -version` in the sandbox |
+| commands run in `/root` instead of the OCI `WORKDIR` | same as above; `0.5.14-oci` captures the startup cwd |
 | `invalid username: 'user'` | Instance Metadata is missing `x-envd-version=0.4.0` |
 | `Invalid API key format` | normalize `ark_` to `e2b_`, use `e2b >= 2.30`, and set `E2B_VALIDATE_API_KEY=false` |
 | explicit `user="root"` fails | `stat` the mounted envd: it must be `0:0` and `4755` |

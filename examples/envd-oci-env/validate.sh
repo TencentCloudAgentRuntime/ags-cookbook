@@ -21,9 +21,9 @@ AGS_EXEC_USER="${AGS_EXEC_USER:-root}"
 ENVD_VERSION="${ENVD_VERSION:-0.5.14}"
 
 case "$ENVD_VERSION" in
-  0.5.14 | 0.5.14-modified | 0.2.11) ;;
+  0.5.14 | 0.5.14-modified | 0.5.14-oci | 0.2.11) ;;
   *)
-    echo "ENVD_VERSION must be 0.5.14, 0.5.14-modified, or 0.2.11" >&2
+    echo "ENVD_VERSION must be 0.5.14, 0.5.14-modified, 0.5.14-oci, or 0.2.11" >&2
     exit 1
     ;;
 esac
@@ -215,16 +215,18 @@ agr instance exec "$off_instance_id" \
      printf "FAIL: envd version is %s, expected %s\n" "$actual_version" "$expected_version" >&2
      exit 1
    }
-   if test "$ENVD_EXPECTED_SOURCE" = "$expected_version-modified"; then
+   if test "$ENVD_EXPECTED_SOURCE" = "$expected_version-modified" ||
+      test "$ENVD_EXPECTED_SOURCE" = "$expected_version-oci"; then
      test "${ENVD_IMAGE_ONLY-}" = from-oci-image || {
-       printf "FAIL: modified envd did not inherit image env\n" >&2
+       printf "FAIL: always-on envd did not inherit image env\n" >&2
        exit 1
      }
      test "${ENVD_RUNTIME_OFF-}" = from-runtime-config || {
-       printf "FAIL: modified envd did not inherit runtime env\n" >&2
+       printf "FAIL: always-on envd did not inherit runtime env\n" >&2
        exit 1
      }
-     printf "PASS: envd %s inherits image and runtime env independently of the opt-in switch\n" "$actual_version"
+     printf "PASS: envd %s (%s) inherits image and runtime env independently of the opt-in switch\n" \
+       "$actual_version" "$ENVD_EXPECTED_SOURCE"
    else
      test "${ENVD_IMAGE_ONLY+x}" != x || {
        printf "FAIL: image env is present when inheritance is disabled\n" >&2

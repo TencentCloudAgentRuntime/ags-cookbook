@@ -5,15 +5,11 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-
-	"github.com/e2b-dev/infra/packages/envd/internal/execcontext"
 )
 
-// GetCurrentUser returns envd's own effective identity.
-//
-// It is not the OCI startup identity: under setuid the effective UID is 0. Use
-// execcontext.CaptureStartupIdentity for the identity commands should default
-// to; this helper is only for describing the running process.
+// GetCurrentUser returns the identity envd was started with. The UID and GID
+// come from the process rather than the passwd database because the effective
+// GID may differ from the user's configured primary group.
 func GetCurrentUser() *user.User {
 	uid := strconv.Itoa(os.Geteuid())
 	gid := strconv.Itoa(os.Getegid())
@@ -73,10 +69,4 @@ func GetUser(username string) (u *user.User, err error) {
 	}
 
 	return u, nil
-}
-
-// GetIdentity resolves a username into a full numeric identity in the business
-// rootfs, including supplementary groups.
-func GetIdentity(username string) (*execcontext.Identity, error) {
-	return execcontext.IdentityForUsername(username)
 }

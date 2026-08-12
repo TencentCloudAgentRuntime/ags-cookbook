@@ -10,7 +10,7 @@ import (
 )
 
 func (s Service) Stat(ctx context.Context, req *connect.Request[rpc.StatRequest]) (*connect.Response[rpc.StatResponse], error) {
-	u, err := permissions.GetAuthUser(ctx, s.defaults)
+	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
 	if err != nil {
 		return nil, err
 	}

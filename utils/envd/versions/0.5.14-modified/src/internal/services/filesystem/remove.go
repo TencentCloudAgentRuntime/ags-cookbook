@@ -12,7 +12,7 @@ import (
 )
 
 func (s Service) Remove(ctx context.Context, req *connect.Request[rpc.RemoveRequest]) (*connect.Response[rpc.RemoveResponse], error) {
-	u, err := permissions.GetAuthUser(ctx, s.defaults)
+	u, err := permissions.GetAuthUser(ctx, s.defaults.User, s.defaults.StartupUser)
 	if err != nil {
 		return nil, err
 	}
