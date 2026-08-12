@@ -12,6 +12,7 @@ import socket
 import re
 import requests
 import weakref
+from pathlib import Path
 
 from desktop_env.providers.base import Provider
 from desktop_env.providers.ags.config import (
@@ -33,6 +34,11 @@ if not logger.handlers:
 # Global registry of active AGS providers for cleanup
 _active_providers = weakref.WeakSet()
 _cleanup_done = False
+CDP_PROXY_SOURCE = Path(__file__).with_name("cdp_proxy.py")
+
+
+def _read_cdp_proxy_script() -> str:
+    return CDP_PROXY_SOURCE.read_text(encoding="utf-8")
 
 
 def _cleanup_all_providers():
@@ -767,9 +773,8 @@ class AGSProvider(Provider):
         (e.g., "launch google-chrome --remote-debugging-port=1337").
 
         This method:
-        1. Installs aiohttp dependency
-        2. Deploys /tmp/cdp_proxy.py script (rewrites Host header for Chrome CDP)
-        3. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
+        1. Deploys /tmp/cdp_proxy.py script (standard library only)
+        2. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
            "socat tcp-listen:9222,fork tcp:localhost:1337" calls from task setup,
            starts cdp_proxy.py instead, and passes other socat calls through.
         """
@@ -793,79 +798,7 @@ class AGSProvider(Provider):
                 logger.warning("exec '%s' error: %s", cmd[:50], e)
                 return {"status": "error", "output": str(e)}
 
-        # Ensure aiohttp is installed
-        exec_shell("python3 -c 'import aiohttp' 2>/dev/null || pip3 install --quiet aiohttp")
-
-        # Create CDP proxy script that rewrites Host header
-        proxy_script = r'''
-import asyncio
-import aiohttp
-from aiohttp import web
-import re
-
-CHROME_HOST = "127.0.0.1"
-CHROME_PORT = 1337
-
-async def handle_http(request):
-    path = request.path
-    if request.query_string:
-        path += "?" + request.query_string
-    url = f"http://{CHROME_HOST}:{CHROME_PORT}{path}"
-    headers = {"Host": f"localhost:{CHROME_PORT}"}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                content = await resp.read()
-                if path.startswith("/json"):
-                    content_str = content.decode("utf-8")
-                    content_str = re.sub(r"ws://[^/\s\"]+:1337", "ws://localhost:9222", content_str)
-                    content_str = content_str.replace(f"localhost:{CHROME_PORT}", "localhost:9222")
-                    content = content_str.encode("utf-8")
-                return web.Response(body=content, status=resp.status, content_type=resp.content_type)
-    except Exception as e:
-        return web.Response(text=str(e), status=502)
-
-async def handle_websocket(request):
-    ws_client = web.WebSocketResponse()
-    await ws_client.prepare(request)
-    path = request.path
-    url = f"ws://{CHROME_HOST}:{CHROME_PORT}{path}"
-    headers = {"Host": f"localhost:{CHROME_PORT}"}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.ws_connect(url, headers=headers) as ws_remote:
-                async def forward_to_remote():
-                    async for msg in ws_client:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            await ws_remote.send_str(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                            await ws_remote.send_bytes(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                            break
-                async def forward_to_client():
-                    async for msg in ws_remote:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            await ws_client.send_str(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                            await ws_client.send_bytes(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                            break
-                await asyncio.gather(forward_to_remote(), forward_to_client(), return_exceptions=True)
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-    return ws_client
-
-async def handle_request(request):
-    if request.headers.get("Upgrade", "").lower() == "websocket":
-        return await handle_websocket(request)
-    return await handle_http(request)
-
-app = web.Application()
-app.router.add_route("*", "/{path:.*}", handle_request)
-if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=9222, print=None)
-'''
-        # Write proxy script
+        proxy_script = _read_cdp_proxy_script()
         write_cmd = f"cat > /tmp/cdp_proxy.py << 'CDPPROXYSCRIPT'\n{proxy_script}\nCDPPROXYSCRIPT"
         exec_shell(write_cmd)
 
@@ -965,8 +898,9 @@ if __name__ == "__main__":
         raise NotImplementedError("Snapshots not available for AGS provider")
 
     def revert_to_snapshot(self, path_to_vm: str, snapshot_name: str):
-        """Revert by stopping and restarting the sandbox."""
-        logger.warning("AGS snapshot revert not supported, skipping...")
+        """Replace the sandbox because AGS does not expose OSWorld VM snapshots."""
+        logger.warning("AGS snapshot revert not supported; replacing sandbox.")
+        self.stop_emulator(path_to_vm)
 
     def stop_emulator(self, path_to_vm: str, region=None, *args, **kwargs):
         """Stop and kill the AGS sandbox."""

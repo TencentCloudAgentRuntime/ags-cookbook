@@ -13,7 +13,7 @@ import sys
 import signal
 import time
 from typing import List
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager, Queue
 from multiprocessing import current_process
 import lib_run_single
 from desktop_env.desktop_env import DesktopEnv
@@ -104,6 +104,7 @@ log_level = getattr(logging, args.log_level.upper())
 logger.setLevel(log_level)
 
 datetime_str: str = datetime.datetime.now().strftime("%Y%m%d@%H%M%S")
+os.makedirs("logs", exist_ok=True)
 
 file_handler = logging.FileHandler(
     os.path.join("logs", "normal-{:}.log".format(datetime_str)), encoding="utf-8"
@@ -353,6 +354,8 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
     logger.info("Args: %s", args)
     all_tasks = distribute_tasks(test_all_meta)
     logger.info(f"Total tasks: {len(all_tasks)}")
+    max_worker_restarts = int(os.environ.get("OSWORLD_MAX_WORKER_RESTARTS", "2"))
+    worker_restarts = {}
     with Manager() as manager:
         shared_scores = manager.list()
         task_queue = manager.Queue()
@@ -375,6 +378,12 @@ def test(args: argparse.Namespace, test_all_meta: dict) -> None:
                 alive_count = 0
                 for idx, p in enumerate(processes):
                     if not p.is_alive():
+                        restart_count = worker_restarts.get(idx, 0)
+                        if restart_count >= max_worker_restarts:
+                            raise RuntimeError(
+                                f"Process {p.name} died and reached restart limit {max_worker_restarts}"
+                            )
+                        worker_restarts[idx] = restart_count + 1
                         logger.warning(f"Process {p.name} died, restarting...")
                         new_p = Process(
                             target=run_env_tasks,
