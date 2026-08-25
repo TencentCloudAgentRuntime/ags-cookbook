@@ -45,7 +45,48 @@ agr tool create \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0","ImageRegistryType":"personal","Command":["/bin/go-httpbin"],"Args":["-host","0.0.0.0","-port","8080"],"Env":[{"Name":"EXCLUDE_HEADERS","Value":"X-Access-Token"}],"Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],"Resources":{"CPU":"200m","Memory":"500Mi"},"Probe":{"HttpGet":{"Path":"/status/200","Port":8080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":1000,"ProbePeriodMs":3000,"SuccessThreshold":1,"FailureThreshold":10}}' \
+  --custom-configuration '{
+    "Image": "ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0",
+    "ImageRegistryType": "personal",
+    "Command": [
+      "/bin/go-httpbin"
+    ],
+    "Args": [
+      "-host",
+      "0.0.0.0",
+      "-port",
+      "8080"
+    ],
+    "Env": [
+      {
+        "Name": "EXCLUDE_HEADERS",
+        "Value": "X-Access-Token"
+      }
+    ],
+    "Ports": [
+      {
+        "Name": "http",
+        "Port": 8080,
+        "Protocol": "TCP"
+      }
+    ],
+    "Resources": {
+      "CPU": "200m",
+      "Memory": "500Mi"
+    },
+    "Probe": {
+      "HttpGet": {
+        "Path": "/status/200",
+        "Port": 8080,
+        "Scheme": "HTTP"
+      },
+      "ReadyTimeoutMs": 30000,
+      "ProbeTimeoutMs": 1000,
+      "ProbePeriodMs": 3000,
+      "SuccessThreshold": 1,
+      "FailureThreshold": 10
+    }
+  }' \
   --wait
 ```
 

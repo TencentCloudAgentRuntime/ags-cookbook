@@ -60,7 +60,51 @@ agr tool create \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4","ImageRegistryType":"personal","Command":["node","--expose-internals","/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"],"Args":["web","--host","0.0.0.0","--port","3080","--trusted-host","*.ap-shanghai.agents.tencentags.com","--trusted-host","*.ap-shanghai.internal.tencentags.com","--allow-remote-management","--no-open"],"Ports":[{"Name":"web","Port":3080,"Protocol":"TCP"}],"Resources":{"CPU":"2000m","Memory":"4Gi"},"Probe":{"HttpGet":{"Path":"/","Port":3080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":5000,"SuccessThreshold":1,"FailureThreshold":6}}' \
+  --custom-configuration '{
+    "Image": "ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4",
+    "ImageRegistryType": "personal",
+    "Command": [
+      "node",
+      "--expose-internals",
+      "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+    ],
+    "Args": [
+      "web",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "3080",
+      "--trusted-host",
+      "*.ap-shanghai.agents.tencentags.com",
+      "--trusted-host",
+      "*.ap-shanghai.internal.tencentags.com",
+      "--allow-remote-management",
+      "--no-open"
+    ],
+    "Ports": [
+      {
+        "Name": "web",
+        "Port": 3080,
+        "Protocol": "TCP"
+      }
+    ],
+    "Resources": {
+      "CPU": "2000m",
+      "Memory": "4Gi"
+    },
+    "Probe": {
+      "HttpGet": {
+        "Path": "/",
+        "Port": 3080,
+        "Scheme": "HTTP"
+      },
+      "ReadyTimeoutMs": 30000,
+      "ProbeTimeoutMs": 3000,
+      "ProbePeriodMs": 5000,
+      "SuccessThreshold": 1,
+      "FailureThreshold": 6
+    }
+  }' \
   --wait
 ```
 
@@ -97,9 +141,19 @@ agr deployment create \
   --region "$AGR_REGION" \
   --deployment-name "$DSH_DEPLOYMENT_NAME" \
   --tool-id "$DSH_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":3,"MaxInstanceRequestConcurrency":200}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":60,"IdleAction":"PAUSE"}' \
-  --affinity-configuration '{"Mode":"EXCLUSIVE","HeaderName":"X-Tencent-Agr-Affinity-Id"}'
+  --scaling-configuration '{
+    "MinInstanceCount": 0,
+    "MaxInstanceCount": 3,
+    "MaxInstanceRequestConcurrency": 200
+  }' \
+  --lifecycle-configuration '{
+    "IdleTimeoutSeconds": 60,
+    "IdleAction": "PAUSE"
+  }' \
+  --affinity-configuration '{
+    "Mode": "EXCLUSIVE",
+    "HeaderName": "X-Tencent-Agr-Affinity-Id"
+  }'
 ```
 
 成功输出包含真实 Deployment ID 和完整配置。例如：

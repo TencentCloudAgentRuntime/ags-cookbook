@@ -32,7 +32,48 @@ agr tool create \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0","ImageRegistryType":"personal","Command":["/bin/go-httpbin"],"Args":["-host","0.0.0.0","-port","8080"],"Env":[{"Name":"EXCLUDE_HEADERS","Value":"X-Access-Token"}],"Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],"Resources":{"CPU":"200m","Memory":"500Mi"},"Probe":{"HttpGet":{"Path":"/status/200","Port":8080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":1000,"ProbePeriodMs":3000,"SuccessThreshold":1,"FailureThreshold":10}}' \
+  --custom-configuration '{
+    "Image": "ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0",
+    "ImageRegistryType": "personal",
+    "Command": [
+      "/bin/go-httpbin"
+    ],
+    "Args": [
+      "-host",
+      "0.0.0.0",
+      "-port",
+      "8080"
+    ],
+    "Env": [
+      {
+        "Name": "EXCLUDE_HEADERS",
+        "Value": "X-Access-Token"
+      }
+    ],
+    "Ports": [
+      {
+        "Name": "http",
+        "Port": 8080,
+        "Protocol": "TCP"
+      }
+    ],
+    "Resources": {
+      "CPU": "200m",
+      "Memory": "500Mi"
+    },
+    "Probe": {
+      "HttpGet": {
+        "Path": "/status/200",
+        "Port": 8080,
+        "Scheme": "HTTP"
+      },
+      "ReadyTimeoutMs": 30000,
+      "ProbeTimeoutMs": 1000,
+      "ProbePeriodMs": 3000,
+      "SuccessThreshold": 1,
+      "FailureThreshold": 10
+    }
+  }' \
   --wait
 ```
 
@@ -57,11 +98,59 @@ export HTTPBIN_TOOL_ID='sdt-replace-me'
 All three Deployments use the same header name and a 30-second `STOP` idle policy so you can observe what happens when a target instance becomes unavailable. `EXCLUSIVE` permits at most three dedicated instances.
 
 ```bash
-agr deployment create --region "$AGR_REGION" --deployment-name "$BEST_EFFORT_DEPLOYMENT_NAME" --tool-id "$HTTPBIN_TOOL_ID" --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":10}' --lifecycle-configuration '{"IdleTimeoutSeconds":30,"IdleAction":"STOP"}' --affinity-configuration '{"Mode":"BEST_EFFORT","HeaderName":"X-Httpbin-Affinity"}'
+agr deployment create \
+  --region "$AGR_REGION" \
+  --deployment-name "$BEST_EFFORT_DEPLOYMENT_NAME" \
+  --tool-id "$HTTPBIN_TOOL_ID" \
+  --scaling-configuration '{
+    "MinInstanceCount": 0,
+    "MaxInstanceCount": 2,
+    "MaxInstanceRequestConcurrency": 10
+  }' \
+  --lifecycle-configuration '{
+    "IdleTimeoutSeconds": 30,
+    "IdleAction": "STOP"
+  }' \
+  --affinity-configuration '{
+    "Mode": "BEST_EFFORT",
+    "HeaderName": "X-Httpbin-Affinity"
+  }'
 
-agr deployment create --region "$AGR_REGION" --deployment-name "$STRICT_DEPLOYMENT_NAME" --tool-id "$HTTPBIN_TOOL_ID" --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":10}' --lifecycle-configuration '{"IdleTimeoutSeconds":30,"IdleAction":"STOP"}' --affinity-configuration '{"Mode":"STRICT","HeaderName":"X-Httpbin-Affinity"}'
+agr deployment create \
+  --region "$AGR_REGION" \
+  --deployment-name "$STRICT_DEPLOYMENT_NAME" \
+  --tool-id "$HTTPBIN_TOOL_ID" \
+  --scaling-configuration '{
+    "MinInstanceCount": 0,
+    "MaxInstanceCount": 2,
+    "MaxInstanceRequestConcurrency": 10
+  }' \
+  --lifecycle-configuration '{
+    "IdleTimeoutSeconds": 30,
+    "IdleAction": "STOP"
+  }' \
+  --affinity-configuration '{
+    "Mode": "STRICT",
+    "HeaderName": "X-Httpbin-Affinity"
+  }'
 
-agr deployment create --region "$AGR_REGION" --deployment-name "$EXCLUSIVE_DEPLOYMENT_NAME" --tool-id "$HTTPBIN_TOOL_ID" --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":3,"MaxInstanceRequestConcurrency":1}' --lifecycle-configuration '{"IdleTimeoutSeconds":30,"IdleAction":"STOP"}' --affinity-configuration '{"Mode":"EXCLUSIVE","HeaderName":"X-Httpbin-Affinity"}'
+agr deployment create \
+  --region "$AGR_REGION" \
+  --deployment-name "$EXCLUSIVE_DEPLOYMENT_NAME" \
+  --tool-id "$HTTPBIN_TOOL_ID" \
+  --scaling-configuration '{
+    "MinInstanceCount": 0,
+    "MaxInstanceCount": 3,
+    "MaxInstanceRequestConcurrency": 1
+  }' \
+  --lifecycle-configuration '{
+    "IdleTimeoutSeconds": 30,
+    "IdleAction": "STOP"
+  }' \
+  --affinity-configuration '{
+    "Mode": "EXCLUSIVE",
+    "HeaderName": "X-Httpbin-Affinity"
+  }'
 ```
 
 Each successful response contains that Deployment's ID and affinity configuration. For example:
