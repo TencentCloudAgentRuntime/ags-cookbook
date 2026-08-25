@@ -17,7 +17,8 @@ examples/
 │   └── requirements.txt   # 依赖包
 ├── deployment-cookbook/   # Deployment 命令行 Cookbook
 │   ├── README.md          # 示例导航与前置条件
-│   └── httpbin/           # httpbin 部署、伸缩、生命周期与亲和示例
+│   ├── httpbin/           # httpbin 部署、伸缩、生命周期与亲和示例
+│   └── deepseek-harness/  # 长驻 Agent 工作区示例
 ├── html-processing/       # HTML协作处理示例
 │   ├── README.md          # 详细使用说明
 │   ├── html_collaboration_demo.py  # Code+Browser协作演示
@@ -78,8 +79,9 @@ examples/
 - **两种访问方式**：本地调试 proxy 与 `AcquireDeploymentToken` 生产域名直连
 - **弹性与生命周期**：按需启动、常驻容量、`STOP` 与 `PAUSE`
 - **会话亲和**：`BEST_EFFORT`、`STRICT` 与 `EXCLUSIVE`
+- **Agent 工作区**：通过 TokenHub 运行 all-in-one DeepSeek Harness，并验证暂停恢复
 
-**技术栈**：AGR CLI、Jupyter Notebook、httpbin
+**技术栈**：AGR CLI、Jupyter Notebook、httpbin、DeepSeek Harness、TokenHub
 
 ### html-processing - HTML协作处理示例
 

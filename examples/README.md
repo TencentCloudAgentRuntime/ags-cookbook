@@ -17,7 +17,8 @@ examples/
 │   └── requirements.txt   # Dependencies
 ├── deployment-cookbook/   # Deployment CLI cookbook
 │   ├── README.md          # Example navigation and prerequisites
-│   └── httpbin/           # httpbin deployment, scaling, lifecycle, and affinity
+│   ├── httpbin/           # httpbin deployment, scaling, lifecycle, and affinity
+│   └── deepseek-harness/  # Persistent agent workspace example
 ├── html-processing/       # HTML collaboration example
 │   ├── README.md          # Detailed usage instructions
 │   ├── html_collaboration_demo.py  # Code+Browser collaboration demo
@@ -78,8 +79,9 @@ Uses an httpbin workload to demonstrate how to create and manage Deployments wit
 - **Two access paths**: local debugging proxy and production-domain access with `AcquireDeploymentToken`
 - **Scaling and lifecycle**: on-demand startup, warm capacity, `STOP`, and `PAUSE`
 - **Session affinity**: `BEST_EFFORT`, `STRICT`, and `EXCLUSIVE`
+- **Agent workspace**: run all-in-one DeepSeek Harness through TokenHub and verify pause/resume
 
-**Tech Stack**: AGR CLI, Jupyter Notebook, httpbin
+**Tech Stack**: AGR CLI, Jupyter Notebook, httpbin, DeepSeek Harness, TokenHub
 
 ### html-processing - HTML Collaboration Example
 
