@@ -7,7 +7,7 @@
 示例固定使用：
 
 - DeepSeek Harness tag：`dsh-v0.1.1-rc.2`
-- AGR 镜像：`ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.3`
+- AGR 镜像：`ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4`
 - region：`ap-shanghai`
 - 模型服务：腾讯云 TokenHub 的 OpenAI 兼容接口
 

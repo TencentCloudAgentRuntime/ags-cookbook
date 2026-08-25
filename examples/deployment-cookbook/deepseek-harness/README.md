@@ -7,7 +7,7 @@ The current [all-in-one](./all-in-one/README.md) example runs the Web UI, Agent 
 The example pins:
 
 - DeepSeek Harness tag: `dsh-v0.1.1-rc.2`
-- AGR image: `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.3`
+- AGR image: `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4`
 - region: `ap-shanghai`
 - model service: the OpenAI-compatible Tencent Cloud TokenHub API
 

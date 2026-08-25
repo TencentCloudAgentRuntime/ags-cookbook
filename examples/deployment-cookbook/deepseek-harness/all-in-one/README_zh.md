@@ -16,7 +16,7 @@
 - 已准备允许 AGR 拉取 CCR 镜像的 CAM 角色 ARN。
 - 本机端口 `18080` 可用。
 - 已开通腾讯云 TokenHub 并准备 API Key。TokenHub API 使用说明见[官方文档](https://cloud.tencent.com/document/product/1823/130078)。
-- 可以访问公共镜像 `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.3`。
+- 可以访问公共镜像 `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4`。
 
 本教程不会把 TokenHub API Key 写入镜像、Tool、Deployment 或命令行；它只在 DeepSeek Harness Web UI 中手工录入。
 
@@ -50,7 +50,7 @@ Auth:
 
 ## 2. 创建 DeepSeek Harness Tool
 
-Tool 使用固定版本镜像、`2 vCPU / 4 GiB` 资源和 `3080` HTTP 端口。启动参数允许容器监听 `0.0.0.0`，同时信任 `ap-shanghai` 的 Deployment 外部域名和网关转发到容器时使用的实例内部域名。镜像如何从官方源码构建见 [dockerfiles](./dockerfiles/README_zh.md)。
+Tool 使用固定版本镜像、`2 vCPU / 4 GiB` 资源和 `3080` HTTP 端口。启动参数允许容器监听 `0.0.0.0`，同时信任 `ap-shanghai` 的 Deployment 外部域名和网关转发到容器时使用的实例内部域名。`--allow-remote-management` 让这些受信任、且已经过 AGS Deployment Token 网关保护的请求可以完成 Provider、凭据和其他 Web UI 管理操作；它不会放行未命中 `trustedHosts` 的请求。镜像如何从官方源码构建见 [dockerfiles](./dockerfiles/README_zh.md)。
 
 ```bash
 agr tool create \
@@ -60,7 +60,7 @@ agr tool create \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.3","ImageRegistryType":"personal","Command":["node","--expose-internals","/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"],"Args":["web","--host","0.0.0.0","--port","3080","--trusted-host","*.ap-shanghai.agents.tencentags.com","--trusted-host","*.ap-shanghai.internal.tencentags.com","--no-open"],"Ports":[{"Name":"web","Port":3080,"Protocol":"TCP"}],"Resources":{"CPU":"2000m","Memory":"4Gi"},"Probe":{"HttpGet":{"Path":"/","Port":3080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":5000,"SuccessThreshold":1,"FailureThreshold":6}}' \
+  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4","ImageRegistryType":"personal","Command":["node","--expose-internals","/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"],"Args":["web","--host","0.0.0.0","--port","3080","--trusted-host","*.ap-shanghai.agents.tencentags.com","--trusted-host","*.ap-shanghai.internal.tencentags.com","--allow-remote-management","--no-open"],"Ports":[{"Name":"web","Port":3080,"Protocol":"TCP"}],"Resources":{"CPU":"2000m","Memory":"4Gi"},"Probe":{"HttpGet":{"Path":"/","Port":3080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":5000,"SuccessThreshold":1,"FailureThreshold":6}}' \
   --wait
 ```
 

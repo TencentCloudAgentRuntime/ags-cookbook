@@ -1,8 +1,26 @@
+diff --git a/packages/bundle/web-app/cordis.patch.yml b/packages/bundle/web-app/cordis.patch.yml
+index 61151bd..aabf27e 100644
+--- a/packages/bundle/web-app/cordis.patch.yml
++++ b/packages/bundle/web-app/cordis.patch.yml
+@@ -166 +166 @@
+-      inject: [webRuntime]
++      inject: [webRuntime, webStartup]
+@@ -167,0 +168,3 @@
++        # Explicit deployment opt-in: trusted authorities may use the
++        # configuration and other management APIs normally pinned to loopback.
++        allowRemoteManagement: !!js ctx.webStartup.allowRemoteManagement
 diff --git a/packages/bundle/web-app/src/startup.ts b/packages/bundle/web-app/src/startup.ts
-index 9faad24..3e767f5 100644
+index 9faad24..b5e4d2a 100644
 --- a/packages/bundle/web-app/src/startup.ts
 +++ b/packages/bundle/web-app/src/startup.ts
-@@ -65,3 +65,4 @@ Examples:
+@@ -23,0 +24,2 @@ export interface WebStartupValues {
++  /** Whether declared trusted hosts may use management APIs normally pinned to loopback. */
++  allowRemoteManagement: boolean
+@@ -35,0 +38 @@ interface WebOptions {
++  allowRemoteManagement: boolean
+@@ -50,0 +54 @@ function webCommand(): Command {
++    .option('--allow-remote-management', 'allow declared trusted hosts to use loopback-only management APIs')
+@@ -65,3 +69,4 @@ Examples:
 - * command's action publishes the flags this invocation named; `--host 0.0.0.0`
 - * or a non-numeric `--port` is a usage error, so on rejection (and on `--help`)
 - * nothing is provided.
@@ -10,25 +28,39 @@ index 9faad24..3e767f5 100644
 + * `--port` is a usage error, so on rejection (and on `--help`) nothing is
 + * provided. Deployments may explicitly bind `0.0.0.0`; callers are responsible
 + * for constraining network reachability and declaring trusted authorities.
-@@ -74,3 +74,0 @@ export function apply(ctx: Context): void {
+@@ -74,3 +78,0 @@ export function apply(ctx: Context): void {
 -    if (options.host === '0.0.0.0') {
 -      program.error('error: --host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
 -    }
+@@ -80,0 +83 @@ export function apply(ctx: Context): void {
++      allowRemoteManagement: options.allowRemoteManagement === true,
 diff --git a/packages/bundle/web-app/tests/startup.spec.ts b/packages/bundle/web-app/tests/startup.spec.ts
-index ba38062..c848962 100644
+index ba38062..e6ccc49 100644
 --- a/packages/bundle/web-app/tests/startup.spec.ts
 +++ b/packages/bundle/web-app/tests/startup.spec.ts
-@@ -137 +137 @@ describe('web command-line provider', () => {
+@@ -57,0 +58 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
++    '    allowRemoteManagement: !!js ctx.webStartup.allowRemoteManagement',
+@@ -92,0 +94 @@ describe('web command-line provider', () => {
++      '--allow-remote-management',
+@@ -98,0 +101 @@ describe('web command-line provider', () => {
++      allowRemoteManagement: true,
+@@ -110 +113 @@ describe('web command-line provider', () => {
+-    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
++    expect(values).toEqual({ allowRemoteManagement: false, openBrowser: true, trustedHosts: [] })
+@@ -112,0 +116 @@ describe('web command-line provider', () => {
++      allowRemoteManagement: false,
+@@ -137 +141 @@ describe('web command-line provider', () => {
 -  it('rejects the intentionally unsupported all-interfaces host before the consumer activates', async () => {
 +  it('publishes an explicit all-interfaces host for a network-constrained deployment', async () => {
-@@ -139,4 +139,8 @@ describe('web command-line provider', () => {
+@@ -139,4 +143,9 @@ describe('web command-line provider', () => {
 -    expect(observed.out).toContain('--host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
 -    expect(values).toBeUndefined()
 -    expect(observed.readerConfig).toBeUndefined()
 -    expect(observed.exits).toEqual([1])
-+    expect(values).toEqual({ host: '0.0.0.0', openBrowser: true, trustedHosts: [] })
++    expect(values).toEqual({ allowRemoteManagement: false, host: '0.0.0.0', openBrowser: true, trustedHosts: [] })
 +    expect(observed.readerConfig).toEqual({
 +      host: '0.0.0.0',
++      allowRemoteManagement: false,
 +      openBrowser: true,
 +      port: 3080,
 +      trustedHosts: [],
@@ -95,6 +127,45 @@ index ea8914c..eaa0b1b 100644
 +    return originUrl.protocol === 'https:'
 +      && isTrustedAuthority(originUrl, trustedHosts)
 +      && isTrustedAuthority(hostUrl, trustedHosts)
+diff --git a/packages/client/connection/src/index.ts b/packages/client/connection/src/index.ts
+index a1764a3..c048848 100644
+--- a/packages/client/connection/src/index.ts
++++ b/packages/client/connection/src/index.ts
+@@ -50,0 +51,2 @@ export interface ConnectionConfig {
++  /** Let declared trusted hosts use management APIs normally pinned to loopback. */
++  allowRemoteManagement?: boolean
+@@ -64,0 +67 @@ export const Config: z<ConnectionConfig> = z.object({
++  allowRemoteManagement: z.boolean().default(false),
+@@ -132,0 +136 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
++  const managementHosts = config?.allowRemoteManagement === true ? trustedHosts : []
+@@ -138 +142 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
+-  const connection = new HostConnectionService(ctx, trustedHosts)
++  const connection = new HostConnectionService(ctx, trustedHosts, config?.allowRemoteManagement === true)
+@@ -147 +151 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
+-        && !isTrustedApiRequest(request, [])) {
++        && !isTrustedApiRequest(request, managementHosts)) {
+diff --git a/packages/client/connection/src/rpc-host.ts b/packages/client/connection/src/rpc-host.ts
+index 0da66c8..112b0ea 100644
+--- a/packages/client/connection/src/rpc-host.ts
++++ b/packages/client/connection/src/rpc-host.ts
+@@ -49,0 +50 @@ export class HostConnectionService extends Service implements HostConnectionHand
++   * @param allowRemoteManagement - whether loopback-only channels also accept declared authorities.
+@@ -51 +52,5 @@ export class HostConnectionService extends Service implements HostConnectionHand
+-  constructor(ctx: Context, private readonly trustedHosts: readonly string[]) {
++  constructor(
++    ctx: Context,
++    private readonly trustedHosts: readonly string[],
++    private readonly allowRemoteManagement = false,
++  ) {
+@@ -82 +87,4 @@ export class HostConnectionService extends Service implements HostConnectionHand
+-        if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
++        const interceptorHosts = interceptor.options.authority === 'loopback' && !this.allowRemoteManagement
++          ? []
++          : this.trustedHosts
++        if (!isTrustedApiRequest(request, interceptorHosts)) {
+@@ -97 +105 @@ export class HostConnectionService extends Service implements HostConnectionHand
+-    const trustedHosts = options.authority === 'loopback' ? [] : this.trustedHosts
++    const trustedHosts = options.authority === 'loopback' && !this.allowRemoteManagement ? [] : this.trustedHosts
 diff --git a/packages/client/connection/tests/api-request-trust.host.spec.ts b/packages/client/connection/tests/api-request-trust.host.spec.ts
 index f145230..86d1de2 100644
 --- a/packages/client/connection/tests/api-request-trust.host.spec.ts
@@ -159,3 +230,77 @@ index f145230..86d1de2 100644
 +    }
 +    for (const entry of ['*', '*.', '*.*.example.com', 'api.*.example.com', '*.example.com:3080', '*.bad entry']) {
 +      expect(() => { assertTrustedAuthority(entry) }).toThrow(/not a bare host\[:port\] authority or a single-label wildcard/)
+diff --git a/packages/client/connection/tests/node-half.host.spec.ts b/packages/client/connection/tests/node-half.host.spec.ts
+index 022436d..ed526d8 100644
+--- a/packages/client/connection/tests/node-half.host.spec.ts
++++ b/packages/client/connection/tests/node-half.host.spec.ts
+@@ -78 +78 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
+-async function mounted(config?: { trustedHosts?: string[] }): Promise<{
++async function mounted(config?: { allowRemoteManagement?: boolean; trustedHosts?: string[] }): Promise<{
+@@ -200,0 +201,28 @@ describe('connection node half', () => {
++  it('allows the complete remote-management plane only with explicit opt-in', async () => {
++    const { routes, dispose } = await mounted({
++      allowRemoteManagement: true,
++      trustedHosts: ['harness.example'],
++    })
++    for (const method of [
++      'host.pickDirectory', 'host.openPath',
++      'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
++      'credentials.describe', 'credentials.set', 'credentials.unset',
++      'llm.discoverModels',
++      'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
++    ]) {
++      const allowed = fakeResponse()
++      await routes[0]!.handler(
++        fakeRequest({ host: 'harness.example' }, `${API_PATH}/${method}`),
++        allowed.response,
++      )
++      expect(allowed.state.status).not.toBe(403)
++    }
++    const untrusted = fakeResponse()
++    await routes[0]!.handler(
++      fakeRequest({ host: 'attacker.example' }, `${API_PATH}/settings.describe`),
++      untrusted.response,
++    )
++    expect(untrusted.state).toMatchObject({ status: 403, body: 'forbidden' })
++    await dispose()
++  })
++
+@@ -425,0 +454,37 @@ describe('connection node half', () => {
++
++  it('promotes loopback RPC channels to declared hosts only with remote-management opt-in', async () => {
++    const ctx = new Context()
++    const routes: WebRoute[] = []
++    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
++    ctx.provide('apiProxy', {} as unknown as ApiProxy)
++    const fiber = ctx.plugin({ inject: [...inject], apply }, {
++      allowRemoteManagement: true,
++      trustedHosts: ['harness.example'],
++    })
++    await fiber.await()
++    const connection = ctx.get('connection') as HostConnectionHandle
++    const request: ClientRequest = {
++      type: 'client-request', rpcId: RpcId('rpc-management'), method: 'read', payload: {},
++    }
++    const removeDedicated = connection.rpc.handle('/management', async () => ({ ok: true, value: null }), {
++      authority: 'loopback',
++    })
++    const removeShared = connection.rpc.intercept(
++      '/api', endpoint => endpoint === 'management/read', async () => ({ ok: true, value: null }),
++      { authority: 'loopback' },
++    )
++    for (const [path, route] of [
++      ['/management/read', routes.find(candidate => candidate.path === '/management')!],
++      ['/api/management/read', routes.find(candidate => candidate.path === API_PATH)!],
++    ] as const) {
++      const allowed = fakeResponse()
++      await route.handler(fakePost({ host: 'harness.example' }, path, request), allowed.response)
++      expect(allowed.state.status).toBe(200)
++      const denied = fakeResponse()
++      await route.handler(fakePost({ host: 'attacker.example' }, path, request), denied.response)
++      expect(denied.state.status).toBe(403)
++    }
++    await removeShared()
++    await removeDedicated()
++    await fiber.dispose()
++  })

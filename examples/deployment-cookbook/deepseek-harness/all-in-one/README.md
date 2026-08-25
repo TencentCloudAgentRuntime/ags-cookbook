@@ -16,7 +16,7 @@ The response examples follow actual command output structures with account detai
 - Prepare a CAM role ARN that lets AGR pull the CCR image.
 - Keep local port `18080` available.
 - Activate Tencent Cloud TokenHub and prepare an API key. See the [official TokenHub API guide](https://cloud.tencent.com/document/product/1823/130078).
-- Ensure that `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.3` is reachable.
+- Ensure that `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4` is reachable.
 
 The TokenHub API key is never placed in the image, Tool, Deployment, or command line. Enter it manually in the DeepSeek Harness Web UI.
 
@@ -50,7 +50,7 @@ Auth:
 
 ## 2. Create the DeepSeek Harness Tool
 
-The Tool uses the pinned image, `2 vCPU / 4 GiB`, and HTTP port `3080`. Its launch arguments bind the container to `0.0.0.0` and trust both the external Deployment hostnames in `ap-shanghai` and the internal instance hostnames used when the gateway forwards requests to the container. See [dockerfiles](./dockerfiles/README.md) for the official-source build.
+The Tool uses the pinned image, `2 vCPU / 4 GiB`, and HTTP port `3080`. Its launch arguments bind the container to `0.0.0.0` and trust both the external Deployment hostnames in `ap-shanghai` and the internal instance hostnames used when the gateway forwards requests to the container. `--allow-remote-management` lets requests that are both trusted and protected by the AGS Deployment-token gateway perform Provider, credential, and other Web UI management operations; it does not admit a request that misses `trustedHosts`. See [dockerfiles](./dockerfiles/README.md) for the official-source build.
 
 ```bash
 agr tool create \
@@ -60,7 +60,7 @@ agr tool create \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.3","ImageRegistryType":"personal","Command":["node","--expose-internals","/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"],"Args":["web","--host","0.0.0.0","--port","3080","--trusted-host","*.ap-shanghai.agents.tencentags.com","--trusted-host","*.ap-shanghai.internal.tencentags.com","--no-open"],"Ports":[{"Name":"web","Port":3080,"Protocol":"TCP"}],"Resources":{"CPU":"2000m","Memory":"4Gi"},"Probe":{"HttpGet":{"Path":"/","Port":3080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":5000,"SuccessThreshold":1,"FailureThreshold":6}}' \
+  --custom-configuration '{"Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4","ImageRegistryType":"personal","Command":["node","--expose-internals","/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"],"Args":["web","--host","0.0.0.0","--port","3080","--trusted-host","*.ap-shanghai.agents.tencentags.com","--trusted-host","*.ap-shanghai.internal.tencentags.com","--allow-remote-management","--no-open"],"Ports":[{"Name":"web","Port":3080,"Protocol":"TCP"}],"Resources":{"CPU":"2000m","Memory":"4Gi"},"Probe":{"HttpGet":{"Path":"/","Port":3080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":5000,"SuccessThreshold":1,"FailureThreshold":6}}' \
   --wait
 ```
 

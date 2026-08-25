@@ -29,7 +29,8 @@ RUN pnpm install --frozen-lockfile
 
 RUN pnpm exec vitest run \
       packages/bundle/web-app/tests/startup.spec.ts \
-      packages/client/connection/tests/api-request-trust.host.spec.ts
+      packages/client/connection/tests/api-request-trust.host.spec.ts \
+      packages/client/connection/tests/node-half.host.spec.ts
 
 RUN pnpm run build:official
 
@@ -53,4 +54,4 @@ WORKDIR /workspace
 EXPOSE 3080
 
 ENTRYPOINT ["node", "--expose-internals", "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"]
-CMD ["web", "--host", "0.0.0.0", "--port", "3080", "--trusted-host", "*.ap-shanghai.agents.tencentags.com", "--trusted-host", "*.ap-shanghai.internal.tencentags.com", "--no-open"]
+CMD ["web", "--host", "0.0.0.0", "--port", "3080", "--trusted-host", "*.ap-shanghai.agents.tencentags.com", "--trusted-host", "*.ap-shanghai.internal.tencentags.com", "--allow-remote-management", "--no-open"]
