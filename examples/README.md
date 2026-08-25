@@ -15,6 +15,9 @@ examples/
 │   ├── README.md          # Detailed usage instructions
 │   ├── multi_context_demo.py  # Multi-Context collaboration demo
 │   └── requirements.txt   # Dependencies
+├── deployment-cookbook/   # Deployment CLI cookbook
+│   ├── README.md          # Example navigation and prerequisites
+│   └── httpbin/           # httpbin deployment, scaling, lifecycle, and affinity
 ├── html-processing/       # HTML collaboration example
 │   ├── README.md          # Detailed usage instructions
 │   ├── html_collaboration_demo.py  # Code+Browser collaboration demo
@@ -66,6 +69,17 @@ Demonstrates how to use Agent Sandbox for complex data analysis workflows, inclu
 - Complex business data analysis
 
 **Tech Stack**: pandas, numpy, matplotlib, seaborn, scipy
+
+### deployment-cookbook - Deployment CLI Cookbook
+
+Uses an httpbin workload to demonstrate how to create and manage Deployments with `agr`:
+
+- **Shortest deployment path**: create a Tool and Deployment, inspect, access, and clean up
+- **Two access paths**: local debugging proxy and production-domain access with `AcquireDeploymentToken`
+- **Scaling and lifecycle**: on-demand startup, warm capacity, `STOP`, and `PAUSE`
+- **Session affinity**: `BEST_EFFORT`, `STRICT`, and `EXCLUSIVE`
+
+**Tech Stack**: AGR CLI, Jupyter Notebook, httpbin
 
 ### html-processing - HTML Collaboration Example
 
