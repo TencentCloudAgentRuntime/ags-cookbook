@@ -178,6 +178,8 @@ export DSH_AFFINITY_ID='replace-with-proxy-output'
 
 创建提供方后，新建 Agent，选择 `Standard` preset，并选择 `tokenhub/deepseek-v4-flash` 模型。这里不安装额外插件，也不修改 DeepSeek Harness 的预设。
 
+发送任务前，把输入框旁的文件访问模式切换为 `Full access`。当前 all-in-one 镜像没有安装可供 DeepSeek Harness 使用的 OS 沙箱后端；如果保持 `workspace-write`，Agent 的 Bash 调用会失败并进入提权审批，页面将停在 `Waiting for approval`。本教程的独占实例只服务一个 affinity 会话，并且前面已经接受使用 root 运行，因此直接使用 `Full access`。
+
 ## 6. 完成第一个真实任务
 
 向 Agent 发送下面的任务：

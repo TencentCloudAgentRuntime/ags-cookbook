@@ -33,4 +33,4 @@ docker buildx imagetools inspect \
   ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0
 ```
 
-升级镜像时应同时修改 Dockerfile 的上游版本、CCR 标签以及所有 Notebook 中的镜像引用，并重新执行四个示例的验证。
+升级镜像时应同时修改 Dockerfile 的上游版本、CCR 标签以及所有 Markdown 教程中的镜像引用，并重新执行四个示例的验证。

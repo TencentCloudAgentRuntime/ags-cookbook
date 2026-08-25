@@ -33,4 +33,4 @@ docker buildx imagetools inspect \
   ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0
 ```
 
-When upgrading the image, update the upstream version in the Dockerfile, the CCR tag, and every notebook image reference together, then rerun all four examples.
+When upgrading the image, update the upstream version in the Dockerfile, the CCR tag, and every Markdown tutorial image reference together, then rerun all four examples.

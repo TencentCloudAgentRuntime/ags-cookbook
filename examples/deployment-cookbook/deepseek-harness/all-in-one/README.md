@@ -178,6 +178,8 @@ If the first-run dialog asks for an official DeepSeek API key, choose “Configu
 
 After creating the provider, create an Agent with the `Standard` preset and select `tokenhub/deepseek-v4-flash`. Do not install an extra plugin or modify the shipped DeepSeek Harness preset.
 
+Before sending the task, switch the file-access control next to the composer to `Full access`. The current all-in-one image does not install an OS sandbox backend that DeepSeek Harness can use. With `workspace-write`, Bash calls fail and enter an escalation approval, leaving the page at `Waiting for approval`. This tutorial uses one dedicated instance per affinity session and has already accepted running as root, so it uses `Full access` directly.
+
 ## 6. Complete a real task
 
 Send the following task to the Agent:
