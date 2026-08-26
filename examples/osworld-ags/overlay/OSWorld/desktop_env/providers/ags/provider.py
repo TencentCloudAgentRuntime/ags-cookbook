@@ -10,8 +10,10 @@ import time
 import threading
 import socket
 import re
-import requests
 import weakref
+from pathlib import Path
+
+import requests
 
 from desktop_env.providers.base import Provider
 from desktop_env.providers.ags.config import (
@@ -200,7 +202,9 @@ class LocalProxyServer:
     async def _start_server(self):
         """Start the aiohttp web server with retry on port conflict."""
         import random
-        app = web.Application()
+        # OSWorld setup assets can be much larger than aiohttp's 1 MiB default.
+        # Keep the authenticated local proxy transparent for sandbox uploads.
+        app = web.Application(client_max_size=1024 ** 3)
 
         # Route all requests through our handler
         app.router.add_route('*', '/{path:.*}', self._handle_request)
@@ -457,7 +461,7 @@ class CDPProxyServer:
     async def _start_server(self):
         """Start the aiohttp web server with retry on port conflict."""
         import random
-        app = web.Application()
+        app = web.Application(client_max_size=1024 ** 3)
 
         # Route all requests through our handler
         app.router.add_route('*', '/{path:.*}', self._handle_request)
@@ -767,14 +771,15 @@ class AGSProvider(Provider):
         (e.g., "launch google-chrome --remote-debugging-port=1337").
 
         This method:
-        1. Installs aiohttp dependency
-        2. Deploys /tmp/cdp_proxy.py script (rewrites Host header for Chrome CDP)
-        3. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
+        1. Deploys a standard-library-only /tmp/cdp_proxy.py script that
+           rewrites Host and the external URLs in Chrome's /json responses
+        2. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
            "socat tcp-listen:9222,fork tcp:localhost:1337" calls from task setup,
            starts cdp_proxy.py instead, and passes other socat calls through.
         """
         import json as json_module
         exec_url = f"http://localhost:{self.local_server_port}/setup/execute"
+        upload_url = f"http://localhost:{self.local_server_port}/setup/upload"
         headers = {"Content-Type": "application/json"}
 
         def exec_shell(cmd: str) -> dict:
@@ -793,81 +798,22 @@ class AGSProvider(Provider):
                 logger.warning("exec '%s' error: %s", cmd[:50], e)
                 return {"status": "error", "output": str(e)}
 
-        # Ensure aiohttp is installed
-        exec_shell("python3 -c 'import aiohttp' 2>/dev/null || pip3 install --quiet aiohttp")
-
-        # Create CDP proxy script that rewrites Host header
-        proxy_script = r'''
-import asyncio
-import aiohttp
-from aiohttp import web
-import re
-
-CHROME_HOST = "127.0.0.1"
-CHROME_PORT = 1337
-
-async def handle_http(request):
-    path = request.path
-    if request.query_string:
-        path += "?" + request.query_string
-    url = f"http://{CHROME_HOST}:{CHROME_PORT}{path}"
-    headers = {"Host": f"localhost:{CHROME_PORT}"}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                content = await resp.read()
-                if path.startswith("/json"):
-                    content_str = content.decode("utf-8")
-                    content_str = re.sub(r"ws://[^/\s\"]+:1337", "ws://localhost:9222", content_str)
-                    content_str = content_str.replace(f"localhost:{CHROME_PORT}", "localhost:9222")
-                    content = content_str.encode("utf-8")
-                return web.Response(body=content, status=resp.status, content_type=resp.content_type)
-    except Exception as e:
-        return web.Response(text=str(e), status=502)
-
-async def handle_websocket(request):
-    ws_client = web.WebSocketResponse()
-    await ws_client.prepare(request)
-    path = request.path
-    url = f"ws://{CHROME_HOST}:{CHROME_PORT}{path}"
-    headers = {"Host": f"localhost:{CHROME_PORT}"}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.ws_connect(url, headers=headers) as ws_remote:
-                async def forward_to_remote():
-                    async for msg in ws_client:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            await ws_remote.send_str(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                            await ws_remote.send_bytes(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                            break
-                async def forward_to_client():
-                    async for msg in ws_remote:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            await ws_client.send_str(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.BINARY:
-                            await ws_client.send_bytes(msg.data)
-                        elif msg.type == aiohttp.WSMsgType.CLOSE:
-                            break
-                await asyncio.gather(forward_to_remote(), forward_to_client(), return_exceptions=True)
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-    return ws_client
-
-async def handle_request(request):
-    if request.headers.get("Upgrade", "").lower() == "websocket":
-        return await handle_websocket(request)
-    return await handle_http(request)
-
-app = web.Application()
-app.router.add_route("*", "/{path:.*}", handle_request)
-if __name__ == "__main__":
-    web.run_app(app, host="0.0.0.0", port=9222, print=None)
-'''
-        # Write proxy script
-        write_cmd = f"cat > /tmp/cdp_proxy.py << 'CDPPROXYSCRIPT'\n{proxy_script}\nCDPPROXYSCRIPT"
-        exec_shell(write_cmd)
+        # Upload the source as a standalone file. The multipart upload avoids
+        # shell quoting and command-length limits, and the file itself has no
+        # dependency beyond the Python standard library already in the image.
+        proxy_script_path = Path(__file__).with_name("cdp_proxy.py")
+        proxy_script = proxy_script_path.read_bytes()
+        upload_response = requests.post(
+            upload_url,
+            data={"file_path": "/tmp/cdp_proxy.py"},
+            files={"file_data": ("cdp_proxy.py", proxy_script, "text/x-python")},
+            timeout=120,
+        )
+        if upload_response.status_code != 200:
+            raise RuntimeError(
+                "Failed to upload CDP proxy: "
+                f"HTTP {upload_response.status_code} {upload_response.text[:200]}"
+            )
 
         # Install socat wrapper using sudo (password: password).
         # 1. Backup real socat binary
@@ -880,7 +826,7 @@ if __name__ == "__main__":
             'for arg in "$@"; do\n'
             '  case "$arg" in\n'
             '    tcp-listen:9222*)\n'
-            '      nohup python3 /tmp/cdp_proxy.py >/tmp/cdp_proxy.log 2>&1 &\n'
+            '      nohup python3 -S /tmp/cdp_proxy.py >/tmp/cdp_proxy.log 2>&1 &\n'
             '      for i in $(seq 1 50); do\n'
             '        ss -tlnp 2>/dev/null | grep -q ":9222 " && exit 0\n'
             '        sleep 0.2\n'

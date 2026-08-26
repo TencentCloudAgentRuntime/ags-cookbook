@@ -8,6 +8,7 @@ It works by copying a small overlay into a local OSWorld checkout. The overlay a
 
 - `provider_name=ags` support in OSWorld
 - local HTTP/WebSocket proxying for AGS sandbox access
+- a standard-library-only CDP bridge inside the sandbox, with no runtime package installation
 - noVNC support for remote desktop viewing
 
 ## Before You Start
@@ -64,6 +65,8 @@ make setup
 
 This creates `osworld/.venv` with `uv`, installs Python 3.10 if needed, and installs the overlaid `requirements.txt` into that virtual environment. The overlay adds the AGS dependencies to `requirements.txt`, including `e2b-code-interpreter` and `aiohttp`.
 
+`aiohttp` is used by the local authenticated AGS proxies. The CDP bridge deployed inside the sandbox uses only Python's standard library.
+
 ## Run
 
 ### Quick check
@@ -81,12 +84,17 @@ cd osworld
 uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt-4o --num_envs 2
 ```
 
+For setup-only batch validation without calling an LLM API, set
+`OSWORLD_MOCK_LLM_DONE=1`. The mock agent returns `DONE` immediately after each
+task setup finishes.
+
 ## What The Overlay Changes
 
 New files added to OSWorld:
 
 - `desktop_env/providers/ags/__init__.py`
 - `desktop_env/providers/ags/config.py`
+- `desktop_env/providers/ags/cdp_proxy.py`
 - `desktop_env/providers/ags/manager.py`
 - `desktop_env/providers/ags/provider.py`
 

@@ -8,6 +8,7 @@
 
 - OSWorld 中可直接使用 `provider_name=ags`
 - 面向 AGS 的本地 HTTP/WebSocket 代理
+- 沙箱内使用纯 Python 标准库实现的 CDP bridge，无需运行时安装依赖
 - 用于远程桌面观察的 noVNC 支持
 
 ## 开始前需要准备
@@ -64,6 +65,8 @@ make setup
 
 这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会把 AGS 依赖写入 `requirements.txt`，包括 `e2b-code-interpreter` 和 `aiohttp`。
 
+`aiohttp` 仅用于本地携带 AGS 认证信息的代理；部署到沙箱内的 CDP bridge 只使用 Python 标准库。
+
 ## 运行
 
 ### 快速检查
@@ -81,12 +84,17 @@ cd osworld
 uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt-4o --num_envs 2
 ```
 
+如需批量验证任务初始化、但不调用 LLM API，可设置
+`OSWORLD_MOCK_LLM_DONE=1`。该 mock agent 会在每个任务初始化完成后直接返回
+`DONE`。
+
 ## Overlay 会改哪些文件
 
 新增到 OSWorld 的文件：
 
 - `desktop_env/providers/ags/__init__.py`
 - `desktop_env/providers/ags/config.py`
+- `desktop_env/providers/ags/cdp_proxy.py`
 - `desktop_env/providers/ags/manager.py`
 - `desktop_env/providers/ags/provider.py`
 

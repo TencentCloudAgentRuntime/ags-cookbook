@@ -1,4 +1,4 @@
-.PHONY: setup run clean
+.PHONY: setup run check clean
 
 OSWORLD_DIR := osworld
 OSWORLD_PYTHON := 3.10
@@ -14,6 +14,13 @@ setup:
 run:
 	@test -x $(OSWORLD_PY) || (echo "missing $(OSWORLD_VENV): run 'make setup' first" && exit 1)
 	cd $(OSWORLD_DIR) && .venv/bin/python quickstart.py --provider_name ags
+
+check:
+	python3 -m py_compile \
+		overlay/OSWorld/run_multienv.py \
+		overlay/OSWorld/desktop_env/providers/ags/provider.py \
+		overlay/OSWorld/desktop_env/providers/ags/cdp_proxy.py
+	python3 -m unittest discover -s tests -v
 
 clean:
 	rm -rf $(OSWORLD_VENV)
