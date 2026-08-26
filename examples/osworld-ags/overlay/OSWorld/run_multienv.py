@@ -229,8 +229,7 @@ def run_env_tasks(task_queue: Queue, args: argparse.Namespace, shared_scores: li
                 client_password=args.client_password
             )
         if not hasattr(env, "vm_machine"):
-            # Current OSWorld Chrome evaluators expect this attribute, while the
-            # base DesktopEnv used by the AGS provider does not initialize it.
+            # Initialize the architecture used by Chrome evaluators.
             env.vm_machine = env.controller.get_vm_machine()
         active_environments.append(env)
         agent = create_agent(args)

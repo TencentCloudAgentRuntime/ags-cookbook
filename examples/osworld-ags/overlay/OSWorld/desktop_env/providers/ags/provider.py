@@ -202,8 +202,6 @@ class LocalProxyServer:
     async def _start_server(self):
         """Start the aiohttp web server with retry on port conflict."""
         import random
-        # OSWorld setup assets can be much larger than aiohttp's 1 MiB default.
-        # Keep the authenticated local proxy transparent for sandbox uploads.
         app = web.Application(client_max_size=1024 ** 3)
 
         # Route all requests through our handler
@@ -798,9 +796,6 @@ class AGSProvider(Provider):
                 logger.warning("exec '%s' error: %s", cmd[:50], e)
                 return {"status": "error", "output": str(e)}
 
-        # Upload the source as a standalone file. The multipart upload avoids
-        # shell quoting and command-length limits, and the file itself has no
-        # dependency beyond the Python standard library already in the image.
         proxy_script_path = Path(__file__).with_name("cdp_proxy.py")
         proxy_script = proxy_script_path.read_bytes()
         upload_response = requests.post(

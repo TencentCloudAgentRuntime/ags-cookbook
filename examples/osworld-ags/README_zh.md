@@ -8,7 +8,6 @@
 
 - OSWorld 中可直接使用 `provider_name=ags`
 - 面向 AGS 的本地 HTTP/WebSocket 代理
-- 沙箱内使用纯 Python 标准库实现的 CDP bridge，无需运行时安装依赖
 - 用于远程桌面观察的 noVNC 支持
 
 ## 开始前需要准备
@@ -63,9 +62,7 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 make setup
 ```
 
-这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。overlay 会把 AGS 依赖写入 `requirements.txt`，包括 `e2b-code-interpreter` 和 `aiohttp`。
-
-`aiohttp` 仅用于本地携带 AGS 认证信息的代理；部署到沙箱内的 CDP bridge 只使用 Python 标准库。
+这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。
 
 ## 运行
 
