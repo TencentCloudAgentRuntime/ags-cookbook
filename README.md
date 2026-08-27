@@ -23,8 +23,8 @@ Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox /
 ### Python versions
 
 - Most Python examples in `examples/` require **Python >= 3.12**
-- `examples/osworld-ags` currently requires **Python 3.10**
-- `uv` can manage both interpreters.
+- `examples/osworld-ags` uses **Python 3.12.12**
+- `uv` manages the required interpreter for each example.
 
 ### agr CLI
 
@@ -93,7 +93,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `mini-swe-agent` | Python + SWE sandbox + LLM | SWE-bench evaluation with AGS SWE sandbox |
 | `mobile-use` | Python + mobile sandbox + Appium | Android automation |
 | `openclaw-cookbook` | Node.js + custom image + COS | Run OpenClaw in AGS with official image |
-| `osworld-ags` | Python 3.10 + OSWorld overlay | Heavy setup; requires an OSWorld-capable tool |
+| `osworld-ags` | Python 3.12.12 + OSWorld overlay | Heavy setup; requires an OSWorld-capable tool |
 | `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |
 | `waa-ags` | Python + Windows sandbox + LLM | Run Windows Agent Arena on AGS via a small overlay |
 

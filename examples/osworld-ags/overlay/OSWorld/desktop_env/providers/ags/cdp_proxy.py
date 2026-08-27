@@ -14,7 +14,7 @@ import socketserver
 import sys
 
 from contextlib import suppress
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 CHROME_HOST = "127.0.0.1"
@@ -122,16 +122,47 @@ def read_http_response(sock):
     return header_bytes + b"\r\n\r\n" + body
 
 
+def rewrite_devtools_query(query, authority, ws_scheme):
+    rewritten = []
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        if key in {"ws", "wss"} and value:
+            target = urlparse(value if "://" in value else f"//{value}")
+            value = authority + target.path
+            if target.query:
+                value += f"?{target.query}"
+            if target.fragment:
+                value += f"#{target.fragment}"
+            key = "wss" if ws_scheme == "wss" else "ws"
+        rewritten.append((key, value))
+    return urlencode(rewritten, doseq=True, safe="/:[]")
+
+
+def is_loopback_hostname(hostname):
+    if not hostname:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
 def rewrite_cdp_url(value, authority, ws_scheme):
     if not isinstance(value, str):
         return value
     parsed = urlparse(value)
+    query = rewrite_devtools_query(parsed.query, authority, ws_scheme)
     if parsed.scheme in {"ws", "wss"}:
-        return urlunparse((ws_scheme, authority, parsed.path, "", parsed.query, parsed.fragment))
+        return urlunparse((ws_scheme, authority, parsed.path, "", query, parsed.fragment))
     if parsed.scheme in {"http", "https"}:
+        if not is_loopback_hostname(parsed.hostname):
+            return urlunparse(
+                (parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, parsed.fragment)
+            )
         scheme = "https" if ws_scheme == "wss" else "http"
-        return urlunparse((scheme, authority, parsed.path, "", parsed.query, parsed.fragment))
-    return value
+        return urlunparse((scheme, authority, parsed.path, "", query, parsed.fragment))
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, parsed.fragment))
 
 
 def rewrite_cdp_payload(content, authority, ws_scheme):
@@ -141,6 +172,8 @@ def rewrite_cdp_payload(content, authority, ws_scheme):
         content_text = content.decode("utf-8", errors="replace")
         content_text = re.sub(r'wss?://[^/\s"]+', f"{ws_scheme}://{authority}", content_text)
         content_text = content_text.replace(f"localhost:{CHROME_PORT}", authority)
+        query_key = "wss" if ws_scheme == "wss" else "ws"
+        content_text = re.sub(r"([?&])wss?=", rf"\1{query_key}=", content_text)
         return content_text.encode("utf-8")
 
     def rewrite_item(item):

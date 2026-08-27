@@ -44,6 +44,22 @@ def create_vm_manager_and_provider(provider_name: str, region: str, use_proxy: b
         from desktop_env.providers.volcengine.manager import VolcengineVMManager
         from desktop_env.providers.volcengine.provider import VolcengineProvider
         return VolcengineVMManager(), VolcengineProvider()
+    elif provider_name == "fastvm":
+        from desktop_env.providers.fastvm.manager import FastvmVMManager
+        from desktop_env.providers.fastvm.provider import FastvmProvider
+        return FastvmVMManager(), FastvmProvider(region)
+    elif provider_name == "daytona":
+        from desktop_env.providers.daytona.manager import DaytonaVMManager
+        from desktop_env.providers.daytona.provider import DaytonaProvider
+        return DaytonaVMManager(), DaytonaProvider(region)
+    elif provider_name == "modal":
+        from desktop_env.providers.modal.manager import ModalVMManager
+        from desktop_env.providers.modal.provider import ModalProvider
+        return ModalVMManager(), ModalProvider(region)
+    elif provider_name in {"pyromind"}:
+        from desktop_env.providers.pyromind.manager import PyromindVMManager
+        from desktop_env.providers.pyromind.provider import PyromindProvider
+        return PyromindVMManager(), PyromindProvider(region)
     elif provider_name == "ags":
         from desktop_env.providers.ags.manager import AGSVMManager
         from desktop_env.providers.ags.provider import AGSProvider

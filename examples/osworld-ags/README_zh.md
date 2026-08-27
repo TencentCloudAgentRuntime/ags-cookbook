@@ -14,10 +14,11 @@
 
 你需要：
 
-- `uv`（用于管理隔离的 Python 3.10 环境）
+- `uv`（用于管理隔离的 Python 3.12.12 环境）
 - `git`
 - AGS API Key
-- 一个兼容 OSWorld 的 AGS sandbox template
+- 一个兼容 OSWorld 的 AGS sandbox template，其中包含 `/bin/bash`、
+  `/usr/bin/socat`、`python3` 和 `sudo`
 - 你打算运行的模型对应的 LLM API Key
 
 ## 安装步骤
@@ -31,8 +32,13 @@ cd /path/to/ags-cookbook/examples/osworld-ags
 ### 2. 克隆 OSWorld 到 `./osworld`
 
 ```bash
-git clone https://github.com/xlang-ai/OSWorld.git osworld
+make clone
 ```
+
+该命令会检出 OSWorld commit
+[`84aee655c2afb6b77ecf39884432615ba345c031`](https://github.com/xlang-ai/OSWorld/commit/84aee655c2afb6b77ecf39884432615ba345c031)。
+同时还会初始化上游锁定项目环境所需的 `agp_client` submodule。
+`make setup` 会在安装依赖前校验当前 checkout。
 
 ### 3. 应用 overlay
 
@@ -52,17 +58,22 @@ cp .env.example osworld/.env
 E2B_API_KEY=your_api_key_here
 E2B_DOMAIN=ap-singapore.tencentags.com
 AGS_TEMPLATE=your_osworld_template_id
+AGS_SUDO_PASSWORD=password
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
+`AGS_SUDO_PASSWORD` 必须与沙箱用户的 sudo 密码一致。标准 OSWorld 镜像使用
+`password`。
+
 ### 5. 在隔离的 uv 环境中安装依赖
-请注意：当前只支持 Python 3.10
+
 ```bash
 make setup
 ```
 
-这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.10，并把 overlay 后的 `requirements.txt` 安装到该虚拟环境中。
+这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.12.12，并安装上游
+`uv.lock` 中的 OSWorld 依赖和 `requirements-ags.lock` 中的 AGS 专用依赖。
 
 ## 运行
 
@@ -94,14 +105,15 @@ uv run --python .venv/bin/python run_multienv.py --provider_name ags --model gpt
 - `desktop_env/providers/ags/cdp_proxy.py`
 - `desktop_env/providers/ags/manager.py`
 - `desktop_env/providers/ags/provider.py`
+- `desktop_env/providers/ags/sandbox_setup.py`
+- `desktop_env/providers/ags/socat_wrapper.sh`
+- `requirements-ags.lock`
+- `run_multienv.py`
 
 会被 overlay 覆盖的上游文件：
 
 - `desktop_env/desktop_env.py`
 - `desktop_env/providers/__init__.py`
-- `desktop_env/controllers/python.py`
-- `run_multienv.py`
-- `requirements.txt`
 
 ## 访问 VNC
 

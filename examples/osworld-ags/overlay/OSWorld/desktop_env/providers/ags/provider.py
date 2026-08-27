@@ -4,7 +4,9 @@ Modified and redistributed by Agent Sandbox Cookbook as part of the OSWorld AGS 
 """
 
 import atexit
+import hashlib
 import logging
+import shlex
 import signal
 import time
 import threading
@@ -18,11 +20,13 @@ import requests
 from desktop_env.providers.base import Provider
 from desktop_env.providers.ags.config import (
     AGS_TIMEOUT,
+    AGS_SUDO_PASSWORD,
     SERVER_PORT,
     CHROMIUM_PORT,
     VNC_PORT,
     VLC_PORT,
 )
+from desktop_env.providers.ags.sandbox_setup import execute_shell, upload_file
 
 logger = logging.getLogger("desktopenv.providers.ags.AGSProvider")
 logger.setLevel(logging.INFO)
@@ -769,79 +773,91 @@ class AGSProvider(Provider):
         (e.g., "launch google-chrome --remote-debugging-port=1337").
 
         This method:
-        1. Deploys a standard-library-only /tmp/cdp_proxy.py script that
-           rewrites Host and the external URLs in Chrome's /json responses
-        2. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
+        1. Validates the sandbox commands and sudo access required by the bridge
+        2. Uploads the CDP proxy and socat wrapper through OSWorld Server
+        3. Uses sudo to replace /usr/bin/socat with a wrapper that intercepts
            "socat tcp-listen:9222,fork tcp:localhost:1337" calls from task setup,
            starts cdp_proxy.py instead, and passes other socat calls through.
         """
-        import json as json_module
         exec_url = f"http://localhost:{self.local_server_port}/setup/execute"
         upload_url = f"http://localhost:{self.local_server_port}/setup/upload"
-        headers = {"Content-Type": "application/json"}
 
-        def exec_shell(cmd: str) -> dict:
-            """Execute a shell command in the sandbox."""
-            try:
-                payload = json_module.dumps({"command": cmd, "shell": True})
-                resp = requests.post(exec_url, headers=headers, data=payload, timeout=120)
-                if resp.status_code == 200:
-                    result = resp.json()
-                    logger.debug("exec '%s': %s", cmd[:50], result.get("output", "")[:200])
-                    return result
-                else:
-                    logger.warning("exec '%s' failed: %s", cmd[:50], resp.text[:200])
-                    return {"status": "error", "output": resp.text}
-            except Exception as e:
-                logger.warning("exec '%s' error: %s", cmd[:50], e)
-                return {"status": "error", "output": str(e)}
+        def run(command: str, label: str) -> dict:
+            result = execute_shell(exec_url, command, label=label)
+            logger.debug("Sandbox command succeeded: %s", label)
+            return result
+
+        sudo_password = shlex.quote(AGS_SUDO_PASSWORD)
+
+        def run_as_root(command: str, label: str) -> dict:
+            command = (
+                "if sudo -n true 2>/dev/null; then "
+                f"sudo -n {command}; "
+                "else "
+                f"printf '%s\\n' {sudo_password} | sudo -S -p '' {command}; "
+                "fi"
+            )
+            return run(command, label)
+
+        run(
+            "set -eu; "
+            "test -x /bin/bash; "
+            "test -x /usr/bin/socat; "
+            "test ! -e /usr/bin/socat.real || test -x /usr/bin/socat.real; "
+            "for command in sudo python3 nohup sleep cp chmod cmp rm; do "
+            "command -v \"$command\" >/dev/null; "
+            "done",
+            "validate CDP proxy prerequisites",
+        )
+        run_as_root("true", "validate sandbox sudo access")
 
         proxy_script_path = Path(__file__).with_name("cdp_proxy.py")
         proxy_script = proxy_script_path.read_bytes()
-        upload_response = requests.post(
+        upload_file(
             upload_url,
-            data={"file_path": "/tmp/cdp_proxy.py"},
-            files={"file_data": ("cdp_proxy.py", proxy_script, "text/x-python")},
-            timeout=120,
+            "/tmp/cdp_proxy.py",
+            proxy_script_path.name,
+            proxy_script,
         )
-        if upload_response.status_code != 200:
-            raise RuntimeError(
-                "Failed to upload CDP proxy: "
-                f"HTTP {upload_response.status_code} {upload_response.text[:200]}"
-            )
-
-        # Install socat wrapper using sudo (password: password).
-        # 1. Backup real socat binary
-        # 2. Replace /usr/bin/socat with a bash wrapper that:
-        #    - Intercepts "socat tcp-listen:9222,..." and starts cdp_proxy.py instead
-        #    - Passes all other socat calls through to the real binary
-        socat_wrapper = (
-            '#!/bin/bash\n'
-            'REAL=/usr/bin/socat.real\n'
-            'for arg in "$@"; do\n'
-            '  case "$arg" in\n'
-            '    tcp-listen:9222*)\n'
-            '      nohup python3 -S /tmp/cdp_proxy.py >/tmp/cdp_proxy.log 2>&1 &\n'
-            '      for i in $(seq 1 50); do\n'
-            '        ss -tlnp 2>/dev/null | grep -q ":9222 " && exit 0\n'
-            '        sleep 0.2\n'
-            '      done\n'
-            '      exit 0\n'
-            '      ;;\n'
-            '  esac\n'
-            'done\n'
-            'exec "$REAL" "$@"\n'
+        wrapper_path = proxy_script_path.with_name("socat_wrapper.sh")
+        wrapper_script = wrapper_path.read_bytes()
+        upload_file(
+            upload_url,
+            "/tmp/socat_wrapper",
+            wrapper_path.name,
+            wrapper_script,
         )
-        # Write wrapper to /tmp first, then use sudo to install
-        exec_shell(f"cat > /tmp/socat_wrapper << 'SOCATWRAPPER'\n{socat_wrapper}SOCATWRAPPER")
-        exec_shell("chmod +x /tmp/socat_wrapper")
-        exec_shell("echo password | sudo -S cp /usr/bin/socat /usr/bin/socat.real")
-        exec_shell("echo password | sudo -S cp /tmp/socat_wrapper /usr/bin/socat")
-        exec_shell("echo password | sudo -S chmod +x /usr/bin/socat")
+        verify_uploads = (
+            "import hashlib, pathlib, sys; "
+            "pairs = zip(sys.argv[1::2], sys.argv[2::2]); "
+            "ok = all(hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() == digest "
+            "for path, digest in pairs); "
+            "raise SystemExit(0 if ok else 1)"
+        )
+        run(
+            "set -eu; "
+            "test -s /tmp/cdp_proxy.py; "
+            "python3 -S -m py_compile /tmp/cdp_proxy.py; "
+            "test -s /tmp/socat_wrapper; "
+            "/bin/bash -n /tmp/socat_wrapper; "
+            f"python3 -S -c {shlex.quote(verify_uploads)} "
+            f"/tmp/cdp_proxy.py {hashlib.sha256(proxy_script).hexdigest()} "
+            f"/tmp/socat_wrapper {hashlib.sha256(wrapper_script).hexdigest()}",
+            "validate uploaded CDP proxy files",
+        )
 
-        # Verify wrapper is installed
-        result = exec_shell("file /usr/bin/socat && file /usr/bin/socat.real")
-        logger.info("socat wrapper installed: %s", result.get("output", "").strip())
+        run_as_root(
+            "sh -c 'if [ ! -e /usr/bin/socat.real ]; then "
+            "cp -- /usr/bin/socat /usr/bin/socat.real; fi'",
+            "back up socat",
+        )
+        run_as_root("cp -- /tmp/socat_wrapper /usr/bin/socat", "install socat wrapper")
+        run_as_root("chmod 0755 /usr/bin/socat", "make socat wrapper executable")
+        run(
+            "test -x /usr/bin/socat.real && cmp -s /tmp/socat_wrapper /usr/bin/socat",
+            "verify socat wrapper installation",
+        )
+        logger.info("CDP proxy prerequisites installed")
 
     def start_emulator(self, path_to_vm: str, headless: bool, os_type: str = None):
         """
