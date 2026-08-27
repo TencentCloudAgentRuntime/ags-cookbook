@@ -223,11 +223,13 @@ class CDPProxyTest(unittest.TestCase):
         self.assertIn('echo "CDP proxy failed to listen on port $PROXY_PORT;', wrapper)
         self.assertIn("exit 1", wrapper)
 
-    def test_setup_reuses_upstream_lock_and_adds_only_ags_lock(self):
+    def test_setup_uses_upstream_requirements_and_adds_only_ags_lock(self):
         makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
-        self.assertIn("uv sync --frozen --no-dev", makefile)
+        self.assertIn("uv venv --clear", makefile)
+        self.assertIn("-r requirements.txt", makefile)
         self.assertIn("-r requirements-ags.lock", makefile)
-        self.assertIn("submodule update --init mm_agents/surferH/agp_client", makefile)
+        self.assertNotIn("uv sync", makefile)
+        self.assertNotIn("submodule update", makefile)
         self.assertNotIn("-r requirements.lock", makefile)
         self.assertFalse((EXAMPLE_ROOT / "overlay" / "OSWorld" / "requirements.txt").exists())
         self.assertFalse((EXAMPLE_ROOT / "overlay" / "OSWorld" / "requirements.lock").exists())

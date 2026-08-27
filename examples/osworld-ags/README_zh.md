@@ -37,7 +37,6 @@ make clone
 
 该命令会检出 OSWorld commit
 [`84aee655c2afb6b77ecf39884432615ba345c031`](https://github.com/xlang-ai/OSWorld/commit/84aee655c2afb6b77ecf39884432615ba345c031)。
-同时还会初始化上游锁定项目环境所需的 `agp_client` submodule。
 `make setup` 会在安装依赖前校验当前 checkout。
 
 ### 3. 应用 overlay
@@ -73,7 +72,8 @@ make setup
 ```
 
 这会用 `uv` 创建 `osworld/.venv`，按需安装 Python 3.12.12，并安装上游
-`uv.lock` 中的 OSWorld 依赖和 `requirements-ags.lock` 中的 AGS 专用依赖。
+`requirements.txt` 中的 OSWorld 依赖和 `requirements-ags.lock` 中的 AGS
+专用依赖。
 
 ## 运行
 

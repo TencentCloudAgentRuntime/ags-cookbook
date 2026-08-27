@@ -37,8 +37,6 @@ make clone
 
 This checks out OSWorld commit
 [`84aee655c2afb6b77ecf39884432615ba345c031`](https://github.com/xlang-ai/OSWorld/commit/84aee655c2afb6b77ecf39884432615ba345c031).
-It also initializes the upstream `agp_client` submodule used by OSWorld's locked
-project environment.
 `make setup` verifies the checkout before installing dependencies.
 
 ### 3. Apply the overlay
@@ -74,8 +72,8 @@ make setup
 ```
 
 This creates `osworld/.venv` with `uv`, installs Python 3.12.12 if needed, and
-installs OSWorld from the upstream `uv.lock` plus the AGS-only dependencies in
-`requirements-ags.lock`.
+installs OSWorld from the upstream `requirements.txt` plus the AGS-only
+dependencies in `requirements-ags.lock`.
 
 ## Run
 
