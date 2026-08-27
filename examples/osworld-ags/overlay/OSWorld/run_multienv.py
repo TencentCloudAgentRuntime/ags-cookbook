@@ -134,6 +134,33 @@ logger.addHandler(stdout_handler)
 logger = logging.getLogger("desktopenv.experiment")
 
 
+class MockDoneAgent:
+    """Minimal agent used to exercise task setup without calling an LLM API."""
+
+    def reset(self, *args, **kwargs):
+        return None
+
+    def predict(self, instruction, obs):
+        return "DONE", ["DONE"]
+
+
+def create_agent(args: argparse.Namespace):
+    if os.getenv("OSWORLD_MOCK_LLM_DONE", "").lower() in {"1", "true", "yes"}:
+        logger.info("OSWORLD_MOCK_LLM_DONE is enabled; LLM calls return DONE")
+        return MockDoneAgent()
+
+    return PromptAgent(
+        model=args.model,
+        max_tokens=args.max_tokens,
+        top_p=args.top_p,
+        temperature=args.temperature,
+        action_space=args.action_space,
+        observation_type=args.observation_type,
+        max_trajectory_length=args.max_trajectory_length,
+        client_password=args.client_password
+    )
+
+
 def distribute_tasks(test_all_meta: dict) -> List[tuple]:
     all_tasks = []
     for domain, examples in test_all_meta.items():
@@ -201,17 +228,11 @@ def run_env_tasks(task_queue: Queue, args: argparse.Namespace, shared_scores: li
                 enable_proxy=True,
                 client_password=args.client_password
             )
+        if not hasattr(env, "vm_machine"):
+            # Initialize the architecture used by Chrome evaluators.
+            env.vm_machine = env.controller.get_vm_machine()
         active_environments.append(env)
-        agent = PromptAgent(
-            model=args.model,
-            max_tokens=args.max_tokens,
-            top_p=args.top_p,
-            temperature=args.temperature,
-            action_space=args.action_space,
-            observation_type=args.observation_type,
-            max_trajectory_length=args.max_trajectory_length,
-            client_password=args.client_password
-        )
+        agent = create_agent(args)
 
         logger.info(f"Process {current_process().name} started.")
         while True:
