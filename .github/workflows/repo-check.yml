@@ -1,0 +1,29 @@
+name: Repository Check
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - uses: astral-sh/setup-uv@v5
+      - name: Run repository checks
+        run: |
+          python3 .repo/check_repo_contracts.py
+          python3 .repo/python_syntax_check.py
+          for dir in examples/*; do
+            if [ -f "$dir/go.mod" ]; then
+              echo "==> go build ./... in $dir"
+              (cd "$dir" && go build ./...)
+            fi
+          done

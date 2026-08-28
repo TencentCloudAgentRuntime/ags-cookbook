@@ -1,0 +1,10 @@
+[
+  {
+    "name": "session-id",
+    "value": "REPLACE_WITH_YOUR_VALUE",
+    "domain": ".amazon.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true
+  }
+]

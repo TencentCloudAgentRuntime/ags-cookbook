@@ -1,153 +1,123 @@
 # Contributing Guide
 
-Thank you for your interest in the Agent Sandbox Cookbook project! We welcome all forms of contributions, including new examples, tutorial improvements, documentation enhancements, and bug fixes.
+Thanks for contributing to Agent Sandbox Cookbook.
 
-## How to Contribute
+## Before you start
 
-### 1. Submit an Issue
+### Recommended local setup
 
-If you find a bug or have a feature suggestion, please search existing issues first to ensure there are no duplicates before creating a new issue.
+- `uv`
+- `python3`
+- `go` for Go examples
+- `git`
 
-When creating an issue, please include:
-- A clear title and description
-- Steps to reproduce (if it's a bug)
-- Expected behavior and actual behavior
-- Environment information (Python version, operating system, etc.)
+Run the smallest relevant example locally from its own directory, or use the repository root to dispatch a single example:
 
-### 2. Submit a Pull Request
-
-#### Preparation
-
-1. Fork this repository to your GitHub account
-2. Clone your fork:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/ags-cookbook.git
-   cd ags-cookbook
-   ```
-3. Add the upstream repository:
-   ```bash
-   git remote add upstream https://github.com/ORIGINAL_OWNER/ags-cookbook.git
-   ```
-
-#### Development Workflow
-
-1. Create a feature branch from `main`:
-   ```bash
-   git checkout main
-   git pull upstream main
-   git checkout -b feature/your-feature-name
-   ```
-
-2. Make changes and commit:
-   ```bash
-   git add .
-   git commit -m "feat: add new feature description"
-   ```
-
-3. Push to your fork:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-4. Create a Pull Request on GitHub
-
-### 3. Code Standards
-
-#### Python Code Standards
-
-- Follow [PEP 8](https://pep8.org/) code style
-- Use meaningful variable and function names
-- Add necessary comments and docstrings
-- Keep code clean and readable
-
-#### Commit Message Standards
-
-Use semantic commit messages:
-
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation update
-- `style:` Code formatting changes
-- `refactor:` Code refactoring
-- `test:` Test-related
-- `chore:` Build/tool-related
-
-Examples:
-```
-feat: add image processing example
-fix: fix path issue in data analysis example
-docs: update README installation instructions
+```bash
+make examples-list
+make example-setup EXAMPLE=<name>
+make example-run EXAMPLE=<name>
 ```
 
-## Example Contribution Guidelines
 
-### Directory Structure
+## Repository guidance map
 
-New examples should follow this structure:
+Use the following public documents by role:
 
+- Example users: `README.md` -> `examples/README.md` -> target example `README.md`
+- Contributors: `CONTRIBUTING.md` -> relevant example README / Makefile; use GitHub Issues for larger collaborative work
+
+## Repository boundary
+
+This repository is user-centered first.
+
+- Prefer committing content that directly improves how AGS users discover, run, and understand examples
+- Keep project-governance and maintenance-only content to the minimum needed for public collaboration
+- Keep execution notes, temporary drafts, and other non-customer-facing working materials in `.local/`
+- Keep development and maintenance plumbing in dot-directories when practical (for example `.github/`, `.pre-commit-config.yaml`, `.repo/`) so customer-facing paths stay focused on examples
+
+## Development workflow
+
+1. Fork the repository
+2. Clone your fork
+3. Add upstream remote
+4. Create a feature branch from `main`
+5. Make changes
+6. Run the smallest relevant example locally
+7. Open a Pull Request
+
+Example:
+
+```bash
+git clone https://github.com/YOUR_USERNAME/ags-cookbook.git
+cd ags-cookbook
+git remote add upstream https://github.com/TencentCloudAgentRuntime/ags-cookbook.git
+git checkout -b fix/your-change
 ```
-examples/your-example-name/
-├── README.md              # Detailed documentation
-├── main_script.py         # Main demo script
-└── requirements.txt       # Example-specific dependencies
-```
 
-### README.md Requirements
+## Example conventions
 
-Each example's README.md should include:
+Each example should aim to provide:
 
-1. **Feature Description**: Functionality and use cases of the example
-2. **Prerequisites**: Required environment and configuration
-3. **Installation Steps**: Dependency installation commands
-4. **Running Instructions**: Complete execution commands
-5. **Expected Output**: Description of generated files and expected results
-6. **Code Explanation**: Key code logic explanation
+- `README.md`
+- `Makefile` with at least `make run`
+- `.env.example` when environment variables are required
+- isolated dependency management
+  - Python: prefer `pyproject.toml` + `uv.lock`
+  - Go: `go.mod` / `go.sum`
+  - Node.js / TypeScript: `package.json` + `pnpm-lock.yaml`
 
-### Code Requirements
+### README expectations
 
-- Code should run independently without depending on other examples
-- Include complete error handling
-- Add necessary logging output
-- Use environment variables for sensitive information (e.g., API Keys)
+`README.md` **must be written in English**. A Chinese translation may be provided as `README_zh.md` (or other language variants such as `README_ja.md`), but the primary `README.md` is always English.
 
-### requirements.txt Requirements
+Each example README should include:
 
-- Specify exact version numbers to ensure reproducibility
-- Only include dependencies required by the example
-- Example:
-  ```
-  e2b-code-interpreter==1.0.0
-  pandas==2.0.0
-  ```
+1. What the example demonstrates
+2. Prerequisites
+3. Required environment variables
+4. Install steps
+5. Run command
+6. Expected output or artifacts
+7. Common failure modes if the example depends on external tools/templates
 
-## Tutorial Contribution Guidelines
+## Python examples
 
-### Jupyter Notebook Standards
+- Prefer `uv sync` and `uv run ...`
+- Keep `requires-python` accurate in `pyproject.toml`
+- Use environment variables for secrets
+- Add clear logging for long-running or multi-step flows
 
-- Use clear Markdown cells to explain each step
-- Code cells should be executable in sequence
-- Include examples of expected output
-- Add necessary comments
+## Go examples
 
-### Content Requirements
+- Read credentials from `TENCENTCLOUD_*` only
+- Keep startup / cleanup behavior explicit
 
-- Start with basic concepts and progress gradually
-- Provide complete code examples
-- Explain key APIs and parameters
-- Include common questions and solutions
+## Node.js / TypeScript examples
 
-## Review Process
+- Use `pnpm` as the package manager; commit `pnpm-lock.yaml`
+- Use `tsx` to run TypeScript directly — no build step required
+- Read credentials from environment variables (`TENCENTCLOUD_*`); use `dotenv` to load `.env`
+- Provide `.env.example` with placeholder values only — never commit real secrets
 
-1. After submitting a PR, maintainers will conduct a code review
-2. If there are suggestions for changes, please respond and update promptly
-3. Once approved, the PR will be merged into the `main` branch
+## Commit messages
 
-## Getting Help
+Commit messages **must be written in English**.
 
-If you encounter problems during the contribution process, you can:
+Use semantic prefixes such as:
 
-- Ask questions in Issues
-- Refer to project documentation
-- Reference existing example implementations
+- `feat:`
+- `fix:`
+- `docs:`
+- `refactor:`
+- `test:`
+- `chore:`
 
-Thank you for your contribution!
+## Pull request quality bar
+
+A good PR should:
+
+- update docs when behavior changes
+- keep English and Chinese docs reasonably aligned where relevant
+- avoid introducing hidden environment assumptions
+- improve, not reduce, local reproducibility

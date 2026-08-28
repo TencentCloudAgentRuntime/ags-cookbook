@@ -1,191 +1,133 @@
 # Agent Sandbox Cookbook
 
-A comprehensive guide and example collection for Agent Sandbox.
+Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox / AGS.
 
-## Introduction
+## What this repo contains
 
-Agent Sandbox Cookbook is a comprehensive guide and example collection demonstrating how to build powerful AI Agent applications using Agent Sandbox through existing SDKs. This project includes a complete learning path from basic tutorials to advanced examples.
+- **Skills**: reference Agent Skill example for AGS; see [`skills/README.md`](./skills/README.md)
+- **Tutorials**: SDK and notebook-based onboarding
+- **Examples**: runnable browser, code, mobile, Go, and OSWorld demos
+- **Benchmarks**: k6 stress scripts
+- **Utils**: debugging helpers and validated runtime source components such as envd
 
-## Project Structure
+## Repository requirements
 
-```
-ags-cookbook/
-├── .gitignore                              
-├── LICENSE                                 
-├── README.md                               # Project documentation
-├── CODE_OF_CONDUCT.md                      # Code of conduct
-├── CONTRIBUTING.md                         # Contributing guidelines
-├── benchmarks/                             # Performance benchmarks
-│   └── k6/                                # K6 load testing scripts
-│       ├── README.md
-│       ├── sandbox-stress-test.js
-│       ├── sandbox-stress-test-data-plane.js
-│       ├── sandbox-stress-test-e2b-api.js
-│       └── sandbox-stress-test-non-exec.js
-├── tutorials/                              # Tutorial documents
-│   ├── sdk/
-│   │   ├── e2b/
-│   │   │   ├── e2b_base.ipynb            # E2B SDK basics (includes code sandbox tutorial)
-│   │   │   └── browser_vnc.ipynb         # Browser sandbox tutorial
-│   │   └── go/
-│   │       ├── README.md
-│   │       └── example_test.go           # Go SDK examples
-│   └── yunapi/
-│       └── python/
-│           └── custom.ipynb              # Custom API tutorial
-├── examples/                               # Example code
-│   ├── README.md                          
-│   ├── browser-agent/                     # Browser automation agent example
-│   │   ├── README.md                      
-│   │   ├── main.py          
-│   │   └── pyproject.toml               
-│   ├── data-analysis/                     # Data analysis example
-│   │   ├── README.md                      
-│   │   ├── multi_context_demo.py          
-│   │   └── requirements.txt               
-│   ├── html-processing/                   # HTML collaboration example
-│   │   ├── README.md                      
-│   │   ├── html_collaboration_demo.py     
-│   │   └── requirements.txt               
-│   ├── mini-rl/                           # Mini reinforcement learning example
-│   │   ├── README.md                      
-│   │   ├── main.py          
-│   │   └── pyproject.toml               
-│   ├── mobile-use/                        # Mobile automation example
-│   │   ├── README.md                      
-│   │   ├── quickstart.py                  # Quick start example
-│   │   ├── batch.py                       # Batch operations (multi-process + async)
-│   │   ├── sandbox_connect.py             # Single sandbox connection tool (CLI)
-│   │   └── requirements.txt               
-│   └── shop-assistant/                    # Shopping cart automation example
-│       ├── README.md                      
-│       ├── automation_cart_demo.py        
-│       └── requirements.txt               
-└── utils/                                  # Utility tools
-    └── use-ttyd-to-debug/                 # Debug sandbox via ttyd Web terminal
-        ├── README.md
-        ├── main.py
-        ├── pyproject.toml
-        └── .env.example
-```
+### Local tools
 
-## Key Features
+- `uv` for Python examples
+- `python3` for local scripts
+- `go` for Go examples
+- `git`
+- Docker is useful for some workflows, but not required for every example
 
-### Multi-Sandbox Collaboration
-- **Code + Browser Collaboration**: Seamless collaboration between code sandbox and browser sandbox
-- **Multi-Context Environment Isolation**: Each Context has its own independent variable space
-- **File System Integration**: Data transfer between sandboxes via file system
+### Python versions
 
-### Complex Data Processing Demo
-- **Large-scale Dataset Processing**: Support for processing thousands of data records
-- **Complete Data Cleaning Pipeline**: Outlier handling, feature engineering, data quality optimization
-- **Professional Division of Labor**: Collaboration between data preprocessing, analysis, and visualization experts
+- Most Python examples in `examples/` require **Python >= 3.12**
+- `examples/osworld-ags` uses **Python 3.12.12**
+- `uv` manages the required interpreter for each example.
 
-### Web Development & Automation
-- **Dynamic HTML Editing**: Programmatic modification of web content
-- **Visual Verification**: Verify editing effects through screenshot comparison
-- **Browser Automation**: Support for complex web interactions
+### agr CLI
 
-### Professional Data Visualization
-- **Before/After Data Cleaning Comparison**: Intuitive display of cleaning effects
-- **Comprehensive Business Dashboard**: Multi-dimensional data analysis charts
-- **Correlation Heatmap**: Business metric correlation analysis
-
-## Quick Start
-
-### Requirements
-- Python 3.8+
-
-### Environment Configuration
+The `ags` reference Skill example uses the `agr` CLI:
 
 ```bash
-export E2B_API_KEY="your-api-key-here"
-export E2B_DOMAIN="tencentags.com"  # Optional, uses this domain by default
+# One-line install (macOS / Linux)
+curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | sh
+
+# Or via go install
+go install github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@latest
+
+agr version -o json
 ```
 
-### Running Examples
+## Common environment variables
 
-Each example has independent dependency management. Please refer to the documentation in the specific example directory.
+### AGS / E2B-compatible runtime
 
-## User Guide
+```bash
+export E2B_API_KEY="your_ags_api_key"
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
+```
 
-### 1. Basic Tutorials
+### Tencent Cloud control-plane examples
 
-**Code Interpreter Sandbox** - `tutorials/sdk/e2b/e2b_base.ipynb`
-- Create and manage sandbox environments
-- Execute code and handle results
-- File upload and download
-- Multi-Context environment isolation
+Some Go examples use Tencent Cloud API credentials:
 
-**Browser Sandbox** - `tutorials/sdk/e2b/browser_vnc.ipynb`
-- VNC visual interface operations
-- Playwright programmatic control
-- File system and browser integration
-- Cookie and session management
+```bash
+export TENCENTCLOUD_SECRET_ID="your_secret_id"
+export TENCENTCLOUD_SECRET_KEY="your_secret_key"
+export TENCENTCLOUD_REGION="ap-guangzhou"
+```
 
-### 2. Advanced Examples
 
-**Data Analysis Example** - `examples/data-analysis/`
-- Multi-Context collaboration for complex data processing
-- Complete data cleaning and analysis pipeline
-- Professional data visualization charts
+## Quick start
 
-**HTML Collaboration Example** - `examples/html-processing/`
-- Code sandbox and Browser sandbox collaboration
-- Dynamic HTML editing and visual verification
-- Web development workflow demonstration
+### 1. Browse available examples
 
-**Shopping Cart Automation Example** - `examples/shop-assistant/`
-- E-commerce add-to-cart flow with login state
-- Cookie import for login-free access
-- Remote browser control and debugging
+```bash
+make examples-list
+```
 
-### 3. Utility Tools
+### 2. Run a specific example
 
-**ttyd Web Terminal Debugging** - `utils/use-ttyd-to-debug/`
-- Deploy ttyd Web terminal inside the sandbox
-- Debug the sandbox environment in real time via browser
-- Auto-downloads ttyd, smart detection of process and port status
+Most examples provide a local `make run` target:
 
-## Technical Architecture
+```bash
+make example-setup EXAMPLE=mini-rl
+make example-run EXAMPLE=mini-rl
+```
 
-### Sandbox Environment
-- **Code Interpreter Sandbox**: Supports multiple languages including Python, JavaScript, R
-- **Browser Sandbox**: Built-in browser with VNC and Playwright control support
-- **Isolated Execution**: Each code block runs in an independent environment
-- **Persistent Storage**: Supports file system operations and data persistence
-- **Sandbox Collaboration**: Different sandbox types can collaborate via file system
+You can also enter an example directory directly and run its local `make setup` / `make run` targets.
 
-### Dependency Management
-- **Modular Dependencies**: Each example has its own `requirements.txt`
-- **Version Isolation**: Avoids dependency conflicts between different examples
-- **On-demand Installation**: Only install dependencies required for the current example
+## Example overview
+
+| Example | Stack | Notes |
+|---|---|---|
+| `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
+| `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
+| `data-analysis` | Python + code sandbox | Multi-context data workflow |
+| `deployment-cookbook` | agr CLI + Markdown | Deployment, scaling, lifecycle, affinity, and persistent agent workspace scenarios |
+| `envd-oci-env` | Bash + Docker + agr | Preserve OCI image environment variables when envd is PID 1 |
+| `harness-nix-volume` | Nix + custom image + image volume | Self-contained Harness dependency mount |
+| `html-processing` | Python + browser/code sandboxes | Dual-sandbox HTML pipeline |
+| `hybrid-cookbook` | Go | Minimal control-plane + data-plane flow |
+| `mini-rl` | Python + code sandbox | Minimal RL tool-calling example |
+| `mini-swe-agent` | Python + SWE sandbox + LLM | SWE-bench evaluation with AGS SWE sandbox |
+| `mobile-use` | Python + mobile sandbox + Appium | Android automation |
+| `openclaw-cookbook` | Node.js + custom image + COS | Run OpenClaw in AGS with official image |
+| `osworld-ags` | Python 3.12.12 + OSWorld overlay | Heavy setup; requires an OSWorld-capable tool |
+| `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |
+| `waa-ags` | Python + Windows sandbox + LLM | Run Windows Agent Arena on AGS via a small overlay |
+
+See `examples/README.md` for per-example details and a starter/advanced/heavy picker.
+
+## Skills overview
+
+The **`ags`** skill is a reference Agent Skill example for AGS. It demonstrates CLI-first AGS workflows with `agr`.
+
+| Skill | Path | What it covers |
+|---|---|---|
+| `ags` | [`skills/ags/SKILL.md`](./skills/ags/SKILL.md) | CLI-first AGS workflows with `agr`: tools, instances, code/shell execution, files, browser/mobile, storage mounts, API keys, debug instances, tool fork, and raw API fallback. |
+
+Add from GitHub with the `skills` CLI:
+
+```bash
+npx skills add TencentCloudAgentRuntime/ags-cookbook --skill ags
+```
+
+See [`skills/README.md`](./skills/README.md) for the skill index and the progressive disclosure structure.
+
+## Important DX notes
+
+- Prefer `uv sync` + `uv run ...` for Python examples
+- Do not assume root README defaults apply to every example; always check each example's README and `.env.example`
+- AGS domains are region-specific; set `E2B_DOMAIN` explicitly for the region you want to use
+- Some examples require pre-provisioned tools/templates in your AGS account
 
 ## Contributing
 
-We welcome new examples and tutorials!
-
-1. Fork this repository
-2. Create a feature branch: `git checkout -b feature/new-example`
-3. Commit your changes: `git commit -am 'Add new example'`
-4. Create a Pull Request
-
-### Example Contribution Guidelines
-
-New examples should follow this structure:
-```
-examples/your-example-name/
-├── README.md              # Detailed documentation
-├── main_script.py         # Main demo script
-└── requirements.txt       # Example-specific dependencies
-```
-
-Each example should include:
-- **README.md**: Feature description, use cases, running steps, expected output
-- **Complete running instructions**: Complete steps from dependency installation to execution
-- **Independent dependency management**: Use a dedicated `requirements.txt`
-- **Clear output description**: Describe generated files and expected results
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-This project is open-sourced under the Apache 2.0 License. See the [LICENSE](LICENSE-Agent%20Sandbox%20Cookbook.txt) file for details.
+Apache 2.0. See [LICENSE-Agent Sandbox Cookbook.txt](./LICENSE-Agent%20Sandbox%20Cookbook.txt).

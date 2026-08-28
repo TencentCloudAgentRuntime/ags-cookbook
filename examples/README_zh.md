@@ -1,177 +1,67 @@
-# Examples - 示例代码
+# Examples
 
-本目录包含Agent Sandbox沙箱的各种使用示例，每个示例都有独立的目录结构。
+本目录包含可运行的 AGS 示例。每个示例都保留自己的 README 和 Makefile，方便你进入单个目录后沿着一条本地路径完成安装与运行。
 
-## 目录结构
+## 如何选择示例
 
-```
-examples/
-├── README.md              # 示例总览
-├── browser-agent/         # 浏览器自动化Agent示例
-│   ├── README.md          # 详细使用说明
-│   ├── main.py            # LLM驱动的浏览器Agent
-│   └── pyproject.toml     # 依赖配置
-├── data-analysis/         # 数据分析示例
-│   ├── README.md          # 详细使用说明
-│   ├── multi_context_demo.py  # 多Context协作演示
-│   └── requirements.txt   # 依赖包
-├── deployment-cookbook/   # Deployment 命令行 Cookbook
-│   ├── README.md          # 示例导航与前置条件
-│   ├── httpbin/           # httpbin 部署、伸缩、生命周期与亲和示例
-│   └── deepseek-harness/  # 长驻 Agent 工作区示例
-├── html-processing/       # HTML协作处理示例
-│   ├── README.md          # 详细使用说明
-│   ├── html_collaboration_demo.py  # Code+Browser协作演示
-│   └── requirements.txt   # 依赖包
-├── mini-rl/               # 强化学习沙箱示例
-│   ├── README.md          # 详细使用说明
-│   ├── main.py            # RL + 沙箱最小示例
-│   └── pyproject.toml     # 依赖配置
-├── mobile-use/            # 移动端自动化示例
-│   ├── README.md          # 详细使用说明
-│   ├── quickstart.py      # 快速入门示例
-│   ├── batch.py           # 批量操作脚本（多进程 + 异步）
-│   ├── sandbox_connect.py # 单沙箱连接工具（CLI）
-│   └── requirements.txt   # 依赖包
-└── shop-assistant/        # 购物车自动化示例
-    ├── README.md          # 详细使用说明
-    ├── automation_cart_demo.py  # 购物流程自动化演示
-    └── requirements.txt   # 依赖包
-```
+### 入门
+
+- `mini-rl` —— 最小代码沙箱 tool-calling 流程
+- `hybrid-cookbook` —— 最小 Go 控制面 + 数据面流程
+- `html-processing` —— 双沙箱协作，输出结果直观
+
+### 进阶
+
+- `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
+- `data-analysis` —— 多 Context 数据工作流，生成多个产物
+- `deployment-cookbook` —— 使用 `agr` 管理 Deployment，从 httpbin 基础到长驻 Agent 工作区
+- `envd-oci-env` —— envd 作为 PID 1 时保留 OCI 镜像环境变量
+- `harness-nix-volume` —— 用 Nix 打包自包含 Harness 运行时，并挂载到自定义主镜像
+- `mini-swe-agent` —— 基于 AGS SWE Sandbox 和 SWE-ReX runtime 运行 SWE-bench 评测
+- `mobile-use` —— 在 AGS 中运行 Android / Appium 自动化
+- `openclaw-cookbook` —— 基于官方镜像在 AGS 中运行 OpenClaw，含本地管理界面与 COS 持久化
+- `shop-assistant` —— 浏览器购物流程自动化，支持无 Cookie 的 guest 模式
+- `custom-image-go-sdk` —— Go 中的自定义镜像启动与数据面执行
+
+### 重型 / 外部依赖
+
+- `osworld-ags` —— 上游 OSWorld 的 overlay；需要额外 checkout、Python 3.12.12，以及可用的 OSWorld-compatible AGS 工具
+- `waa-ags` —— 上游 Windows Agent Arena 的 overlay；需要额外 checkout、WAA 兼容的 AGS sandbox 模板，以及 OpenAI 兼容的模型接入点
+
+## 共享本地约定
+
+在条件允许时，每个示例都尽量提供：
+
+- `make setup`：依赖准备
+- `make run`：主要本地执行路径
+- `README.md`：写明前置条件、环境变量、运行步骤和预期结果
+
+某些依赖较重或基于外部 overlay 的示例会是例外，但也应该在 README 中提供一条明确的主路径。
 
 ## 示例列表
 
-### browser-agent - 浏览器自动化Agent
+| 示例 | 分类 | 主要技术栈 | 主命令 | 说明 |
+|---|---|---|---|---|
+| `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
+| `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
+| `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
+| `deployment-cookbook` | 进阶 | agr CLI + Markdown | 按场景 README 操作 | 涵盖部署、伸缩、生命周期、亲和性与长驻 Agent 工作区 |
+| `envd-oci-env` | 进阶 | Bash + Docker + agr | `make run` | 复现并验证 envd 的 OCI 环境变量继承 |
+| `harness-nix-volume` | 进阶 | Nix + 自定义镜像 + 镜像卷 | `make build-images` 后 `make run` | 将自包含 Harness 依赖挂载进主镜像 |
+| `html-processing` | 入门 | Python + 浏览器/代码双沙箱 | `make run` | 适合作为双沙箱协作的直观起点 |
+| `hybrid-cookbook` | 入门 | Go | `make run` | 最小 Go 集成路径 |
+| `mini-rl` | 入门 | Python + 代码沙箱 | `make run` | 最小 Python 示例 |
+| `mini-swe-agent` | 进阶 | Python + SWE 沙箱 + LLM | `make run` | 使用 AGS SWE Sandbox 运行 SWE-bench Verified 评测 |
+| `mobile-use` | 进阶 | Python + 移动端沙箱 + Appium | `make run` | 运行时依赖较重，且流程较长 |
+| `openclaw-cookbook` | 进阶 | Node.js + 自定义镜像 + COS | `make run` | 基于官方镜像在 AGS 中运行 OpenClaw；含本地管理界面 |
+| `osworld-ags` | 重型 | Python 3.12.12 + OSWorld overlay | `make setup` 后 `make run` | 需要外部 checkout 与模板 / 工具准备 |
+| `shop-assistant` | 进阶 | Python + 浏览器沙箱 | `make run` | 已支持无 Cookie 的 guest 模式 |
+| `waa-ags` | 重型 | Python + Windows 沙箱 + LLM | `make setup` 后 `make run` | 需要额外 checkout WAA、WAA 兼容的 AGS sandbox 模板，以及 OpenAI 兼容的模型接入点 |
 
-展示如何使用 AgentSandbox 云端沙箱运行浏览器，结合 LLM 实现智能网页自动化：
+如需在仓库根目录调度单个示例，可执行：
 
-- **云端浏览器**：浏览器运行在沙箱，本地通过 CDP 远程控制
-- **LLM 驱动**：通过 Function Calling 智能决策浏览器操作
-- **VNC 可视化**：实时查看浏览器画面
-- **丰富工具集**：导航、高亮元素、点击、截图等
-
-**适用场景**：
-- 自动化表单填写
-- Web 端到端测试
-
-**技术栈**：playwright
-
-### data-analysis - 数据分析示例
-
-展示如何使用Agent Sandbox进行复杂的数据分析工作流，包括：
-
-- **多Context环境隔离**：3个独立Context协作完成数据处理
-- **完整数据处理流程**：从数据清洗到可视化分析
-- **真实业务场景**：5000产品电商数据分析和优化
-
-**适用场景**：
-- 需要多步骤数据处理的项目
-- 要求环境隔离的协作场景
-- 复杂的商业数据分析
-
-**技术栈**：pandas, numpy, matplotlib, seaborn, scipy
-
-### deployment-cookbook - Deployment 命令行 Cookbook
-
-通过 httpbin 工作负载演示使用 `agr` 创建和管理 Deployment：
-
-- **最短部署链路**：创建 Tool 与 Deployment，查询、访问并清理资源
-- **两种访问方式**：本地调试 proxy 与 `AcquireDeploymentToken` 生产域名直连
-- **弹性与生命周期**：按需启动、常驻容量、`STOP` 与 `PAUSE`
-- **会话亲和**：`BEST_EFFORT`、`STRICT` 与 `EXCLUSIVE`
-- **Agent 工作区**：通过 TokenHub 运行 all-in-one DeepSeek Harness，并验证暂停恢复
-
-**技术栈**：AGR CLI、Jupyter Notebook、httpbin、DeepSeek Harness、TokenHub
-
-### html-processing - HTML协作处理示例
-
-展示Code和Browser沙箱的协作能力，包括：
-
-- **双沙箱协作**：Code沙箱编辑 + Browser沙箱渲染
-- **可视化对比**：编辑前后截图对比
-- **完整工作流**：创建 → 渲染 → 编辑 → 再渲染
-- **文件流转**：本地 ↔ Browser ↔ Code ↔ Browser ↔ 本地
-
-**适用场景**：
-- Web开发中的HTML编辑和预览
-- 自动化页面内容修改
-- 视觉回归测试
-- HTML模板批量处理
-
-**技术栈**：playwright, HTML/CSS
-
-### mini-rl - 强化学习沙箱示例
-
-展示如何在强化学习场景中集成 AgentSandbox 沙箱：
-
-- **完整流程**：模型输出 ToolCall → Runtime 解析 → 沙箱执行 → 结果回填
-- **RL 视角**：State/Action/Environment/Observation/Reward 完整映射
-- **最小示例**：单文件演示核心概念
-
-**适用场景**：
-- VERL 等 RL 框架集成沙箱
-- 数学推理任务的代码执行
-- Agent 工具调用训练
-
-**技术栈**：AgentSandbox
-
-### mobile-use - 移动端自动化示例
-
-展示如何使用 AgentSandbox 云端沙箱运行 Android 设备，结合 Appium 实现移动端自动化：
-
-- **云端 Android 设备**：Android 运行在沙箱，本地通过 Appium 远程控制
-- **屏幕流**：通过 ws-scrcpy 实时查看屏幕
-- **元素操作**：通过文本或 resource-id 查找并点击元素
-- **CLI 工具**：`sandbox_connect.py` 用于连接已存在的沙箱
-- **批量测试**：高并发沙箱测试（多进程 + 异步）
-
-**适用场景**：
-- 移动应用自动化测试
-- 移动端 UI/UX 测试
-- 高并发移动测试
-- GPS 定位模拟
-
-**技术栈**：Appium, Android, pytest
-
-### shop-assistant - 购物车自动化示例
-
-展示使用Browser沙箱与Playwright在登录态下完成“搜索→加购→查看购物车”的自动化演示。
-
-- 免登录体验：本地Cookie导入
-- 自动化链路：搜索、商品页、加购、购物车
-- 远程调试：VNC观察执行过程（按需开启）
-
-**适用场景**：
-- 电商流程回放与验证
-- 登录态关键路径演示
-- 远程自动化演示
-
-**技术栈**：playwright
-
-## 运行要求
-
-1. 安装依赖：`pip install -r ../requirements.txt`
-2. 设置环境变量：
-   ```bash
-   export E2B_API_KEY="your-api-key"
-   export E2B_DOMAIN="api.e2b.dev"  # 可选
-   ```
-3. 进入具体示例目录运行相应脚本
-
-## 贡献新示例
-
-欢迎贡献新的示例！请遵循以下结构：
-
+```bash
+make examples-list
+make example-setup EXAMPLE=<name>
+make example-run EXAMPLE=<name>
 ```
-examples/your-example-name/
-├── README.md              # 示例说明
-├── main_script.py         # 主要演示脚本
-└── requirements.txt       # 额外依赖（如需要）
-```
-
-每个示例的README应包含：
-- 功能描述
-- 使用场景
-- 运行步骤
-- 预期输出
-- 技术栈说明

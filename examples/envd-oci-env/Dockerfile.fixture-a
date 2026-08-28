@@ -1,0 +1,63 @@
+# Business fixture A: a normal application image with a named OCI user.
+#
+# This stands in for a customer's own image. It carries no envd: envd arrives at
+# runtime through an Image Volume mount. What matters here is the OCI
+# configuration and the user database, because those become the defaults for
+# commands started through envd:
+#
+#   USER appuser      -> the identity a command runs as when the SDK sends no user
+#   WORKDIR /opt/app/work -> the directory a command runs in when the SDK sends no cwd
+#
+# The user layout deliberately separates "which user" from "which groups" so the
+# two can be verified independently:
+#
+#   appuser    uid=10001 gid=10001, plus supplementary group 20001 (shared)
+#   otheruser  uid=10002 gid=10002, NOT in shared
+#   root       uid=0     gid=0
+#
+# Three directories make the cwd semantics separable from permission failures:
+#
+#   /opt/app/work     mode 0775 root:shared  -> all three test users can enter
+#   /opt/app/private  mode 0700 appuser      -> only appuser can enter (negative case)
+#   /opt/app/shared   mode 0770 root:shared  -> group-only access via 20001
+
+ARG BASE_IMAGE=ubuntu:22.04
+
+FROM ${BASE_IMAGE}
+
+ARG APPUSER_UID=10001
+ARG APPUSER_GID=10001
+ARG OTHERUSER_UID=10002
+ARG OTHERUSER_GID=10002
+ARG SHARED_GID=20001
+
+# `useradd -m` would place homes under /home; they are created explicitly so the
+# fixture does not depend on the base image's login.defs.
+RUN set -eux; \
+    groupadd --gid "${SHARED_GID}" shared; \
+    groupadd --gid "${APPUSER_GID}" appuser; \
+    useradd --uid "${APPUSER_UID}" --gid "${APPUSER_GID}" \
+        --groups shared --home-dir /home/appuser --create-home --shell /bin/bash appuser; \
+    groupadd --gid "${OTHERUSER_GID}" otheruser; \
+    useradd --uid "${OTHERUSER_UID}" --gid "${OTHERUSER_GID}" \
+        --home-dir /home/otheruser --create-home --shell /bin/bash otheruser; \
+    \
+    mkdir -p /opt/app/work /opt/app/private /opt/app/shared; \
+    chown "root:${SHARED_GID}" /opt/app /opt/app/work /opt/app/shared; \
+    chmod 0755 /opt/app; \
+    chmod 0775 /opt/app/work; \
+    chmod 0770 /opt/app/shared; \
+    chown "${APPUSER_UID}:${APPUSER_GID}" /opt/app/private; \
+    chmod 0700 /opt/app/private; \
+    \
+    printf 'fixture A marker\n' > /opt/app/work/marker.txt; \
+    chown "root:${SHARED_GID}" /opt/app/work/marker.txt; \
+    chmod 0664 /opt/app/work/marker.txt
+
+# Baked into the OCI image so the test can prove the command inherited the
+# image's environment rather than envd's own.
+ENV FIXTURE_NAME=fixture-a
+ENV FIXTURE_IMAGE_ONLY=from-oci-image
+
+USER appuser
+WORKDIR /opt/app/work

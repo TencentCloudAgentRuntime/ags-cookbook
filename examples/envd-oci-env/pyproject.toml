@@ -1,0 +1,11 @@
+[project]
+name = "ags-envd-oci-env-validation"
+version = "0.1.0"
+description = "E2B SDK validation for AGS envd OCI User and Workdir defaults"
+requires-python = ">=3.10"
+dependencies = [
+    "e2b==2.35.0",
+]
+
+[tool.uv]
+package = false

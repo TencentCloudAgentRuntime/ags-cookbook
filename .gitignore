@@ -46,6 +46,11 @@ enhanced_demo_output/
 *.jpeg
 *.csv
 *.json
+!package.json
+!package-lock.json
+# pnpm-lock.yaml is not matched by *.json, but kept here to guard against
+# any future *.yaml or catch-all rule that might exclude it.
+!pnpm-lock.yaml
 quick_test.png
 examples/mobile-use/apk/
 examples/mobile-use/output/

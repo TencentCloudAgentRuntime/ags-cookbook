@@ -1,0 +1,7 @@
+.env
+.venv/
+.state/
+result
+nix/result
+**/__pycache__/
+**/*.pyc

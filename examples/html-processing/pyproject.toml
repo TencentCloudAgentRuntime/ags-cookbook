@@ -1,0 +1,9 @@
+[project]
+name = "html-processing"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "e2b>=2.1.0",
+    "e2b-code-interpreter>=2.0.0",
+    "playwright>=1.40.0",
+]

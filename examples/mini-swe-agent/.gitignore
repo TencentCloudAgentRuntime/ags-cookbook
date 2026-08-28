@@ -1,0 +1,16 @@
+# Cloned upstream repos (created by `make setup`)
+/mini-swe-agent/
+
+# Runtime outputs
+results/
+
+# Local config (contains credentials)
+my_config.yaml
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/

@@ -1,0 +1,26 @@
+{
+  "agents": {
+    "defaults": {
+      "compaction": { "mode": "safeguard" }
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
+  "gateway": {
+    "mode": "local",
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true,
+      "dangerouslyDisableDeviceAuth": true,
+      "allowedOrigins": ["*"]
+    },
+    "auth": {
+      "mode": "token",
+      "token": "REPLACE_WITH_YOUR_SECURE_TOKEN"
+    },
+    "bind": "lan"
+  }
+}

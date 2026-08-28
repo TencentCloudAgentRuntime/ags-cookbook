@@ -12,6 +12,8 @@ All examples use standard Markdown and run commands directly in a terminal. The 
 
 Each example creates its own resources. Resource IDs are not extracted automatically: copy each ID from the command output and set the environment variable requested by the next step. Always run the cleanup section after completing or interrupting an example so that resources are not left behind.
 
+Run `make run` in this directory to list the available scenarios, then follow the selected scenario README. The target only prints navigation help and does not create cloud resources.
+
 ## Examples
 
 | Example | Description |

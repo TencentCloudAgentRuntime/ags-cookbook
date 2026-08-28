@@ -7,7 +7,7 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run a browser
 ```
 ┌─────────────┐     Tool Call     ┌─────────────┐      CDP       ┌─────────────┐
 │     LLM     │ ───────────────▶  │   Browser   │ ─────────────▶ │  AgentSandbox  │
-│  (GLM-4.7)  │                   │    Agent    │                │   (browser) │
+│     LLM     │                   │    Agent    │                │   (browser) │
 └─────────────┘                   └─────────────┘                └─────────────┘
       ▲                                 │                              │
       │                                 │◀─────────────────────────────┘
@@ -21,30 +21,30 @@ This example demonstrates how to use AgentSandbox cloud sandbox to run a browser
 - Supports VNC for real-time browser view
 - LLM drives browser operations via Function Calling
 
-## Quick Start
+## Prerequisites
 
-### 1. Install Dependencies
+- Python >= 3.12
+- `uv`
+- `E2B_API_KEY`
+- OpenAI-compatible backend variables (`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`)
+
+## Local commands
 
 ```bash
-uv sync
+make setup
+make run
 ```
 
-### 2. Configure API Keys
+## Required environment variables
 
 Set environment variables before running:
 
 ```bash
-export E2B_API_KEY="your_e2b_api_key"           # AgentSandbox API Key
-export LLM_API_KEY="your_llm_api_key"           # LLM API Key
-export LLM_API_URL="https://your-llm-api/v1/chat/completions"
-export LLM_MODEL="glm4.7"                       # Optional, defaults to glm4.7
-export E2B_DOMAIN="ap-guangzhou.tencentags.com" # Optional
-```
-
-### 3. Run Example
-
-```bash
-uv run main.py
+export E2B_API_KEY="your_ags_api_key"           # AgentSandbox API Key
+export OPENAI_API_KEY="your_llm_api_key"           # LLM API Key
+export OPENAI_BASE_URL="https://your-openai-compatible-api/v1"
+export OPENAI_MODEL="your-model-name"              # Required model name
+export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 ```
 
 After running, a VNC link will be output, allowing you to watch the automation process in real-time in your browser.
@@ -70,9 +70,11 @@ After running, a VNC link will be output, allowing you to watch the automation p
 4. **Execute Operation**: Agent executes browser operations and returns results
 5. **Loop Iteration**: Until task completes or max steps reached
 
-## Dependencies
+## Expected result
 
-- Python >= 3.12
-- e2b >= 2.9.0
-- playwright >= 1.57.0
-- requests >= 2.32.5
+A successful run should create a browser sandbox, print a VNC/debug URL, navigate the target site, and finish by calling `task_complete`.
+
+## Common failure hints
+
+- If the LLM backend times out, reduce context size or confirm `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL`
+- If browser startup fails, verify `E2B_API_KEY` and `E2B_DOMAIN`

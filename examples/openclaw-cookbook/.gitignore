@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+
+# Docker build artifact
+bin/envd
+
+# Node / localproxy
+localproxy/node_modules/
+localproxy/dist/
+localproxy/.env
+localproxy/package-lock.json
+
+# Override root-level *.json ignore
+!openclaw.json

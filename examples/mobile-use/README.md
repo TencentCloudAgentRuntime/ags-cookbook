@@ -29,9 +29,13 @@ mobile-use/
 ├── README_zh.md               # Chinese documentation
 ├── .env.example               # Environment configuration example
 ├── requirements.txt           # Python dependencies
+├── sandboxes_example.yaml     # Sandbox IDs template (copy to sandboxes.yaml for local use)
 ├── quickstart.py              # Quick start example
 ├── batch.py                   # Batch operations script (multi-process + async)
 ├── sandbox_connect.py         # Single sandbox connection tool (CLI)
+├── batch_dump_logcat.py       # Batch dump logcat logs from existing sandboxes
+├── batch_sandbox_kill.py      # Batch kill sandboxes with confirmation
+├── batch_sandbox_create.py    # Batch create sandboxes
 ├── apk/                       # APK files directory
 └── output/                    # Screenshots and logs output
 ```
@@ -43,16 +47,25 @@ mobile-use/
 | `quickstart.py` | Quick start example demonstrating basic mobile automation features |
 | `batch.py` | Batch operations script for high-concurrency sandbox testing (multi-process + async) |
 | `sandbox_connect.py` | Single sandbox connection tool for connecting to existing sandboxes via CLI |
+| `batch_dump_logcat.py` | Batch dump full logcat logs from existing sandboxes, organized by sandbox ID |
+| `batch_sandbox_kill.py` | Batch kill sandboxes from YAML config with manual confirmation |
+| `batch_sandbox_create.py` | Batch create sandboxes with concurrency control |
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure API Keys
+Or using make:
+
+```bash
+make setup
+```
+
+### 2. Configure API keys
 
 **Option 1: .env file (recommended for local development)**
 ```bash
@@ -64,22 +77,105 @@ cp .env.example .env
 
 **Option 2: Environment variables (recommended for CI/CD)**
 ```bash
-export E2B_API_KEY="your_api_key"
+export E2B_API_KEY="your_api_key"  # provided by Tencent Cloud Agent Sandbox product
 export E2B_DOMAIN="ap-guangzhou.tencentags.com"
 export SANDBOX_TEMPLATE="mobile-v1"
 ```
 
-### 3. Run Examples
+### 3. Run examples
 
 **Quick Start Example:**
 ```bash
-python quickstart.py
+make run
 ```
 
 **Batch Operations:**
 ```bash
-python batch.py
+uv run batch.py
 ```
+
+
+### Useful runtime controls
+
+The quickstart script now supports environment variables that make local validation easier:
+
+```bash
+export LONG_RUN_SECONDS=0
+export LONG_RUN_RESERVE_SECONDS=0
+```
+
+Use them when you want a smoke-like local run instead of waiting through the full long-running demo phase.
+
+## Batch Tools
+
+The batch tools use a shared `sandboxes.yaml` config file for sandbox IDs.
+
+First copy the template file locally:
+
+```bash
+cp sandboxes_example.yaml sandboxes.yaml
+```
+
+`sandboxes.yaml` is local-only and ignored by git.
+
+Then fill `sandbox_ids` in `sandboxes.yaml`:
+
+```yaml
+sandbox_ids:
+  - sandbox_id_1
+  - sandbox_id_2
+  - sandbox_id_3
+```
+
+### Batch Dump Logcat
+
+Dump full logcat logs from existing sandboxes without killing them:
+
+```bash
+# Use default sandboxes.yaml
+python batch_dump_logcat.py
+
+# Specify config and concurrency (must be >= 1)
+python batch_dump_logcat.py --config my_sandboxes.yaml --concurrency 10
+
+# Custom output directory
+python batch_dump_logcat.py --output-dir /tmp/logcat
+```
+
+Output structure:
+```
+output/batch_dump_logcat_output/
+├── <sandbox_id_1>/
+│   └── logcat_YYYYMMDD_HHMMSS.txt
+├── <sandbox_id_2>/
+│   └── logcat_YYYYMMDD_HHMMSS.txt
+└── summary_YYYYMMDD_HHMMSS.json
+```
+
+### Batch Kill Sandboxes
+
+Kill sandboxes with manual confirmation before execution:
+
+```bash
+# Use default sandboxes.yaml (requires y/yes confirmation)
+python batch_sandbox_kill.py
+
+# Skip confirmation
+python batch_sandbox_kill.py --yes
+
+# Custom concurrency (must be >= 1) and sleep interval (must be >= 0)
+python batch_sandbox_kill.py --concurrency 20 --sleep 2
+```
+
+### Batch Create Sandboxes
+
+Batch create sandboxes with concurrency control:
+
+```bash
+python batch_sandbox_create.py
+```
+
+Created sandbox IDs are saved to `output/batch_create_output/`.
 
 ## Sandbox Connect Tool
 
@@ -92,11 +188,14 @@ python batch.py
 | `quickstart.py` | Creates a new sandbox and runs a complete demo flow |
 | `batch.py` | Batch testing of multiple scenarios |
 | `sandbox_connect.py` | Connects to an existing single sandbox and executes specified operations |
+| `batch_dump_logcat.py` | Batch dump logcat logs from multiple existing sandboxes |
+| `batch_sandbox_kill.py` | Batch kill sandboxes with confirmation |
+| `batch_sandbox_create.py` | Batch create sandboxes |
 
 ### Basic Usage
 
 ```bash
-python sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other parameters]
+uv run sandbox_connect.py --sandbox-id <sandbox_id> --action <action> [other parameters]
 ```
 
 ### Supported Actions
@@ -194,11 +293,19 @@ python sandbox_connect.py --sandbox-id abc123 --action set_location --latitude 2
 python sandbox_connect.py --sandbox-id abc123 --action dump_ui
 ```
 
-**Batch operations (comma-separated):**
+**Upload, install, grant permissions, and launch app (comma-separated batch operations):**
 ```bash
-python sandbox_connect.py --sandbox-id abc123 \
-    --action upload_app,install_app,grant_app_permissions,launch_app \
-    --app-name yyb
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name yyb
+```
+
+**Upload, install, grant permissions, and launch QQ Browser:**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action upload_app,install_app,grant_app_permissions,launch_app --app-name qqbrowser
+```
+
+**Get device logs (full logcat):**
+```bash
+python sandbox_connect.py --sandbox-id abc123 --action get_device_logs
 ```
 
 **Execute ADB shell command:**
@@ -228,7 +335,7 @@ python sandbox_connect.py --help
 
 | Variable | Description |
 |----------|-------------|
-| `E2B_API_KEY` | Your AgentSandbox API Key |
+| `E2B_API_KEY` | Your AgentSandbox API Key (provided by Tencent Cloud Agent Sandbox product) |
 | `E2B_DOMAIN` | Service domain (e.g., `ap-guangzhou.tencentags.com`) |
 | `SANDBOX_TEMPLATE` | Sandbox template name (e.g., `mobile-v1`) |
 
@@ -254,10 +361,10 @@ Screenshots and logs are saved to the `output/` directory:
 
 ```
 output/
-├── quickstart_output/          # quickstart.py output
+├── quickstart_output/              # quickstart.py output
 │   ├── mobile_screenshot_*.png
 │   └── screenshot_before_exit_*.png
-├── batch_output/               # batch.py output
+├── batch_output/                   # batch.py output
 │   └── {count}_{timestamp}/
 │       ├── console.log
 │       ├── summary.json
@@ -266,10 +373,17 @@ output/
 │           ├── screenshot_1.png
 │           ├── screenshot_2.png
 │           └── ...
-└── sandbox_connect_output/     # sandbox_connect.py output
-    ├── screenshot_*.png
-    ├── ui_dump.xml
-    └── device_logs_*.txt
+├── sandbox_connect_output/         # sandbox_connect.py output
+│   ├── screenshot_*.png
+│   ├── ui_dump.xml
+│   └── device_logs_*.txt
+├── batch_dump_logcat_output/       # batch_dump_logcat.py output
+│   ├── <sandbox_id>/
+│   │   └── logcat_*.txt
+│   └── summary_*.json
+└── batch_create_output/            # batch_sandbox_create.py output
+    ├── sandbox_ids_*.txt
+    └── details_*.json
 ```
 
 ## Supported Apps
@@ -284,6 +398,7 @@ The example includes configurations for common Android apps. You can customize `
 
 **sandbox_connect.py:**
 - **应用宝** (`yyb`): Tencent App Store
+- **QQ Browser** (`qqbrowser`): Tencent QQ Browser
 
 ## Example Usage
 
@@ -351,12 +466,17 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 
 ## Dependencies
 
-- Python >= 3.8
-- e2b >= 2.9.0
-- Appium-Python-Client >= 3.1.0
-- requests >= 2.28.0
-- python-dotenv >= 1.0.0 (optional)
-- pytest >= 7.0.0 (for testing)
+All dependencies are listed in `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+- **e2b** - Sandbox creation/connection/management
+- **Appium-Python-Client** - Android device automation via Appium
+- **requests** - HTTP requests (health checks, chunked upload, etc.)
+- **PyYAML** - YAML config parsing (for batch tools)
+- **python-dotenv** - Optional, auto-load `.env` files (manual fallback built-in)
 
 ## Notes
 
@@ -365,3 +485,9 @@ The example uses Appium Settings LocationService for GPS mocking, which is suita
 - Appium connection uses authentication token from sandbox
 - GPS mocking works with LocationService in containerized Android environments
 - Use Ctrl+C to gracefully stop the script - resources will be automatically cleaned up
+
+## Quick Start
+
+```bash
+make run
+```
