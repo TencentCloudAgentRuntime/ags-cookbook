@@ -275,9 +275,9 @@ The IDs own separate, non-shared, non-migrating instances. The instance ceiling 
 ## 7. Clean up
 
 ```bash
-agr deployment delete "$BEST_EFFORT_DEPLOYMENT_ID" --region "$AGR_REGION"
-agr deployment delete "$STRICT_DEPLOYMENT_ID" --region "$AGR_REGION"
-agr deployment delete "$EXCLUSIVE_DEPLOYMENT_ID" --region "$AGR_REGION"
+agr deployment delete "$BEST_EFFORT_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
+agr deployment delete "$STRICT_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
+agr deployment delete "$EXCLUSIVE_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 

@@ -230,7 +230,7 @@ curl --fail-with-body --silent --show-error \
 ## 6. 清理资源
 
 ```bash
-agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION"
+agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 

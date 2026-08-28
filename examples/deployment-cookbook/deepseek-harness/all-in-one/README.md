@@ -304,7 +304,7 @@ After `clear-completed` passes, the example has demonstrated exclusive affinity 
 After acceptance, press `Ctrl+C` to stop the proxy and delete the Deployment:
 
 ```bash
-agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION"
+agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$DSH_TOOL_ID" --region "$AGR_REGION"
 ```
 

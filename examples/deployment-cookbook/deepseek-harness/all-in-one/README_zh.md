@@ -304,7 +304,7 @@ proxy 会恢复 affinity ID 对应的已暂停实例，而不是把会话迁移�
 完成验收后先按 `Ctrl+C` 停止 proxy，再删除 Deployment：
 
 ```bash
-agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION"
+agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$DSH_TOOL_ID" --region "$AGR_REGION"
 ```
 
