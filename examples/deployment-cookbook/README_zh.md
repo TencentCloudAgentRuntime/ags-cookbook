@@ -4,7 +4,7 @@
 
 ## 前置条件
 
-- 已安装 `agr`，并通过 `agr status` 确认凭证和 region 配置有效。
+- 已安装 **v0.6.6 或更高版本**的 `agr`。先运行 `agr version` 检查已安装版本，再通过 `agr status` 确认凭证和 region 配置有效。
 - 已准备允许 AGR 拉取示例 CCR 镜像的 CAM 角色 ARN。
 - 账号具有创建和删除 Sandbox Tool、Deployment 以及获取 Deployment Token 的权限。
 

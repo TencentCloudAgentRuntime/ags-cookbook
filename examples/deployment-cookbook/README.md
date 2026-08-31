@@ -4,7 +4,7 @@ This directory introduces `agr` Deployment management through independently runn
 
 ## Prerequisites
 
-- Install `agr` and run `agr status` to confirm that credentials and the region are configured.
+- Install `agr` **v0.6.6 or later**. Run `agr version` to check the installed version, then run `agr status` to confirm that credentials and the region are configured.
 - Prepare a CAM role ARN that allows AGR to pull the example CCR images.
 - Use an account that can create and delete Sandbox Tools and Deployments and acquire Deployment tokens.
 
