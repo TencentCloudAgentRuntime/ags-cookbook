@@ -12,10 +12,10 @@ The Everything server keeps MCP session state in its own process. `MCP-Session-I
 
 ## Prerequisites
 
-- Install `agr` **v0.6.6 or later**, then run `agr status`.
+- Install `agr` **v0.6.6 or later**. If the CLI is not configured yet, follow the [official AGR CLI credential guide](https://github.com/TencentCloudAgentRuntime/ags-cli#initialize-cli-credentials), then run `agr status` and `agr doctor`.
 - Install [`uv`](https://docs.astral.sh/uv/).
-- Prepare a CAM role ARN that lets AGR pull the image you plan to use.
-- Use an account that can create and delete Sandbox Tools, Deployments, and Instances and acquire Deployment tokens.
+- Follow the official [custom Sandbox role and permission guide](https://cloud.tencent.com/document/product/1814/129691) to create an Agent Runtime CAM role, grant it access to the CCR or TCR repository you use, and grant your CLI identity `cam:PassRole` for that role.
+- Use a CLI identity that can create and delete Sandbox Tools and Deployments, list and delete Instances, and acquire Deployment tokens.
 - Keep local port `18080` free only if you want to try the optional proxy diagnostics.
 
 Use the published image:
@@ -36,7 +36,7 @@ Run every command from this `simple` directory. Copy real resource IDs and the s
 
 ## 1. Configure local variables
 
-Use unique resource-name suffixes and replace the role ARN:
+Use unique resource-name suffixes and replace the role ARN. This tutorial sets Shanghai through `AGR_REGION` and also passes `--region` to every cloud command, so you do not need to change the CLI's global region.
 
 ```bash
 export AGR_REGION=ap-shanghai
@@ -44,10 +44,14 @@ export AGR_DOMAIN=tencentags.com
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
 export MCP_TOOL_NAME='mcp-everything-simple-your-name'
 export MCP_DEPLOYMENT_NAME='mcp-everything-simple-your-name'
-export MCP_STATE_DIR="$(mktemp -d)"
+export MCP_STATE_DIR="${TMPDIR:-/tmp}/ags-cookbook-$MCP_TOOL_NAME"
 export MCP_AFFINITY_STATE="$MCP_STATE_DIR/smoke-affinity.json"
 
+mkdir -p "$MCP_STATE_DIR"
+chmod 700 "$MCP_STATE_DIR"
+
 agr status
+agr doctor
 uv sync --project client --locked
 
 (
@@ -62,7 +66,7 @@ The client project configures the Tencent PyPI mirror as its default `uv` index,
 
 ## 2. Create the Sandbox Tool
 
-The runtime needs no outbound Internet access. Port `3001` serves MCP, while the operational readiness endpoint uses the container-only port `3000`. The command below uses the published example image; if you built your own copy, replace `Image` with its URI.
+The runtime needs no outbound Internet access. Port `3001` serves MCP, while the operational readiness endpoint uses the container-only port `3000`. The command below uses the published example image. If you built your own copy, paste its full URI into `Image` and set `ImageRegistryType` to `personal` for CCR or `enterprise` for TCR.
 
 ```bash
 agr tool create \
@@ -106,7 +110,7 @@ agr tool create \
   --wait
 ```
 
-The Custom Tool API requires an explicit `Command` even though the image also carries the same entry point. `ReadyTimeoutMs=30000` is the API maximum.
+This tutorial specifies `Command` explicitly so the startup command is visible in the Tool configuration, even though the image carries the same entry point. `ReadyTimeoutMs=30000` is the API maximum.
 
 Successful output contains the real Tool ID. Copy it:
 
@@ -158,26 +162,24 @@ A data-plane request without a Deployment token is rejected. This GET is only an
 curl --include --silent --show-error "$MCP_DEPLOYMENT_URL"
 ```
 
-Expect HTTP `401`. Acquire a token:
+Expect HTTP `401`. Acquire a token directly into the current shell:
 
 ```bash
-agr api call AcquireDeploymentToken \
-  --region "$AGR_REGION" \
-  --request '{"DeploymentId":"'$MCP_DEPLOYMENT_ID'"}' \
-  --output json
+MCP_DEPLOYMENT_TOKEN="$(
+  agr api call AcquireDeploymentToken \
+    --region "$AGR_REGION" \
+    --request '{"DeploymentId":"'$MCP_DEPLOYMENT_ID'"}' \
+    --output json \
+    --jq '.Data.Response.Response.Token'
+)"
+export MCP_DEPLOYMENT_TOKEN
 ```
 
-Copy `Data.Response.Response.Token` into the current shell only:
-
-```bash
-export MCP_DEPLOYMENT_TOKEN='replace-with-token'
-```
-
-Do not write this token to the affinity state file, a command-line option, or logs.
+Stop if the command fails or `MCP_DEPLOYMENT_TOKEN` is empty. The command captures the token without printing it or placing its value in shell history. Do not write it to the affinity state file, a command-line option, or logs.
 
 ## 5. Test the production endpoint
 
-The client uses `mcp.client.streamable_http.streamable_http_client` and `mcp.ClientSession` directly. One `httpx2.AsyncClient` hook adds the latest AGS affinity; another saves a new value if the gateway returns one.
+The client uses `mcp.client.streamable_http.streamable_http_client` and `mcp.ClientSession` directly. Its `httpx2` dependency provides the `AsyncClient` used by the request and response hooks: one hook adds the latest AGS affinity, and the other saves a new value if the gateway returns one.
 
 ```bash
 uv run --project client --locked python client/mcp_client.py smoke \
@@ -267,6 +269,8 @@ A cold start can exceed the proxy response-header timeout and return 502. Check 
 
 | Symptom | Meaning and recovery |
 | --- | --- |
+| `agr tool create --wait` fails or times out | Check the reported error, then verify `AGR_ROLE_ARN`, `cam:PassRole`, repository pull permission, `Image`, `ImageRegistryType`, and the readiness ports and path. Run section 9 to find any partially created Tool, inspect it with `agr tool get "$MCP_TOOL_ID" --region "$AGR_REGION"`, and use section 10 to remove it before retrying with corrected settings and a new unique name. |
+| `agr deployment create` fails | Confirm the Tool is `ACTIVE` with `agr tool get "$MCP_TOOL_ID" --region "$AGR_REGION"`. Run section 9 to find any partially created Deployment, inspect it with `agr deployment get "$MCP_DEPLOYMENT_ID" --region "$AGR_REGION"`, and use section 10 to remove it before retrying. |
 | HTTP 401 | The Deployment token is missing or expired. Acquire a new token and update `MCP_DEPLOYMENT_TOKEN`. |
 | HTTP 400 after migration | The request reached a process that does not own the old MCP session. Close the transport and initialize a fresh official MCP session. |
 | HTTP 429 | All request or connection leases are occupied. Close abandoned clients or reduce concurrent workers. |
@@ -275,27 +279,82 @@ A cold start can exceed the proxy response-header timeout and return 502. Check 
 | Instance remains `RUNNING` | Ensure every SDK and HTTP context is closed. If it remains active after convergence time, delete it explicitly. |
 | Some multi-worker calls fail | A multi-worker run is exploratory for this stateful server. Use the one-worker flow to check the basic setup. |
 
-## 9. Clean up
+## 9. Recover resource IDs after an interruption
 
-Delete the Deployment first:
+If the shell that created the resources is gone, set the same unique names from step 1 and recover the IDs before continuing or cleaning up:
 
 ```bash
-agr deployment delete "$MCP_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
+export MCP_TOOL_NAME='mcp-everything-simple-your-name'
+export MCP_DEPLOYMENT_NAME='mcp-everything-simple-your-name'
+export AGR_REGION=ap-shanghai
+export AGR_DOMAIN=tencentags.com
+export MCP_STATE_DIR="${TMPDIR:-/tmp}/ags-cookbook-$MCP_TOOL_NAME"
+export MCP_AFFINITY_STATE="$MCP_STATE_DIR/smoke-affinity.json"
+
+export MCP_TOOL_ID="$(
+  agr tool list \
+    --region "$AGR_REGION" \
+    --filters "[{\"Name\":\"ToolName\",\"Values\":[\"$MCP_TOOL_NAME\"]}]" \
+    -o json --jq '(.Data.Items // [])[0].ToolId // empty'
+)"
+
+export MCP_DEPLOYMENT_ID="$(
+  agr deployment list \
+    --region "$AGR_REGION" \
+    --filters "[{\"Name\":\"deployment-name\",\"Values\":[\"$MCP_DEPLOYMENT_NAME\"]}]" \
+    -o json --jq '(.Data.DeploymentSet // [])[0].DeploymentId // empty'
+)"
+
+printf 'Tool: %s\nDeployment: %s\n' "$MCP_TOOL_ID" "$MCP_DEPLOYMENT_ID"
+
+if test -n "$MCP_TOOL_ID"; then
+  agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
+fi
 ```
 
-Delete every instance that is not `STOPPED`:
+Both filters are exact matches, which is why step 1 requires unique names. An empty ID means that resource was not created or has already been deleted; you can still clean up the other resource. Resume data-plane testing only when both IDs are present. Reconstruct the URL, then acquire a new short-lived token with step 4:
+
+```bash
+export MCP_DEPLOYMENT_URL="https://3001-$MCP_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/mcp"
+```
+
+Do not save or try to recover the old token.
+
+## 10. Clean up
+
+Delete the Deployment first if it exists, then list Instances if the Tool exists:
+
+```bash
+if test -n "${MCP_DEPLOYMENT_ID:-}"; then
+  agr deployment delete "$MCP_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
+fi
+
+if test -n "${MCP_TOOL_ID:-}"; then
+  agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
+fi
+```
+
+If the list contains an Instance that is not `STOPPED`, copy its ID and delete it. Repeat for every non-stopped Instance. Skip this step when there is none:
 
 ```bash
 export MCP_INSTANCE_ID='replace-with-non-stopped-instance-id'
-agr instance delete "$MCP_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+
+if test -n "${MCP_INSTANCE_ID:-}"; then
+  agr instance delete "$MCP_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+fi
 ```
 
-Delete the Tool, local state, and shell token:
+Delete the Tool if it exists, then remove local state and the shell token:
 
 ```bash
-agr tool delete "$MCP_TOOL_ID" --region "$AGR_REGION" --yes --wait
-test -n "$MCP_STATE_DIR" && rm -r -- "$MCP_STATE_DIR"
+if test -n "${MCP_TOOL_ID:-}"; then
+  agr tool delete "$MCP_TOOL_ID" --region "$AGR_REGION" --yes --wait
+fi
+
+if test -n "${MCP_STATE_DIR:-}" && test -d "$MCP_STATE_DIR"; then
+  rm -r -- "$MCP_STATE_DIR"
+fi
+
 unset MCP_DEPLOYMENT_TOKEN
 ```
 

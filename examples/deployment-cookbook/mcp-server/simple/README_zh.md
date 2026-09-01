@@ -1,22 +1,22 @@
 # 在 AGR 上部署 Everything MCP Server
 
-本示例在 AGR 上运行官方 Everything MCP Server，并使用官方 Python MCP SDK 连接。HTTP hooks 负责添加 AGS token 和 `BEST_EFFORT` affinity header，Streamable HTTP 仍由 SDK 处理。
+本示例在 AGR 上运行官方 Everything MCP Server，并使用官方 Python MCP SDK 连接。HTTP hook 负责添加 AGS token 和 `BEST_EFFORT` affinity header，Streamable HTTP 仍由 SDK 处理。
 
 你将完成：
 
-- 通过生产 endpoint 运行 `initialize → tools/list → echo`；
+- 通过生产访问地址运行 `initialize → tools/list → echo`；
 - 观察活跃容量从 `0 → N → 0`；
 - 空闲 `STOP` 后复用保存的 AGS affinity，同时建立新的 MCP 会话。
 
-Everything Server 把 MCP 会话状态保存在自己的进程内。`MCP-Session-Id` 和 AGS affinity 是两类状态：实例停止后可以再次发送 affinity，但 MCP client 需要新建会话。
+Everything MCP Server 把 MCP 会话状态保存在自己的进程内。`MCP-Session-Id` 和 AGS affinity 是两类状态：实例停止后可以再次发送 affinity，但 MCP 客户端需要新建会话。
 
 ## 前置条件
 
-- 已安装 **v0.6.6 或更高版本**的 `agr`，并运行 `agr status`。
+- 已安装 **v0.6.6 或更高版本**的 `agr`。如果尚未配置 CLI，请先按[AGR CLI 官方 GitHub 凭证配置说明](https://github.com/TencentCloudAgentRuntime/ags-cli/blob/main/README-zh.md#初始化-cli-凭证)完成初始化，再运行 `agr status` 和 `agr doctor`。
 - 已安装 [`uv`](https://docs.astral.sh/uv/)。
-- 已准备允许 AGR 拉取所用镜像的 CAM 角色 ARN。
-- 当前账号可以创建和删除 Sandbox Tool、Deployment、Instance，并能获取 Deployment token。
-- 仅当需要尝试可选 proxy 诊断时，才需要保证本地端口 `18080` 可用。
+- 按官方[自定义沙箱角色与权限指南](https://cloud.tencent.com/document/product/1814/129691)创建 Agent Runtime CAM 角色，授予该角色所用 CCR 或 TCR 仓库的访问权限，并向 CLI 使用的身份授予该角色的 `cam:PassRole` 权限。
+- CLI 使用的身份可以创建和删除 Sandbox Tool 与 Deployment、查询和删除 Instance，并能获取 Deployment token。
+- 仅当需要尝试可选的本地代理诊断时，才需要保证本地端口 `18080` 可用。
 
 使用以下已发布镜像：
 
@@ -36,7 +36,7 @@ sha256:3e708366c19c13516b508ac8c58580b060df7cfba4197005070cc433b98c07d3
 
 ## 1. 配置本地变量
 
-使用唯一的资源名称后缀，并替换角色 ARN：
+使用唯一的资源名称后缀，并替换角色 ARN。本教程通过 `AGR_REGION` 指定上海地域，且每个云端命令都显式传入 `--region`，无需修改 CLI 的全局 region。
 
 ```bash
 export AGR_REGION=ap-shanghai
@@ -44,10 +44,14 @@ export AGR_DOMAIN=tencentags.com
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
 export MCP_TOOL_NAME='mcp-everything-simple-your-name'
 export MCP_DEPLOYMENT_NAME='mcp-everything-simple-your-name'
-export MCP_STATE_DIR="$(mktemp -d)"
+export MCP_STATE_DIR="${TMPDIR:-/tmp}/ags-cookbook-$MCP_TOOL_NAME"
 export MCP_AFFINITY_STATE="$MCP_STATE_DIR/smoke-affinity.json"
 
+mkdir -p "$MCP_STATE_DIR"
+chmod 700 "$MCP_STATE_DIR"
+
 agr status
+agr doctor
 uv sync --project client --locked
 
 (
@@ -62,7 +66,7 @@ uv sync --project client --locked
 
 ## 2. 创建 Sandbox Tool
 
-运行时无需访问公网。端口 `3001` 提供 MCP 服务；仅容器内部使用的端口 `3000` 提供 readiness endpoint。下面的命令使用已发布的示例镜像；如果已构建自有镜像，请将 `Image` 替换为实际地址。
+运行时无需访问公网。端口 `3001` 提供 MCP 服务；仅容器内部使用的端口 `3000` 提供就绪检查地址。下面的命令使用已发布的示例镜像。如果已构建自有镜像，请将完整镜像地址粘贴到 `Image`；CCR 个人版的 `ImageRegistryType` 使用 `personal`，TCR 企业版使用 `enterprise`。
 
 ```bash
 agr tool create \
@@ -106,7 +110,7 @@ agr tool create \
   --wait
 ```
 
-即使镜像已包含同一个 entry point，Custom Tool API 仍要求显式提供 `Command`。`ReadyTimeoutMs=30000` 是 API 上限。
+本教程显式提供 `Command`，让 Tool 配置直接显示启动命令；镜像中也包含相同的入口。`ReadyTimeoutMs=30000` 是 API 上限。
 
 成功输出包含真实 Tool ID。复制并设置：
 
@@ -158,26 +162,24 @@ agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
 curl --include --silent --show-error "$MCP_DEPLOYMENT_URL"
 ```
 
-预期 HTTP 状态为 `401`。获取 token：
+预期 HTTP 状态为 `401`。将 token 直接获取到当前 shell：
 
 ```bash
-agr api call AcquireDeploymentToken \
-  --region "$AGR_REGION" \
-  --request '{"DeploymentId":"'$MCP_DEPLOYMENT_ID'"}' \
-  --output json
+MCP_DEPLOYMENT_TOKEN="$(
+  agr api call AcquireDeploymentToken \
+    --region "$AGR_REGION" \
+    --request '{"DeploymentId":"'$MCP_DEPLOYMENT_ID'"}' \
+    --output json \
+    --jq '.Data.Response.Response.Token'
+)"
+export MCP_DEPLOYMENT_TOKEN
 ```
 
-将 `Data.Response.Response.Token` 只复制到当前 shell：
+如果命令失败或 `MCP_DEPLOYMENT_TOKEN` 为空，请停止操作。该命令会直接捕获 token，不会将其打印到终端或把 token 值写入 shell history。不要把该 token 写入 affinity 状态文件、命令行参数或日志。
 
-```bash
-export MCP_DEPLOYMENT_TOKEN='replace-with-token'
-```
+## 5. 测试生产访问地址
 
-不要把该 token 写入 affinity 状态文件、命令行参数或日志。
-
-## 5. 测试生产 endpoint
-
-客户端直接使用 `mcp.client.streamable_http.streamable_http_client` 和 `mcp.ClientSession`。一个 `httpx2.AsyncClient` hook 添加最新的 AGS affinity，另一个在网关返回新值时将其保存。
+客户端直接使用 `mcp.client.streamable_http.streamable_http_client` 和 `mcp.ClientSession`。客户端依赖的 `httpx2` 提供请求/响应 hook 使用的 `AsyncClient`：一个 hook 添加最新的 AGS affinity，另一个在网关返回新值时将其保存。
 
 ```bash
 uv run --project client --locked python client/mcp_client.py smoke \
@@ -195,13 +197,13 @@ uv run --project client --locked python client/mcp_client.py smoke \
 {"command":"smoke","event":"command_done","failed":0,"succeeded":1}
 ```
 
-使用这个固定镜像时，预期看到 server name `mcp-servers/everything`、版本 `2.0.0`、协议 `2025-11-25` 和 13 个 tool。结果中应包含 `echo`、`trigger-long-running-operation` 和 `Echo: ags-cookbook`。
+使用这个固定镜像时，预期看到服务端名称 `mcp-servers/everything`、版本 `2.0.0`、协议 `2025-11-25` 和 13 个工具。结果中应包含 `echo`、`trigger-long-running-operation` 和 `Echo: ags-cookbook`。
 
 日志只显示 affinity 的 SHA-256 前缀。
 
 ## 6. 观察 `0 → N → 0`
 
-先关闭所有 MCP client，并等待到没有 `RUNNING` 实例。即使空闲超时为 60 秒，异步回收也可能需要数分钟：
+先关闭所有 MCP 客户端，并等待到没有 `RUNNING` 实例。即使空闲超时为 60 秒，异步回收也可能需要数分钟：
 
 ```bash
 agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
@@ -224,15 +226,15 @@ uv run --project client --locked python client/mcp_client.py hold \
 agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
 ```
 
-统计 `RUNNING` 行数，将其记为 `N`。此时应看到 `1 <= N <= 3`。`N` 以实例列表为准，不要根据 client 数量推算。
+统计 `RUNNING` 行数，将其记为 `N`。此时应看到 `1 <= N <= 3`。`N` 以实例列表为准，不要根据客户端数量推算。
 
 客户端退出后，不再访问 Deployment。等待至少 60 秒，然后重复列出实例，直到异步状态收敛；这可能需要数分钟。活跃实例数最终必须回到零；历史 `STOPPED` 行可能仍然可见。
 
-可以将 `hold` 改为 `--workers 3`，观察请求装箱或 scale-out。在 `BEST_EFFORT` 下，client 可能共享实例或迁移，因此多 worker 执行可能返回 400 或 429，不会稳定地形成一个 client 对应一个实例的关系。
+可以将 `hold` 改为 `--workers 3`，观察请求装箱或扩容。在 `BEST_EFFORT` 下，客户端可能共享实例或迁移，因此多工作进程执行可能返回 400 或 429，不会稳定地形成一个客户端对应一个实例的关系。
 
 ## 7. 用新 MCP 会话验证 `BEST_EFFORT`
 
-smoke 使用的实例变为 `STOPPED` 后，把已保存的 AGS affinity 用于一个全新的官方 MCP transport 和 session：
+smoke 使用的实例变为 `STOPPED` 后，把已保存的 AGS affinity 用于一个全新的官方 MCP 传输和会话：
 
 ```bash
 uv run --project client --locked python client/mcp_client.py resume \
@@ -241,13 +243,13 @@ uv run --project client --locked python client/mcp_client.py resume \
   --state-file "$MCP_AFFINITY_STATE"
 ```
 
-该命令应再次完成 `initialize`、`tools/list` 和 `echo`。Affinity 指纹可能保持不变，也可能变化；如果变化，client 会保存新值。
+该命令应再次完成 `initialize`、`tools/list` 和 `echo`。Affinity 指纹可能保持不变，也可能变化；如果变化，客户端会保存新值。
 
-Client 不会重放之前的进程内 `MCP-Session-Id`，也不会自动重试失败的 tool call，因为原调用可能已经执行。
+客户端不会重放之前的进程内 `MCP-Session-Id`，也不会自动重试失败的工具调用，因为原调用可能已经执行。
 
-## 8. 可选：通过本地 proxy 排查问题
+## 8. 可选：通过本地代理排查问题
 
-`agr deployment proxy` 适合用于排查 Deployment。Proxy 会注入 token 并管理 affinity，因此 client 省略这两项：
+`agr deployment proxy` 适合用于排查 Deployment。该本地代理会注入 token 并管理 affinity，因此客户端省略这两项：
 
 ```bash
 agr deployment proxy "$MCP_DEPLOYMENT_ID" 18080:3001 --region "$AGR_REGION"
@@ -261,41 +263,98 @@ uv run --project client --locked python client/mcp_client.py smoke \
   --transport proxy
 ```
 
-冷启动可能超过 proxy 的响应头超时并返回 502。遇到这种情况时，检查实例 readiness，并回到生产 endpoint 直连流程。
+冷启动可能超过本地代理的响应头超时并返回 502。遇到这种情况时，检查实例就绪状态，并回到生产访问地址直连流程。
 
 ## 失败模式
 
 | 现象 | 含义与恢复方式 |
 | --- | --- |
+| `agr tool create --wait` 失败或超时 | 先查看命令报告的错误，再核对 `AGR_ROLE_ARN`、`cam:PassRole`、镜像仓库拉取权限、`Image`、`ImageRegistryType`，以及就绪检查的端口和路径。按第 9 节查找可能已创建的 Tool，用 `agr tool get "$MCP_TOOL_ID" --region "$AGR_REGION"` 查看详情，再按第 10 节删除后，使用修正后的配置和新的唯一名称重试。 |
+| `agr deployment create` 失败 | 用 `agr tool get "$MCP_TOOL_ID" --region "$AGR_REGION"` 确认 Tool 为 `ACTIVE`。按第 9 节查找可能已创建的 Deployment，用 `agr deployment get "$MCP_DEPLOYMENT_ID" --region "$AGR_REGION"` 查看详情，再按第 10 节删除后重试。 |
 | HTTP 401 | Deployment token 缺失或过期。重新获取并更新 `MCP_DEPLOYMENT_TOKEN`。 |
-| 迁移后 HTTP 400 | 请求到达了不持有旧 MCP session 的进程。关闭 transport，并初始化新的官方 MCP session。 |
-| HTTP 429 | 所有请求或连接租约都被占用。关闭遗留 client 或减少并发 worker。 |
-| Proxy 502 | 冷启动响应头超过本地 proxy 超时。检查实例 readiness，并改用生产数据面直连。 |
+| 迁移后 HTTP 400 | 请求到达了不持有旧 MCP 会话的进程。关闭传输，并初始化新的官方 MCP 会话。 |
+| HTTP 429 | 所有请求或连接租约都被占用。关闭遗留客户端或减少并发工作进程。 |
+| 本地代理返回 502 | 冷启动响应头超过本地代理超时。检查实例就绪状态，并改用生产数据面直连。 |
 | Affinity 指纹变化 | `BEST_EFFORT` 允许该行为，请使用新返回值。 |
 | 实例持续 `RUNNING` | 确保全部 SDK 和 HTTP context 已关闭。如果超过收敛时间仍活跃，请显式删除实例。 |
-| 部分多 worker 调用失败 | 多 worker 运行主要用来观察这个有状态 Server；请用单 worker 流程检查基本配置。 |
+| 部分多工作进程调用失败 | 多工作进程运行主要用来观察这个有状态服务；请用单工作进程流程检查基本配置。 |
 
-## 9. 清理
+## 9. 中断后找回资源 ID
 
-先删除 Deployment：
+如果创建资源的 shell 已经关闭，请重新设置第 1 步使用的唯一名称，并在继续操作或清理前找回 ID：
 
 ```bash
-agr deployment delete "$MCP_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
+export MCP_TOOL_NAME='mcp-everything-simple-your-name'
+export MCP_DEPLOYMENT_NAME='mcp-everything-simple-your-name'
+export AGR_REGION=ap-shanghai
+export AGR_DOMAIN=tencentags.com
+export MCP_STATE_DIR="${TMPDIR:-/tmp}/ags-cookbook-$MCP_TOOL_NAME"
+export MCP_AFFINITY_STATE="$MCP_STATE_DIR/smoke-affinity.json"
+
+export MCP_TOOL_ID="$(
+  agr tool list \
+    --region "$AGR_REGION" \
+    --filters "[{\"Name\":\"ToolName\",\"Values\":[\"$MCP_TOOL_NAME\"]}]" \
+    -o json --jq '(.Data.Items // [])[0].ToolId // empty'
+)"
+
+export MCP_DEPLOYMENT_ID="$(
+  agr deployment list \
+    --region "$AGR_REGION" \
+    --filters "[{\"Name\":\"deployment-name\",\"Values\":[\"$MCP_DEPLOYMENT_NAME\"]}]" \
+    -o json --jq '(.Data.DeploymentSet // [])[0].DeploymentId // empty'
+)"
+
+printf 'Tool: %s\nDeployment: %s\n' "$MCP_TOOL_ID" "$MCP_DEPLOYMENT_ID"
+
+if test -n "$MCP_TOOL_ID"; then
+  agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
+fi
 ```
 
-删除所有非 `STOPPED` 实例：
+两个过滤条件都是精确匹配，因此第 1 步要求使用唯一名称。ID 为空表示相应资源尚未创建或已经删除，仍可继续清理另一个资源。仅当两个 ID 都存在时才继续数据面测试。重新构造访问地址，再按第 4 步获取新的短期 token：
+
+```bash
+export MCP_DEPLOYMENT_URL="https://3001-$MCP_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/mcp"
+```
+
+不要保存或尝试找回旧 token。
+
+## 10. 清理
+
+如果 Deployment 存在，先将其删除；如果 Tool 存在，再查询 Instance：
+
+```bash
+if test -n "${MCP_DEPLOYMENT_ID:-}"; then
+  agr deployment delete "$MCP_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
+fi
+
+if test -n "${MCP_TOOL_ID:-}"; then
+  agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
+fi
+```
+
+如果列表中存在非 `STOPPED` Instance，复制其 ID 并删除。对每个非停止 Instance 重复操作；如果没有则跳过：
 
 ```bash
 export MCP_INSTANCE_ID='replace-with-non-stopped-instance-id'
-agr instance delete "$MCP_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+
+if test -n "${MCP_INSTANCE_ID:-}"; then
+  agr instance delete "$MCP_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+fi
 ```
 
-删除 Tool、本地状态，并清除 shell token：
+如果 Tool 存在，将其删除；随后删除本地状态并清除 shell token：
 
 ```bash
-agr tool delete "$MCP_TOOL_ID" --region "$AGR_REGION" --yes --wait
-test -n "$MCP_STATE_DIR" && rm -r -- "$MCP_STATE_DIR"
+if test -n "${MCP_TOOL_ID:-}"; then
+  agr tool delete "$MCP_TOOL_ID" --region "$AGR_REGION" --yes --wait
+fi
+
+if test -n "${MCP_STATE_DIR:-}" && test -d "$MCP_STATE_DIR"; then
+  rm -r -- "$MCP_STATE_DIR"
+fi
+
 unset MCP_DEPLOYMENT_TOKEN
 ```
 

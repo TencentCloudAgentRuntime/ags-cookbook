@@ -4,9 +4,9 @@ This directory introduces `agr` Deployment management through independently runn
 
 ## Prerequisites
 
-- Install `agr` **v0.6.6 or later**. Run `agr version` to check the installed version, then run `agr status` to confirm that credentials and the region are configured.
-- Prepare a CAM role ARN that allows AGR to pull the example CCR images.
-- Use an account that can create and delete Sandbox Tools and Deployments and acquire Deployment tokens.
+- Install `agr` **v0.6.6 or later**. For first-time setup, follow the [official AGR CLI credential guide](https://github.com/TencentCloudAgentRuntime/ags-cli#initialize-cli-credentials), then run `agr status` and `agr doctor`.
+- Follow the official [custom Sandbox role and permission guide](https://cloud.tencent.com/document/product/1814/129691) to create an Agent Runtime CAM role, grant it access to the CCR or TCR repository, and grant your CLI identity `cam:PassRole` for that role.
+- Use a CLI identity that can create and delete Sandbox Tools and Deployments, list and delete Instances, and acquire Deployment tokens.
 
 All examples use standard Markdown and run commands directly in a terminal. The DeepSeek Harness example additionally requires a Tencent Cloud TokenHub API key.
 

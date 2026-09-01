@@ -4,9 +4,9 @@
 
 ## 前置条件
 
-- 已安装 **v0.6.6 或更高版本**的 `agr`。先运行 `agr version` 检查已安装版本，再通过 `agr status` 确认凭证和 region 配置有效。
-- 已准备允许 AGR 拉取示例 CCR 镜像的 CAM 角色 ARN。
-- 账号具有创建和删除 Sandbox Tool、Deployment 以及获取 Deployment Token 的权限。
+- 已安装 **v0.6.6 或更高版本**的 `agr`。首次使用时，按[AGR CLI 官方 GitHub 凭证配置说明](https://github.com/TencentCloudAgentRuntime/ags-cli/blob/main/README-zh.md#初始化-cli-凭证)完成初始化，再运行 `agr status` 和 `agr doctor`。
+- 按官方[自定义沙箱角色与权限指南](https://cloud.tencent.com/document/product/1814/129691)创建 Agent Runtime CAM 角色，授予该角色 CCR 或 TCR 镜像拉取权限，并向 CLI 使用的身份授予该角色的 `cam:PassRole` 权限。
+- CLI 使用的身份可以创建和删除 Sandbox Tool 与 Deployment、查询和删除 Instance，并能获取 Deployment Token。
 
 全部示例都使用标准 Markdown，并直接在终端执行命令。DeepSeek Harness 示例另需腾讯云 TokenHub API Key。
 
