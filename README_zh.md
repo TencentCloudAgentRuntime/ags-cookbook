@@ -91,6 +91,7 @@ make example-run EXAMPLE=mini-rl
 | `mini-rl` | Python + 代码沙箱 | 最小 RL Tool Calling 示例 |
 | `mini-swe-agent` | Python + SWE 沙箱 + LLM | 使用 AGS SWE 沙箱运行 SWE-bench 评测 |
 | `mobile-use` | Python + 移动端沙箱 + Appium | Android 自动化 |
+| `multi-user-secret` | Python + AGS CredentialProvider | 面向非托管 Agent 的多用户 ManagedSecret 分发 |
 | `openclaw-cookbook` | Node.js + 自定义镜像 + COS | 基于官方镜像在 AGS 中运行 OpenClaw |
 | `osworld-ags` | Python 3.10 + OSWorld overlay | 依赖重，且需要可用的 OSWorld 工具 |
 | `shop-assistant` | Python + 浏览器沙箱 | 搜索 / 加购演示 |

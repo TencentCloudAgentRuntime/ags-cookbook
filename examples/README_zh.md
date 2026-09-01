@@ -19,6 +19,7 @@
 - `harness-nix-volume` —— 用 Nix 打包自包含 Harness 运行时，并挂载到自定义主镜像
 - `mini-swe-agent` —— 基于 AGS SWE Sandbox 和 SWE-ReX runtime 运行 SWE-bench 评测
 - `mobile-use` —— 在 AGS 中运行 Android / Appium 自动化
+- `multi-user-secret` —— 通过 AGS CredentialProvider 为非托管 Agent 分发多用户 ManagedSecret
 - `openclaw-cookbook` —— 基于官方镜像在 AGS 中运行 OpenClaw，含本地管理界面与 COS 持久化
 - `shop-assistant` —— 浏览器购物流程自动化，支持无 Cookie 的 guest 模式
 - `custom-image-go-sdk` —— Go 中的自定义镜像启动与数据面执行
@@ -53,6 +54,7 @@
 | `mini-rl` | 入门 | Python + 代码沙箱 | `make run` | 最小 Python 示例 |
 | `mini-swe-agent` | 进阶 | Python + SWE 沙箱 + LLM | `make run` | 使用 AGS SWE Sandbox 运行 SWE-bench Verified 评测 |
 | `mobile-use` | 进阶 | Python + 移动端沙箱 + Appium | `make run` | 运行时依赖较重，且流程较长 |
+| `multi-user-secret` | 进阶 | Python + AGS CredentialProvider | `make run` | 非托管 Agent 场景下面向多用户的 ManagedSecret 分发 |
 | `openclaw-cookbook` | 进阶 | Node.js + 自定义镜像 + COS | `make run` | 基于官方镜像在 AGS 中运行 OpenClaw；含本地管理界面 |
 | `osworld-ags` | 重型 | Python 3.12.12 + OSWorld overlay | `make setup` 后 `make run` | 需要外部 checkout 与模板 / 工具准备 |
 | `shop-assistant` | 进阶 | Python + 浏览器沙箱 | `make run` | 已支持无 Cookie 的 guest 模式 |
