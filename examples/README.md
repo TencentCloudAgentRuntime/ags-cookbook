@@ -19,6 +19,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `harness-nix-volume` — package a self-contained Harness runtime with Nix and mount it into a custom image
 - `mini-swe-agent` — SWE-bench evaluation with AGS SWE sandbox and SWE-ReX runtime
 - `mobile-use` — Android / Appium automation in AGS
+- `multi-openclaw` — multi-user sandbox router for OpenClaw with admin dashboard and per-user chat UI
 - `openclaw-cookbook` — run OpenClaw in AGS with official image, local management UI and COS persistence
 - `shop-assistant` — browser shopping-flow automation with optional cookies
 - `custom-image-go-sdk` — custom-image startup and data-plane execution in Go

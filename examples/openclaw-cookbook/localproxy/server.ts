@@ -257,16 +257,17 @@ body {
 .app-body {
   display: grid;
   grid-template-columns: 340px 1fr;
-  grid-template-rows: auto 1fr;
   gap: 16px;
   padding-bottom: 24px;
+  min-height: 0;
+  height: calc(100vh - 90px);
 }
 
 .left-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  grid-row: 1 / 3;
+  overflow-y: auto;
 }
 
 /* ── Card ── */
@@ -461,9 +462,91 @@ body {
   color: var(--text-muted);
 }
 
+/* ── Tab Layout ── */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+  background: var(--surface);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  position: relative;
+  padding: 10px 18px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-btn .tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  display: none;
+  animation: pulse 1.5s infinite;
+}
+
+.tab-btn .tab-dot.visible {
+  display: inline-block;
+}
+
+.tab-content {
+  flex: 1;
+  min-height: 0;
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 16px;
+  overflow: hidden;
+}
+
+.tab-content.active {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ── LogPanel ── */
 .log-panel {
-  height: 260px;
+  flex: 1;
   overflow-y: auto;
   background: var(--bg);
   border-radius: 6px;
@@ -488,6 +571,16 @@ body {
   font-style: italic;
   text-align: center;
   padding-top: 20px;
+}
+
+.log-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 /* ── ConsolePanel ── */
@@ -526,6 +619,358 @@ body {
   font-size: 0.85rem;
 }
 
+/* ── Chat Panel ── */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.chat-connect-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.chat-connect-bar .conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.chat-connect-bar .conn-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(34,197,94,.5);
+}
+
+.chat-token-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.75rem;
+  padding: 6px 8px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+
+.chat-token-input:focus {
+  border-color: var(--accent);
+}
+
+.chat-token-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-conn-btn {
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chat-conn-btn.connect {
+  background: var(--accent);
+  color: #fff;
+}
+.chat-conn-btn.connect:hover {
+  background: var(--accent-hover);
+}
+
+.chat-conn-btn.disconnect {
+  background: var(--danger);
+  color: #fff;
+}
+.chat-conn-btn.disconnect:hover {
+  background: var(--danger-hover);
+}
+
+.chat-conn-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Chat Messages ── */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.chat-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+  animation: msgIn 0.2s ease-out;
+}
+
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+}
+
+.chat-msg.assistant {
+  align-self: flex-start;
+}
+
+.chat-msg .msg-role {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  padding: 0 4px;
+}
+
+.chat-msg.user .msg-role {
+  text-align: right;
+}
+
+.chat-msg .msg-bubble {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.chat-msg.user .msg-bubble {
+  background: rgba(99,102,241,.2);
+  border: 1px solid rgba(99,102,241,.3);
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg.assistant .msg-bubble {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+/* streaming cursor */
+.chat-msg.assistant.streaming .msg-bubble::after {
+  content: '▌';
+  color: var(--accent);
+  animation: blink 0.8s step-end infinite;
+  margin-left: 1px;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ── Tool Call Card ── */
+.tool-card {
+  margin: 6px 0;
+  border-left: 3px solid var(--accent);
+  background: rgba(99,102,241,.06);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.tool-header:hover {
+  background: rgba(99,102,241,.1);
+}
+
+.tool-icon {
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+}
+
+.tool-card.expanded .tool-icon {
+  transform: rotate(90deg);
+}
+
+.tool-name {
+  font-weight: 600;
+  color: var(--accent);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+}
+
+.tool-status {
+  margin-left: auto;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.tool-status.running {
+  color: var(--warning);
+}
+
+.tool-status.done {
+  color: var(--success);
+}
+
+.tool-body {
+  display: none;
+  padding: 0 10px 8px 10px;
+}
+
+.tool-card.expanded .tool-body {
+  display: block;
+}
+
+.tool-section-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 6px 0 3px 0;
+}
+
+.tool-json {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow-x: auto;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Chat Usage ── */
+.chat-usage {
+  display: inline-flex;
+  gap: 10px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  background: rgba(148,163,184,.08);
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* ── Chat Input ── */
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+
+.chat-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 8px 12px;
+  outline: none;
+  resize: vertical;
+  min-height: 38px;
+  max-height: 120px;
+  line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: border-color 0.15s;
+}
+
+.chat-input:focus {
+  border-color: var(--accent);
+}
+
+.chat-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-input:disabled {
+  opacity: 0.4;
+}
+
+.chat-send-btn {
+  padding: 8px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 38px;
+}
+
+.chat-send-btn.send {
+  background: var(--accent);
+  color: #fff;
+}
+.chat-send-btn.send:hover {
+  background: var(--accent-hover);
+}
+
+.chat-send-btn.stop {
+  background: var(--danger);
+  color: #fff;
+}
+.chat-send-btn.stop:hover {
+  background: var(--danger-hover);
+}
+
+.chat-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar {
   width: 6px;
@@ -546,10 +991,13 @@ body {
 @media (max-width: 900px) {
   .app-body {
     grid-template-columns: 1fr;
-    grid-template-rows: auto;
+    height: auto;
   }
   .left-panel {
-    grid-row: auto;
+    overflow-y: visible;
+  }
+  .right-panel {
+    min-height: 500px;
   }
 }`;
 
@@ -597,21 +1045,43 @@ const HTML_BODY = `<div class="app">
         </div>
       </div>
     </aside>
-    <div class="right-top">
-      <div class="card">
-        <div class="card-title">Logs (<span id="log-count">0</span>)</div>
+    <div class="right-panel">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="logs">📋 Logs (<span id="log-count">0</span>)</button>
+        <button class="tab-btn" data-tab="console">🖥 Console</button>
+        <button class="tab-btn" data-tab="chat">💬 Chat <span id="chat-tab-dot" class="tab-dot"></span></button>
+      </div>
+      <div id="tab-logs" class="tab-content active">
         <div id="log-panel" class="log-panel">
           <div class="log-empty">No logs yet...</div>
         </div>
       </div>
-    </div>
-    <div class="right-bottom">
-      <div class="card console-panel">
-        <div class="card-title">OpenClaw Console</div>
-        <a id="console-link" href="/sandbox/__openclaw__"
-           target="_blank" class="console-link disabled">↗ Open Dashboard</a>
-        <div id="console-placeholder" class="console-placeholder">
-          Start or connect to a sandbox to access the OpenClaw console.
+      <div id="tab-console" class="tab-content">
+        <div class="console-panel">
+          <a id="console-link" href="/sandbox/__openclaw__"
+             target="_blank" class="console-link disabled">↗ Open Dashboard</a>
+          <div id="console-placeholder" class="console-placeholder">
+            Start or connect to a sandbox to access the OpenClaw console.
+          </div>
+        </div>
+      </div>
+      <div id="tab-chat" class="tab-content">
+        <div class="chat-container">
+          <div class="chat-connect-bar">
+            <span id="chat-conn-dot" class="conn-dot"></span>
+            <input id="chat-token-input" type="password" class="chat-token-input"
+                   placeholder="OpenClaw Token (gateway.auth.token)" />
+            <button id="chat-conn-btn" class="chat-conn-btn connect">Connect</button>
+          </div>
+          <div id="chat-messages" class="chat-messages">
+            <div class="chat-empty">输入 OpenClaw Token 并点击 Connect 开始对话</div>
+          </div>
+          <div class="chat-input-area">
+            <textarea id="chat-input" class="chat-input" rows="1"
+                      placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+                      disabled></textarea>
+            <button id="chat-send-btn" class="chat-send-btn send" disabled>Send</button>
+          </div>
         </div>
       </div>
     </div>
@@ -623,6 +1093,7 @@ const CLIENT_JS = `
 let cachedLogs = [];
 let uptimeTimer = null;
 let startedAt = null;
+let currentSandboxStatus = 'idle';
 
 // ─── SSE 订阅 ───
 const es = new EventSource('/api/events');
@@ -650,13 +1121,35 @@ const logCount     = document.getElementById('log-count');
 const consoleLink  = document.getElementById('console-link');
 const consolePh    = document.getElementById('console-placeholder');
 
+// Chat DOM refs
+const chatTabDot     = document.getElementById('chat-tab-dot');
+const chatConnDot    = document.getElementById('chat-conn-dot');
+const chatTokenInput = document.getElementById('chat-token-input');
+const chatConnBtn    = document.getElementById('chat-conn-btn');
+const chatMessages   = document.getElementById('chat-messages');
+const chatInput      = document.getElementById('chat-input');
+const chatSendBtn    = document.getElementById('chat-send-btn');
+
 const STATUS_LABELS = {
   idle: 'Idle', starting: 'Starting', connecting: 'Connecting',
   running: 'Running', pausing: 'Pausing', paused: 'Paused',
   resuming: 'Resuming', stopping: 'Stopping'
 };
 
+// ─── Tab 切换 ───
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
 function applyState(s) {
+  const prevStatus = currentSandboxStatus;
+  currentSandboxStatus = s.status;
+
   // status badge
   statusCard.className = 'card status-' + s.status;
   statusText.textContent = STATUS_LABELS[s.status] || s.status;
@@ -717,6 +1210,15 @@ function applyState(s) {
   const sandboxActive = ['running', 'paused'].includes(s.status);
   consoleLink.classList.toggle('disabled', !running);
   consolePh.style.display = sandboxActive ? 'none' : '';
+
+  // Chat tab dot — 沙箱运行中时显示绿点
+  chatTabDot.classList.toggle('visible', running);
+
+  // Chat 状态联动 — 沙箱停止时自动断开 Chat
+  if (prevStatus === 'running' && s.status !== 'running' && chatState.ws) {
+    chatDisconnect();
+  }
+  updateChatUI();
 }
 
 function showInfo(row, value) {
@@ -770,6 +1272,623 @@ function doConnect() {
   });
   connectInput.value = '';
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Chat 功能
+// ═══════════════════════════════════════════════════════════════
+
+const chatState = {
+  ws: null,
+  connected: false,
+  authenticated: false,
+  connectReqId: null,
+  sessionKey: 'agent:default:main',
+  currentRunId: null,
+  isStreaming: false,
+  msgCount: 0,
+  pendingReqCallbacks: {},  // id -> {resolve, reject}
+};
+
+let msgIdCounter = 0;
+function nextMsgId() {
+  return 'msg-' + (++msgIdCounter) + '-' + Date.now();
+}
+
+// ─── Chat Connect / Disconnect ───
+
+chatConnBtn.addEventListener('click', () => {
+  if (chatState.ws) {
+    chatDisconnect();
+  } else {
+    chatConnect();
+  }
+});
+
+function chatConnect() {
+  const token = chatTokenInput.value.trim();
+  if (!token) {
+    chatTokenInput.focus();
+    return;
+  }
+  if (!['running', 'paused'].includes(currentSandboxStatus)) {
+    addSystemMessage('⚠️ 沙箱未运行，请先启动或连接沙箱');
+    return;
+  }
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = proto + '//' + location.host + '/sandbox/';
+
+  chatState.ws = new WebSocket(wsUrl);
+  chatState.connected = false;
+  chatState.authenticated = false;
+  updateChatUI();
+
+  chatState.ws.onopen = () => {
+    chatState.connected = true;
+    updateChatUI();
+  };
+
+  chatState.ws.onmessage = (evt) => {
+    let data;
+    try { data = JSON.parse(evt.data); } catch { return; }
+    handleWsMessage(data);
+  };
+
+  chatState.ws.onclose = () => {
+    chatState.ws = null;
+    chatState.connected = false;
+    chatState.authenticated = false;
+    chatState.connectReqId = null;
+    chatState.isStreaming = false;
+    chatState.currentRunId = null;
+    updateChatUI();
+  };
+
+  chatState.ws.onerror = () => {
+    // onclose will follow
+  };
+}
+
+function chatDisconnect() {
+  if (chatState.ws) {
+    chatState.ws.close();
+    chatState.ws = null;
+  }
+  chatState.connected = false;
+  chatState.authenticated = false;
+  chatState.connectReqId = null;
+  chatState.isStreaming = false;
+  chatState.currentRunId = null;
+  updateChatUI();
+}
+
+// ─── WebSocket 消息处理 ───
+
+function handleWsMessage(data) {
+  // 心跳 tick — 忽略
+  if (data.type === 'event' && data.event === 'tick') return;
+
+  // connect.challenge -> 发送 connect 请求
+  if (data.type === 'event' && data.event === 'connect.challenge') {
+    sendConnectRequest(data.payload);
+    return;
+  }
+
+  // 请求响应
+  if (data.type === 'res') {
+    const cb = chatState.pendingReqCallbacks[data.id];
+    if (cb) {
+      delete chatState.pendingReqCallbacks[data.id];
+      if (data.ok === false || data.error) {
+        cb.reject(data.error || { message: 'Request failed' });
+      } else {
+        // OpenClaw 响应格式: { type: "res", id, ok: true, payload: {...} }
+        cb.resolve(data.payload || data.result || data);
+      }
+    }
+
+    // connect 响应兜底检测（主逻辑在 sendConnectRequest 的 resolve 回调中）
+    if (!chatState.authenticated &&
+        (data.id === chatState.connectReqId ||
+         data.method === 'connect' ||
+         (data.result && data.result.protocol))) {
+      chatState.authenticated = true;
+      updateChatUI();
+      clearChatMessages();
+      loadChatHistory();
+    }
+    return;
+  }
+
+  // 事件
+  if (data.type === 'event') {
+    const p = data.payload || {};
+
+    // ── agent 事件（OpenClaw 核心流式协议） ──
+    if (data.event === 'agent') {
+      const stream = p.stream;
+      const d = p.data || {};
+
+      if (stream === 'assistant') {
+        // 流式文本增量
+        if (d.delta !== undefined) {
+          handleChatDelta({ delta: d.delta, text: d.text });
+        }
+      } else if (stream === 'lifecycle') {
+        if (d.phase === 'end') {
+          handleChatDone(p);
+        } else if (d.phase === 'error') {
+          handleChatError({ message: d.error || d.message || 'Agent error' });
+        }
+      } else if (stream === 'tool_call') {
+        handleToolCall(d);
+      } else if (stream === 'tool_result') {
+        handleToolResult(d);
+      }
+      return;
+    }
+
+    // ── chat 事件（聊天状态同步，可用作备用） ──
+    if (data.event === 'chat') {
+      // chat 事件中也可能携带 assistant 消息增量
+      if (p.state === 'delta' && p.message && p.message.role === 'assistant') {
+        const content = p.message.content;
+        if (Array.isArray(content)) {
+          content.forEach(block => {
+            if (block.type === 'text' && block.text) {
+              // 已通过 agent 事件处理，此处可忽略以避免重复
+            }
+          });
+        }
+      }
+      return;
+    }
+
+    // ── 兼容旧式事件名（如有） ──
+    switch (data.event) {
+      case 'chat.delta':
+        handleChatDelta(p);
+        break;
+      case 'tool.call':
+        handleToolCall(p);
+        break;
+      case 'tool.result':
+        handleToolResult(p);
+        break;
+      case 'chat.done':
+        handleChatDone(p);
+        break;
+      case 'chat.error':
+        handleChatError(p);
+        break;
+    }
+  }
+}
+
+function sendConnectRequest(challenge) {
+  const token = chatTokenInput.value.trim();
+  const id = nextMsgId();
+  const req = {
+    type: 'req',
+    id: id,
+    method: 'connect',
+    params: {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: 'openclaw-control-ui',
+        version: 'control-ui',
+        platform: navigator.platform || 'unknown',
+        mode: 'webchat',
+        instanceId: crypto.randomUUID()
+      },
+      role: 'operator',
+      scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
+      caps: ['tool-events'],
+      auth: { token: token },
+      userAgent: navigator.userAgent,
+      locale: navigator.language || 'en'
+    }
+  };
+  wsSend(req);
+  // 记录 connect 请求 ID，用于后续匹配响应
+  chatState.connectReqId = id;
+  // 注册回调
+  chatState.pendingReqCallbacks[id] = {
+    resolve: (result) => {
+      chatState.authenticated = true;
+      updateChatUI();
+      clearChatMessages();
+      loadChatHistory();
+    },
+    reject: (err) => {
+      addSystemMessage('❌ 连接握手失败: ' + (err.message || JSON.stringify(err)));
+    }
+  };
+}
+
+function wsSend(data) {
+  if (chatState.ws && chatState.ws.readyState === WebSocket.OPEN) {
+    chatState.ws.send(JSON.stringify(data));
+  }
+}
+
+// ─── Chat 发送消息 ───
+
+chatSendBtn.addEventListener('click', () => {
+  if (chatState.isStreaming) {
+    chatAbort();
+  } else {
+    chatSend();
+  }
+});
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!chatSendBtn.disabled && !chatState.isStreaming) {
+      chatSend();
+    }
+  }
+});
+
+// auto-resize textarea
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+});
+
+function chatSend() {
+  const text = chatInput.value.trim();
+  if (!text || !chatState.authenticated) return;
+
+  // 添加用户消息
+  addUserMessage(text);
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+
+  const id = nextMsgId();
+  const req = {
+    type: 'req',
+    id: id,
+    method: 'chat.send',
+    params: {
+      message: text,
+      sessionKey: chatState.sessionKey,
+      deliver: false,
+      idempotencyKey: crypto.randomUUID()
+    }
+  };
+  wsSend(req);
+
+  chatState.pendingReqCallbacks[id] = {
+    resolve: (result) => {
+      // OpenClaw 实际响应: { ok: true, payload: { runId, status: "started" } }
+      const runId = (result && (result.runId || (result.payload && result.payload.runId)));
+      if (runId) {
+        chatState.currentRunId = runId;
+      }
+      chatState.isStreaming = true;
+      updateChatUI();
+    },
+    reject: (err) => {
+      addSystemMessage('❌ 发送失败: ' + (err.message || JSON.stringify(err)));
+    }
+  };
+}
+
+function chatAbort() {
+  if (!chatState.currentRunId) return;
+  const id = nextMsgId();
+  const req = {
+    type: 'req',
+    id: id,
+    method: 'chat.abort',
+    params: {
+      sessionKey: chatState.sessionKey
+    }
+  };
+  wsSend(req);
+  chatState.isStreaming = false;
+  chatState.currentRunId = null;
+  updateStreamingBubble(null, true);
+  updateChatUI();
+}
+
+// ─── Chat History ───
+
+function loadChatHistory() {
+  const id = nextMsgId();
+  const req = {
+    type: 'req',
+    id: id,
+    method: 'chat.history',
+    params: {
+      sessionKey: chatState.sessionKey,
+      limit: 50
+    }
+  };
+  wsSend(req);
+
+  chatState.pendingReqCallbacks[id] = {
+    resolve: (result) => {
+      if (result && Array.isArray(result.messages)) {
+        result.messages.forEach(msg => {
+          if (msg.role === 'user') {
+            addUserMessage(msg.content || '', true);
+          } else if (msg.role === 'assistant') {
+            addAssistantMessage(msg.content || '', true);
+          }
+        });
+      }
+    },
+    reject: () => {}
+  };
+}
+
+// ─── 消息渲染 ───
+
+let currentStreamBubble = null;
+let currentStreamText = '';
+
+function clearChatMessages() {
+  chatMessages.innerHTML = '';
+  currentStreamBubble = null;
+  currentStreamText = '';
+  chatState.msgCount = 0;
+}
+
+function addUserMessage(text, isHistory) {
+  removeEmptyPlaceholder();
+  const msgEl = document.createElement('div');
+  msgEl.className = 'chat-msg user';
+  msgEl.innerHTML = '<div class="msg-role">You</div><div class="msg-bubble"></div>';
+  msgEl.querySelector('.msg-bubble').textContent = text;
+  chatMessages.appendChild(msgEl);
+  chatState.msgCount++;
+  trimMessages();
+  if (!isHistory) scrollToBottom();
+}
+
+function addAssistantMessage(text, isHistory) {
+  removeEmptyPlaceholder();
+  const msgEl = document.createElement('div');
+  msgEl.className = 'chat-msg assistant';
+  msgEl.innerHTML = '<div class="msg-role">Assistant</div><div class="msg-bubble"></div>';
+  msgEl.querySelector('.msg-bubble').textContent = text;
+  chatMessages.appendChild(msgEl);
+  chatState.msgCount++;
+  trimMessages();
+  if (!isHistory) scrollToBottom();
+}
+
+function addSystemMessage(text) {
+  removeEmptyPlaceholder();
+  const msgEl = document.createElement('div');
+  msgEl.className = 'chat-msg assistant';
+  msgEl.innerHTML = '<div class="msg-role">System</div><div class="msg-bubble"></div>';
+  msgEl.querySelector('.msg-bubble').textContent = text;
+  msgEl.querySelector('.msg-bubble').style.borderLeftColor = 'var(--warning)';
+  chatMessages.appendChild(msgEl);
+  scrollToBottom();
+}
+
+function removeEmptyPlaceholder() {
+  const empty = chatMessages.querySelector('.chat-empty');
+  if (empty) empty.remove();
+}
+
+function getOrCreateStreamBubble() {
+  if (currentStreamBubble) return currentStreamBubble;
+  removeEmptyPlaceholder();
+  const msgEl = document.createElement('div');
+  msgEl.className = 'chat-msg assistant streaming';
+  msgEl.innerHTML = '<div class="msg-role">Assistant</div><div class="msg-bubble"></div>';
+  chatMessages.appendChild(msgEl);
+  currentStreamBubble = msgEl;
+  currentStreamText = '';
+  chatState.msgCount++;
+  return msgEl;
+}
+
+function updateStreamingBubble(text, finish) {
+  if (text !== null && text !== undefined) {
+    const bubble = getOrCreateStreamBubble();
+    currentStreamText += text;
+    bubble.querySelector('.msg-bubble').textContent = currentStreamText;
+    scrollToBottom();
+  }
+  if (finish && currentStreamBubble) {
+    currentStreamBubble.classList.remove('streaming');
+    currentStreamBubble = null;
+    currentStreamText = '';
+  }
+}
+
+function appendToolCardToStream(cardEl) {
+  const bubble = getOrCreateStreamBubble();
+  // 插入到 msg-bubble 之后
+  bubble.appendChild(cardEl);
+  scrollToBottom();
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  });
+}
+
+function trimMessages() {
+  while (chatState.msgCount > 100 && chatMessages.children.length > 1) {
+    chatMessages.removeChild(chatMessages.firstElementChild);
+    chatState.msgCount--;
+  }
+}
+
+// ─── 事件处理器 ───
+
+function handleChatDelta(payload) {
+  if (!payload) return;
+  updateStreamingBubble(payload.delta || '', false);
+}
+
+function handleToolCall(payload) {
+  if (!payload) return;
+  const card = document.createElement('div');
+  card.className = 'tool-card';
+  card.dataset.toolCallId = payload.id || payload.runId || '';
+  card.dataset.tool = payload.tool || payload.name || 'unknown';
+
+  const paramsStr = payload.params ? JSON.stringify(payload.params, null, 2)
+                  : payload.arguments ? JSON.stringify(payload.arguments, null, 2) : '{}';
+
+  card.innerHTML =
+    '<div class="tool-header">' +
+      '<span class="tool-icon">▶</span>' +
+      '<span class="tool-name">' + escHtml(payload.tool || payload.name || 'tool') + '</span>' +
+      '<span class="tool-status running">running...</span>' +
+    '</div>' +
+    '<div class="tool-body">' +
+      '<div class="tool-section-label">Parameters</div>' +
+      '<pre class="tool-json">' + escHtml(paramsStr) + '</pre>' +
+      '<div class="tool-section-label" style="display:none">Result</div>' +
+      '<pre class="tool-json tool-result-json" style="display:none"></pre>' +
+    '</div>';
+
+  card.querySelector('.tool-header').addEventListener('click', () => {
+    card.classList.toggle('expanded');
+  });
+
+  appendToolCardToStream(card);
+}
+
+function handleToolResult(payload) {
+  if (!payload) return;
+  const toolId = payload.id || payload.runId || '';
+  const toolName = payload.tool || payload.name || '';
+
+  // 找到对应的 tool card
+  let card = null;
+  const cards = chatMessages.querySelectorAll('.tool-card');
+  for (let i = cards.length - 1; i >= 0; i--) {
+    if ((toolId && cards[i].dataset.toolCallId === toolId) ||
+        (toolName && cards[i].dataset.tool === toolName)) {
+      card = cards[i];
+      break;
+    }
+  }
+  // fallback: 最后一个 running 的 card
+  if (!card) {
+    for (let i = cards.length - 1; i >= 0; i--) {
+      const st = cards[i].querySelector('.tool-status');
+      if (st && st.classList.contains('running')) {
+        card = cards[i];
+        break;
+      }
+    }
+  }
+
+  if (!card) return;
+
+  const status = card.querySelector('.tool-status');
+  status.textContent = 'done';
+  status.classList.remove('running');
+  status.classList.add('done');
+
+  const resultLabel = card.querySelectorAll('.tool-section-label')[1];
+  const resultJson = card.querySelector('.tool-result-json');
+  if (resultLabel && resultJson) {
+    resultLabel.style.display = '';
+    resultJson.style.display = '';
+    const resultStr = payload.result ? JSON.stringify(payload.result, null, 2)
+                    : payload.output || '(no result)';
+    resultJson.textContent = typeof resultStr === 'string' ? resultStr : JSON.stringify(resultStr, null, 2);
+  }
+}
+
+function handleChatDone(payload) {
+  chatState.isStreaming = false;
+  chatState.currentRunId = null;
+  updateStreamingBubble(null, true);
+
+  // 显示 usage（可能在 payload.data.usage 或 payload.usage 中）
+  const data = (payload && payload.data) || payload || {};
+  const u = data.usage || (payload && payload.usage);
+  if (u) {
+    const usageEl = document.createElement('div');
+    usageEl.className = 'chat-usage';
+    usageEl.textContent =
+      'prompt: ' + (u.promptTokens || u.prompt_tokens || 0) +
+      '  completion: ' + (u.completionTokens || u.completion_tokens || 0) +
+      '  total: ' + (u.totalTokens || u.total_tokens || 0);
+    // 追加到最后一个 assistant 消息
+    const msgs = chatMessages.querySelectorAll('.chat-msg.assistant');
+    if (msgs.length > 0) {
+      msgs[msgs.length - 1].appendChild(usageEl);
+    }
+  }
+
+  updateChatUI();
+  scrollToBottom();
+}
+
+function handleChatError(payload) {
+  chatState.isStreaming = false;
+  chatState.currentRunId = null;
+  updateStreamingBubble(null, true);
+  addSystemMessage('❌ Error: ' + (payload && payload.message || JSON.stringify(payload)));
+  updateChatUI();
+}
+
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ─── Chat UI 状态更新 ───
+
+function updateChatUI() {
+  const sandboxActive = ['running', 'paused'].includes(currentSandboxStatus);
+  const wsOpen = chatState.connected;
+  const authed = chatState.authenticated;
+  const streaming = chatState.isStreaming;
+
+  // 连接指示器
+  chatConnDot.classList.toggle('connected', authed);
+
+  // Token 输入框
+  chatTokenInput.disabled = wsOpen;
+
+  // Connect/Disconnect 按钮
+  if (wsOpen) {
+    chatConnBtn.textContent = 'Disconnect';
+    chatConnBtn.className = 'chat-conn-btn disconnect';
+    chatConnBtn.disabled = false;
+  } else {
+    chatConnBtn.textContent = 'Connect';
+    chatConnBtn.className = 'chat-conn-btn connect';
+    chatConnBtn.disabled = !sandboxActive || !chatTokenInput.value.trim();
+  }
+
+  // 消息输入
+  chatInput.disabled = !authed;
+  chatSendBtn.disabled = !authed;
+
+  // Send / Stop 按钮模式
+  if (streaming) {
+    chatSendBtn.textContent = '⏹ Stop';
+    chatSendBtn.className = 'chat-send-btn stop';
+    chatSendBtn.disabled = false;
+  } else {
+    chatSendBtn.textContent = 'Send';
+    chatSendBtn.className = 'chat-send-btn send';
+    chatSendBtn.disabled = !authed;
+  }
+}
+
+// token 输入变化时更新按钮
+chatTokenInput.addEventListener('input', updateChatUI);
 `;
 
 function getHtml(): string {
