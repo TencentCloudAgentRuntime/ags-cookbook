@@ -1,36 +1,36 @@
-# Deploy a native MCP server client flow on AGR
+# Deploy the Everything MCP Server on AGR
 
-This tutorial deploys the official Everything MCP Server and validates it with the official Python MCP SDK. AGS authentication and `BEST_EFFORT` affinity are added through HTTP hooks; the client does not reimplement Streamable HTTP or suppress the SDK's native GET stream.
+This example runs the official Everything MCP Server on AGR and connects to it with the official Python MCP SDK. HTTP hooks add the AGS token and `BEST_EFFORT` affinity header without replacing the SDK's Streamable HTTP transport.
 
-The tutorial proves these results separately:
+You will:
 
-- one production client completes `initialize → tools/list → echo`;
-- native MCP traffic moves active capacity from `0 → N → 0`, where `N` is observed rather than predicted from the client count;
-- after idle `STOP`, a retained AGS affinity can be sent with a fresh MCP session and may be replaced by AGS.
+- run `initialize → tools/list → echo` against the production endpoint;
+- watch active capacity move from `0 → N → 0`;
+- reuse the saved AGS affinity after idle `STOP`, while opening a fresh MCP session.
 
-The official Everything server keeps MCP session state in one process. `MCP-Session-Id` and AGS affinity are therefore different kinds of state. Never reuse an old MCP session after instance replacement.
+The Everything server keeps MCP session state in its own process. `MCP-Session-Id` and AGS affinity are separate: affinity can be sent again after an instance stops, but the MCP client should open a new session.
 
 ## Prerequisites
 
 - Install `agr` **v0.6.6 or later**, then run `agr status`.
 - Install [`uv`](https://docs.astral.sh/uv/).
-- Prepare a CAM role ARN that lets AGR pull the pinned CCR image.
+- Prepare a CAM role ARN that lets AGR pull the image you plan to use.
 - Use an account that can create and delete Sandbox Tools, Deployments, and Instances and acquire Deployment tokens.
 - Keep local port `18080` free only if you want to try the optional proxy diagnostics.
 
-The prebuilt image is:
+Use the published image:
 
 ```text
 ccr.ccs.tencentyun.com/ags.dev/mcp-everything:2026.8.31-ags.1
 ```
 
-Published OCI index digest:
+Image digest (optional, for verification):
 
 ```text
 sha256:3e708366c19c13516b508ac8c58580b060df7cfba4197005070cc433b98c07d3
 ```
 
-Its reproducible source, license, pinned dependency graph, and publication procedure are in [dockerfiles](./dockerfiles/README.md).
+You can use this published example image directly. To build and push a copy to your own registry, see [dockerfiles](./dockerfiles/README.md).
 
 Run every command from this `simple` directory. Copy real resource IDs and the short-lived Deployment token from command output; sample values are placeholders.
 
@@ -62,7 +62,7 @@ The client project configures the Tencent PyPI mirror as its default `uv` index,
 
 ## 2. Create the Sandbox Tool
 
-The runtime needs no outbound Internet access. Port `3001` serves MCP, while the operational readiness endpoint uses the container-only port `3000`.
+The runtime needs no outbound Internet access. Port `3001` serves MCP, while the operational readiness endpoint uses the container-only port `3000`. The command below uses the published example image; if you built your own copy, replace `Image` with its URI.
 
 ```bash
 agr tool create \
@@ -116,7 +116,7 @@ export MCP_TOOL_ID='sdt-replace-me'
 
 ## 3. Create the Deployment
 
-The official SDK maintains a GET event stream while also issuing POST and DELETE requests. A per-instance request-concurrency lease of `2` is the compatibility floor verified for one native client. It does not reserve two leases permanently or imply a fixed client-to-instance mapping.
+The official SDK keeps a GET event stream open while sending POST and DELETE requests. Set per-instance request concurrency to `2`; this is the lowest value tested with one native client. It does not create a fixed mapping between clients and instances.
 
 ```bash
 agr deployment create \
@@ -175,9 +175,9 @@ export MCP_DEPLOYMENT_TOKEN='replace-with-token'
 
 Do not write this token to the affinity state file, a command-line option, or logs.
 
-## 5. Run the authoritative native smoke
+## 5. Test the production endpoint
 
-The client uses `mcp.client.streamable_http.streamable_http_client` and `mcp.ClientSession` directly. An `httpx2.AsyncClient` request hook injects the latest AGS affinity, and a response hook stores a replacement value when the gateway returns one.
+The client uses `mcp.client.streamable_http.streamable_http_client` and `mcp.ClientSession` directly. One `httpx2.AsyncClient` hook adds the latest AGS affinity; another saves a new value if the gateway returns one.
 
 ```bash
 uv run --project client --locked python client/mcp_client.py smoke \
@@ -195,7 +195,7 @@ Successful JSON-line events include:
 {"command":"smoke","event":"command_done","failed":0,"succeeded":1}
 ```
 
-The pinned image reports server name `mcp-servers/everything`, version `2.0.0`, and 13 tools. It must report protocol `2025-11-25`, expose both `echo` and `trigger-long-running-operation`, and return `Echo: ags-cookbook`.
+With the pinned image, expect server name `mcp-servers/everything`, version `2.0.0`, protocol `2025-11-25`, and 13 tools. The result should include `echo`, `trigger-long-running-operation`, and `Echo: ags-cookbook`.
 
 Logs show only a SHA-256 prefix for affinity values.
 
@@ -224,11 +224,11 @@ While the `trigger-long-running-operation` call is active, use a second terminal
 agr instance list --tool-id "$MCP_TOOL_ID" --region "$AGR_REGION"
 ```
 
-Record the number of `RUNNING` rows as `N`. The supported assertion is `1 <= N <= 3`. Do not infer `N` from the number of clients.
+Count the `RUNNING` rows and call that number `N`. You should see `1 <= N <= 3`. Count the rows rather than deriving `N` from the number of clients.
 
 After the client exits, do not access the Deployment. Wait at least 60 seconds, then list instances again until the asynchronous transition converges; this can take several minutes. The active count must eventually return to zero; historical `STOPPED` rows may remain visible.
 
-You may repeat `hold` with `--workers 3` to observe packing or scale-out. That is diagnostic only: under `BEST_EFFORT`, clients may share instances or migrate, and a multi-worker run may report a 400 or 429 rather than mapping one client to one instance.
+You can repeat `hold` with `--workers 3` to explore packing and scale-out. Under `BEST_EFFORT`, clients may share instances or migrate, so a multi-worker run can return 400 or 429 instead of producing one instance per client.
 
 ## 7. Verify `BEST_EFFORT` with a fresh MCP session
 
@@ -241,13 +241,13 @@ uv run --project client --locked python client/mcp_client.py resume \
   --state-file "$MCP_AFFINITY_STATE"
 ```
 
-The command must again complete `initialize`, `tools/list`, and `echo`. The affinity fingerprint may stay the same or change. A changed value is valid `BEST_EFFORT` behavior and replaces the value in the state file.
+The command should again complete `initialize`, `tools/list`, and `echo`. The affinity fingerprint may stay the same or change; when it changes, the client saves the new value.
 
-The client never replays the previous process-local `MCP-Session-Id`. It also never retries an arbitrary failed tool call automatically, because the original call may already have executed.
+The client does not replay the previous process-local `MCP-Session-Id` or automatically retry a failed tool call, because the original call may already have run.
 
-## 8. Optional local proxy diagnostics
+## 8. Optional: troubleshoot through the local proxy
 
-`agr deployment proxy` is useful for inspecting a Deployment, but it is not the acceptance path for this stateful server and native SDK combination. The proxy injects the token and manages affinity, so the client omits both:
+`agr deployment proxy` is useful when troubleshooting a Deployment. It injects the token and manages affinity, so the client omits both:
 
 ```bash
 agr deployment proxy "$MCP_DEPLOYMENT_ID" 18080:3001 --region "$AGR_REGION"
@@ -261,7 +261,7 @@ uv run --project client --locked python client/mcp_client.py smoke \
   --transport proxy
 ```
 
-A cold start can exceed the proxy response-header timeout and return 502. Inspect instance readiness and use the direct production flow for the authoritative result. Do not weaken production acceptance because this optional path fails.
+A cold start can exceed the proxy response-header timeout and return 502. Check instance readiness and use the direct production endpoint for the main walkthrough.
 
 ## Failure modes
 
@@ -273,7 +273,7 @@ A cold start can exceed the proxy response-header timeout and return 502. Inspec
 | Proxy 502 | Cold-start response headers exceeded the local proxy timeout. Inspect instance readiness and use direct production access. |
 | Affinity fingerprint changes | This is permitted by `BEST_EFFORT`; use the newly returned value. |
 | Instance remains `RUNNING` | Ensure every SDK and HTTP context is closed. If it remains active after convergence time, delete it explicitly. |
-| Some multi-worker calls fail | This is a known stateful-session compatibility boundary, not a deterministic scaling contract. The one-client smoke remains authoritative. |
+| Some multi-worker calls fail | A multi-worker run is exploratory for this stateful server. Use the one-worker flow to check the basic setup. |
 
 ## 9. Clean up
 
@@ -301,12 +301,10 @@ unset MCP_DEPLOYMENT_TOKEN
 
 Historical `STOPPED` instance rows may remain after their Tool is deleted. They are not active capacity and are not a cleanup failure.
 
-## Acceptance checklist
+## Checklist
 
 - `uv sync --project client --locked` succeeds.
 - The client tests pass.
-- The locally built image returns 200 from `/healthz` and passes native `smoke`.
-- The versioned CCR image has both `linux/amd64` and `linux/arm64` manifests.
 - A fresh Shanghai Deployment rejects an unauthenticated request with 401.
 - One direct native smoke completes.
 - Active capacity is observed as `0 → N → 0` with `N >= 1`.

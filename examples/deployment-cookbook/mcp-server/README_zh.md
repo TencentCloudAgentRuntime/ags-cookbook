@@ -1,15 +1,15 @@
 # MCP Server Deployment Cookbook
 
-本目录演示如何在 AGR Deployment 上运行现有 Model Context Protocol（MCP）Server，同时保持原生的客户端使用方式。
+本目录收录在 AGR Deployment 上运行 Model Context Protocol（MCP）Server 的示例。
 
-当前的 [simple](./simple/README_zh.md) 场景通过 Streamable HTTP 部署官方 Everything MCP Server。`initialize`、`tools/list` 和 `tools/call` 全部由官方 Python SDK 完成；客户端中仅通过受支持的 HTTP request/response hooks 处理 AGS 特有逻辑。
+[simple](./simple/README_zh.md) 示例通过 Streamable HTTP 部署官方 Everything MCP Server，并使用官方 Python SDK 连接。`initialize`、`tools/list` 和 `tools/call` 仍由 SDK 处理；少量 HTTP hooks 用于添加 AGS token 和 affinity header。
 
-该场景分别验证三个可观察结果：
+文档包含三部分：
 
-1. 一个原生 MCP 会话可以通过生产 Deployment 数据面完成调用；
-2. MCP 流量会激活实测数量为 `N` 的实例，并在空闲 `STOP` 后回到零；
-3. 原实例停止后，可以保留 AGS `BEST_EFFORT` affinity 值，并用重新初始化的 MCP 会话继续访问。
+1. 通过生产 Deployment endpoint 调用 MCP Server；
+2. 观察活跃实例从 `0` 变为 `N`，再在空闲 `STOP` 后回到 `0`；
+3. 实例停止后保留 AGS `BEST_EFFORT` affinity，同时创建新的 MCP 会话。
 
-本场景不承诺客户端数量等于实例数量，也不承诺 MCP 协议会话可以跨实例替换存活。
+客户端数量和实例数量不是一对一的关系。MCP 会话保存在 Server 进程内，实例替换后客户端会重新创建会话。
 
-固定版本镜像的源码和发布说明位于 [simple/dockerfiles](./simple/dockerfiles/README_zh.md)。
+示例直接使用已发布的示例镜像。如需将镜像构建并推送到自己的仓库，请参考 [simple/dockerfiles](./simple/dockerfiles/README_zh.md)。

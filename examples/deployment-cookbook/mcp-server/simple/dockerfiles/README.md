@@ -1,6 +1,6 @@
-# Everything MCP Server image
+# Build the Everything MCP Server image in your registry (optional)
 
-This directory reproducibly builds the image used by the MCP Deployment example:
+The deployment tutorial uses the published example image below, so you can skip this page. If your account requires images in your own registry, follow these steps to build and push the same server there.
 
 ```text
 ccr.ccs.tencentyun.com/ags.dev/mcp-everything:2026.8.31-ags.1
@@ -12,23 +12,28 @@ Published OCI index digest:
 sha256:3e708366c19c13516b508ac8c58580b060df7cfba4197005070cc433b98c07d3
 ```
 
-The image pins:
+To reduce build-input drift, the build pins:
 
 - official package `@modelcontextprotocol/server-everything@2026.8.31`;
 - Node OCI index `node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32`;
-- the complete npm graph in `package-lock.json`;
-- upstream revision `a40bc270fb5ece62673f8a1196f57116d885c5eb` in OCI metadata.
+- the complete npm graph in `package-lock.json`.
 
-The package runs its native `streamableHttp` transport on `/mcp` at port `3001`. `entrypoint.mjs` is operational glue only: it starts the unmodified upstream entry point, waits for its TCP listener, serves `GET /healthz` on port `3000`, and forwards termination signals. It does not parse MCP or add tools.
+The upstream package serves its native `streamableHttp` transport at `/mcp` on port `3001`. This image only adds `entrypoint.mjs`, which starts the upstream server, waits for its TCP listener, serves `GET /healthz` on port `3000`, and forwards termination signals. It does not process MCP messages or register additional tools.
 
-The pinned upstream repository describes an Apache-2.0/MIT transition, while the server README identifies MIT and the npm tarball omits a license file. This directory therefore carries the pinned repository root license as `LICENSE-modelcontextprotocol-servers` and records `Apache-2.0 AND MIT` in image metadata. Recheck upstream licensing before upgrading.
+The image also includes the upstream license text as `LICENSE-modelcontextprotocol-servers`.
 
-## Local build and protocol validation
+## Prerequisites
+
+- Install Podman and `skopeo`.
+- Prepare a CCR/TCR repository that you can push to and that the AGR CAM role can pull from.
+- Replace `<your-namespace>` in the commands below with your registry namespace.
+
+## Build and test locally
 
 From this directory:
 
 ```bash
-export MCP_IMAGE='ccr.ccs.tencentyun.com/ags.dev/mcp-everything:2026.8.31-ags.1'
+export MCP_IMAGE='ccr.ccs.tencentyun.com/<your-namespace>/mcp-everything:2026.8.31-ags.1'
 
 podman build \
   --platform linux/amd64 \
@@ -50,9 +55,9 @@ uv run --project ../client --locked python ../client/mcp_client.py smoke \
 podman stop ags-mcp-everything-local
 ```
 
-The health response is `ok`. The client must report protocol `2025-11-25`, both required tools, and a successful `echo` call.
+The health response is `ok`. The client should report protocol `2025-11-25`, both required tools, and a successful `echo` call.
 
-## Build and publish the multi-platform manifest
+## Push the image to your registry
 
 Log in to CCR first:
 
@@ -60,10 +65,10 @@ Log in to CCR first:
 podman login ccr.ccs.tencentyun.com
 ```
 
-Build both supported platforms into one manifest list and push it:
+Build both platforms into one manifest list and push it to your repository:
 
 ```bash
-export MCP_IMAGE='ccr.ccs.tencentyun.com/ags.dev/mcp-everything:2026.8.31-ags.1'
+export MCP_IMAGE='ccr.ccs.tencentyun.com/<your-namespace>/mcp-everything:2026.8.31-ags.1'
 
 podman build \
   --platform linux/amd64,linux/arm64 \
@@ -77,12 +82,12 @@ podman manifest push --all \
 skopeo inspect --raw "docker://$MCP_IMAGE"
 ```
 
-Verify that the remote index contains both `linux/amd64` and `linux/arm64`. Never publish `latest`.
+Check that the remote index contains both `linux/amd64` and `linux/arm64`. Use a versioned tag instead of `latest`.
 
-The published tag is intended to be immutable. Compare the raw remote index with the recorded digest before using or republishing it:
+Record the digest so you can confirm which image was deployed later:
 
 ```bash
 skopeo inspect --raw "docker://$MCP_IMAGE" | shasum -a 256
 ```
 
-When upgrading, update the package version, lockfile, base-image digest, OCI labels, image tag, READMEs, and Tool image reference together. Repeat the local native-client check, inspect both remote manifests, and rerun the full Shanghai Deployment acceptance flow.
+Return to the [deployment tutorial](../README.md), replace the `Image` value in step 2 with `$MCP_IMAGE`, and use a CAM role that can pull from your repository.

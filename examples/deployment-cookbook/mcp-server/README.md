@@ -1,15 +1,15 @@
 # MCP Server Deployment Cookbook
 
-This directory shows how to run an existing Model Context Protocol (MCP) server on an AGR Deployment while keeping client usage native.
+This directory contains examples for running Model Context Protocol (MCP) servers on AGR Deployments.
 
-The current [simple](./simple/README.md) scenario deploys the official Everything MCP Server over Streamable HTTP. It uses the official Python SDK for `initialize`, `tools/list`, and `tools/call`; the only AGS-specific client behavior is carried by supported HTTP request and response hooks.
+The [simple](./simple/README.md) example deploys the official Everything MCP Server over Streamable HTTP and connects to it with the official Python SDK. The SDK still handles `initialize`, `tools/list`, and `tools/call`; small HTTP hooks add the AGS token and affinity header.
 
-The scenario separates three observable results:
+The walkthrough covers:
 
-1. one native MCP session completes through the production Deployment data plane;
-2. MCP traffic activates an observed number `N` of instances and returns to zero after idle `STOP`;
-3. a retained AGS `BEST_EFFORT` affinity value can be reused with a newly initialized MCP session after the original instance stops.
+1. calling the server through the production Deployment endpoint;
+2. watching active instances move from `0` to `N` and back to `0` after idle `STOP`;
+3. keeping the AGS `BEST_EFFORT` affinity value while starting a fresh MCP session after an instance stops.
 
-It does not claim that the number of clients equals the number of instances or that an MCP protocol session survives instance replacement.
+Client count and instance count do not have a one-to-one relationship. An MCP session is local to the server process, so the client starts a new session after instance replacement.
 
-The pinned image source and publication instructions are under [simple/dockerfiles](./simple/dockerfiles/README.md).
+The example uses a published example image. To build and push a copy to your own registry, see [simple/dockerfiles](./simple/dockerfiles/README.md).
