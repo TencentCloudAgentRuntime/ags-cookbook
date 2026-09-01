@@ -23,5 +23,6 @@
 | [httpbin/lifecycle](./httpbin/lifecycle/README_zh.md) | 依次观察空闲实例的 `STOP` 与 `PAUSE` 行为。 |
 | [httpbin/affinity](./httpbin/affinity/README_zh.md) | 比较 `BEST_EFFORT`、`STRICT` 和 `EXCLUSIVE` 三种会话亲和模式。 |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README_zh.md) | 部署 all-in-one DeepSeek Harness，通过 TokenHub 完成编码任务，并验证独占会话的暂停与恢复。 |
+| [deepseek-harness/brain-hands](./deepseek-harness/brain-hands/README_zh.md) | 运行多副本无状态 DSH Brain，以 MySQL 保存状态，并访问持久的 E2B/envd Hands workspace。 |
 
 每个场景目录中的 `README.md` 是英文版，`README_zh.md` 是中文版。httpbin 镜像的来源、构建和发布方式见 [httpbin/dockerfiles](./httpbin/dockerfiles/README_zh.md)。

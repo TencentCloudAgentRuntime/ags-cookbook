@@ -1,0 +1,10 @@
+packages:
+  - .
+
+allowBuilds:
+  '@google/genai': false
+  esbuild: true
+  protobufjs: false
+
+patchedDependencies:
+  e2b@2.29.1: patches/e2b@2.29.1.patch

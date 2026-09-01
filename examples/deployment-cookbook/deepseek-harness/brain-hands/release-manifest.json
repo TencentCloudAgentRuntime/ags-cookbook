@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "example": "deepseek-harness/brain-hands",
+  "platform": "linux/amd64",
+  "images": {
+    "brain": {
+      "dockerfile": "dockerfiles/brain/Dockerfile",
+      "publishedDigest": null,
+      "base": "docker.io/library/node:24.8.0-bookworm-slim@sha256:81a8fcfa2aa85bc07d22d9ddff227d0a52cfc3b08e571a21b16efc9153842106",
+      "deepseekHarnessPackages": "0.1.0-rc.8",
+      "deepseekHarnessLicense": "MIT",
+      "e2b": "2.29.1",
+      "e2bLicense": "MIT"
+    },
+    "hands": {
+      "dockerfile": "dockerfiles/hands/Dockerfile",
+      "publishedDigest": null,
+      "builderBase": "docker.io/library/golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8",
+      "runtimeBase": "docker.io/library/ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+      "envdRepository": "https://github.com/e2b-dev/infra.git",
+      "envdCommit": "2acf2d51bd1e2fe146914f24c44f7ee07d2213c5",
+      "envdVersion": "0.6.13",
+      "envdLicense": "Apache-2.0",
+      "envdLicensePath": "/usr/share/doc/envd/LICENSE",
+      "port": 49983,
+      "workspaceRoot": "/workspace"
+    }
+  }
+}

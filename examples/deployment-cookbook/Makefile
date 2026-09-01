@@ -9,3 +9,4 @@ run:
 	@echo "  httpbin/lifecycle"
 	@echo "  httpbin/affinity"
 	@echo "  deepseek-harness/all-in-one"
+	@echo "  deepseek-harness/brain-hands"
