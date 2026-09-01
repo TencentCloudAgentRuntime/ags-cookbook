@@ -1,0 +1,17 @@
+[project]
+name = "ags-mcp-deployment-client"
+version = "0.1.0"
+description = "Native MCP client used by the AGS Deployment cookbook"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx2==2.12.0",
+    "mcp==2.1.1",
+]
+
+[tool.uv]
+package = false
+
+[[tool.uv.index]]
+name = "tencent"
+url = "https://mirrors.cloud.tencent.com/pypi/simple"
+default = true
