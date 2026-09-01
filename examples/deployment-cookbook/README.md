@@ -1,6 +1,6 @@
 # Deployment Cookbook
 
-This directory introduces `agr` Deployment management through independently runnable examples. The httpbin examples teach platform behavior from the shortest deployment path; the DeepSeek Harness example then demonstrates a persistent agent workspace.
+This directory introduces `agr` Deployment management through independently runnable examples. The httpbin examples teach platform behavior from the shortest deployment path, the MCP example runs a native Streamable HTTP client flow, and the DeepSeek Harness example demonstrates a persistent agent workspace.
 
 ## Prerequisites
 
@@ -22,6 +22,7 @@ Run `make run` in this directory to list the available scenarios, then follow th
 | [httpbin/scaling](./httpbin/scaling/README.md) | Move from on-demand startup to warm capacity and understand full-replacement scaling updates. |
 | [httpbin/lifecycle](./httpbin/lifecycle/README.md) | Observe the `STOP` and `PAUSE` idle actions in sequence. |
 | [httpbin/affinity](./httpbin/affinity/README.md) | Compare `BEST_EFFORT`, `STRICT`, and `EXCLUSIVE` session affinity. |
+| [mcp-server/simple](./mcp-server/simple/README.md) | Deploy the official Everything MCP Server, use the native Python SDK, and observe `0 → N → 0` plus `BEST_EFFORT` fresh-session recovery. |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README.md) | Deploy all-in-one DeepSeek Harness, complete a coding task through TokenHub, and verify exclusive-session pause and resume. |
 
-Each scenario directory uses `README.md` for English and `README_zh.md` for Chinese. See [httpbin/dockerfiles](./httpbin/dockerfiles/README.md) for the source, build, and publication process of the httpbin image.
+Each scenario directory uses `README.md` for English and `README_zh.md` for Chinese. Image source, build, and publication instructions are under the matching `dockerfiles` directory for httpbin, MCP, and DeepSeek Harness.

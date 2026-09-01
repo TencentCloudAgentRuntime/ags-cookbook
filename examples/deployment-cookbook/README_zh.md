@@ -1,6 +1,6 @@
 # Deployment Cookbook
 
-本目录通过可独立运行的示例介绍如何使用 `agr` 管理 Deployment。httpbin 示例从最短部署链路讲解平台能力；DeepSeek Harness 示例进一步演示长驻 Agent 工作区。
+本目录通过可独立运行的示例介绍如何使用 `agr` 管理 Deployment。httpbin 示例从最短部署链路讲解平台能力；MCP 示例运行原生 Streamable HTTP 客户端链路；DeepSeek Harness 示例进一步演示长驻 Agent 工作区。
 
 ## 前置条件
 
@@ -22,6 +22,7 @@
 | [httpbin/scaling](./httpbin/scaling/README_zh.md) | 从按需启动切换到常驻容量，理解三个伸缩参数及完整替换更新。 |
 | [httpbin/lifecycle](./httpbin/lifecycle/README_zh.md) | 依次观察空闲实例的 `STOP` 与 `PAUSE` 行为。 |
 | [httpbin/affinity](./httpbin/affinity/README_zh.md) | 比较 `BEST_EFFORT`、`STRICT` 和 `EXCLUSIVE` 三种会话亲和模式。 |
+| [mcp-server/simple](./mcp-server/simple/README_zh.md) | 部署官方 Everything MCP Server，使用原生 Python SDK，并观察 `0 → N → 0` 与 `BEST_EFFORT` 新会话恢复。 |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README_zh.md) | 部署 all-in-one DeepSeek Harness，通过 TokenHub 完成编码任务，并验证独占会话的暂停与恢复。 |
 
-每个场景目录中的 `README.md` 是英文版，`README_zh.md` 是中文版。httpbin 镜像的来源、构建和发布方式见 [httpbin/dockerfiles](./httpbin/dockerfiles/README_zh.md)。
+每个场景目录中的 `README.md` 是英文版，`README_zh.md` 是中文版。httpbin、MCP 和 DeepSeek Harness 的镜像来源、构建和发布方式分别位于对应的 `dockerfiles` 目录。

@@ -1,0 +1,9 @@
+{
+  "name": "ags-mcp-everything",
+  "version": "2026.8.31-ags.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/server-everything": "2026.8.31"
+  }
+}
