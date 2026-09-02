@@ -13,7 +13,12 @@ import { ActiveTurnTargets, handsToolDefinitions } from "../src/brain/hands-tool
 const target: HandsTarget = {
   deploymentId: "dpl-test",
   affinityId: "affinity-test",
-  claim: { sessionId: "session-test", holderInstanceId: "brain-a", generation: "7" },
+  claim: {
+    sessionId: "session-test",
+    claimId: "workspace-user-test",
+    holderInstanceId: "brain-a",
+    generation: "7",
+  },
 };
 
 function commandResult(stdout = ""): CommandResult {

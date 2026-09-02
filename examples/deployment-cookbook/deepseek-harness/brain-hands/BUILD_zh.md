@@ -5,7 +5,7 @@
 [部署教程](./README_zh.md)直接使用下列已发布的 `linux/amd64` 镜像，因此可以跳过本页：
 
 ```text
-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.1
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6
 ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:hands-envd-v0.6.13-ags.1
 ```
 
@@ -28,7 +28,7 @@ make build
 
 ```bash
 export CCR_REGISTRY='ccr.ccs.tencentyun.com/replace-me'
-export BRAIN_IMAGE="$CCR_REGISTRY/deepseek-harness:brain-v0.1.0-rc.8-ags.1"
+export BRAIN_IMAGE="$CCR_REGISTRY/deepseek-harness:brain-v0.1.0-rc.8-ags.6"
 export HANDS_IMAGE="$CCR_REGISTRY/deepseek-harness:hands-envd-v0.6.13-ags.1"
 
 podman login ccr.ccs.tencentyun.com

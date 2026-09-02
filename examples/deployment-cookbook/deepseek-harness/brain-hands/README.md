@@ -6,9 +6,9 @@ This example separates reasoning from command execution:
 
 ![Brain–Hands deployment topology](./assets/brain-hands-overview.svg)
 
-Text equivalent: Requests enter interchangeable Brain replicas in `ap-shanghai`. Brain stores DSH session state in MySQL and reaches Hands through E2B. Hands runs `envd` on port `49983`, and AGS retains the instance filesystem across `PAUSE` and resume.
+Text equivalent: Stateless API requests enter interchangeable Brain replicas in `ap-shanghai`; local DSH Web connects to one selected Brain instance. Brain stores DSH session state in MySQL and reaches Hands through E2B. Hands runs `envd` on port `49983`, and AGS retains the instance filesystem across `PAUSE` and resume.
 
-Brain contains DeepSeek Harness (DSH), the TokenHub model adapter, and the HTTP API. MySQL stores Brain session state. Hands provides `envd` and command-line tools, while AGS retains the complete filesystem of each Hands instance across `PAUSE` and resume. `/workspace` is the default working directory exposed by this cookbook's Brain tools, not the AGS persistence boundary.
+Brain contains DeepSeek Harness (DSH), DSH Web, the TokenHub model adapter, and the HTTP API. MySQL stores Brain session state. Hands provides `envd` and command-line tools, while AGS retains the complete filesystem of each Hands instance across `PAUSE` and resume. `/workspace` is the default working directory exposed by this cookbook's Brain tools, not the AGS persistence boundary.
 
 This reference deployment uses one operator-configured `BRAIN_WORKSPACE_USER_ID`.
 
@@ -42,7 +42,7 @@ Brain initializes the database schema at startup and exposes `/readyz` when init
 
 ## 2. Use the published images
 
-- Brain: `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.1`
+- Brain: `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6`
 - Hands: `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:hands-envd-v0.6.13-ags.1`
 
 The Tool definitions below use these published tags directly. To build and push a copy to your own registry, see [BUILD.md](./BUILD.md).
@@ -138,9 +138,9 @@ agr tool create \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
   --custom-configuration '{
-    "Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.1",
+    "Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6",
     "ImageRegistryType":"personal",
-    "Command":["node","/app/dist/brain/server.js"],
+    "Command":["node","/app/dist/brain/launcher.js"],
     "Env":[
       {"Name":"MYSQL_HOST","Value":"mysql.example.com"},
       {"Name":"MYSQL_PORT","Value":"3306"},
@@ -154,7 +154,10 @@ agr tool create \
       {"Name":"TENCENTCLOUD_SECRET_KEY","Value":"replace-me"},
       {"Name":"TOKENHUB_API_KEY","Value":"replace-me"}
     ],
-    "Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],
+    "Ports":[
+      {"Name":"http","Port":8080,"Protocol":"TCP"},
+      {"Name":"web","Port":3080,"Protocol":"TCP"}
+    ],
     "Resources":{"CPU":"2000m","Memory":"4Gi"},
     "Probe":{"HttpGet":{"Path":"/readyz","Port":8080,"Scheme":"HTTP"}}
   }' \
@@ -196,9 +199,26 @@ export BRAIN_DEPLOYMENT_ID='dpl-replace-me'
 
 Do not configure Brain session affinity. Any replica can accept any request because MySQL owns the session history and workspace bindings.
 
-## 5. Exercise the API
+## 5. Open DSH Web
 
-Keep the earlier shell as Terminal A. In Terminal B, set the same real Brain Deployment ID copied above, start the local proxy, and leave it running:
+Choose one running Brain instance:
+
+```bash
+agr instance list --tool-id "$BRAIN_TOOL_ID" --region "$AGR_REGION"
+export BRAIN_INSTANCE_ID='replace-with-running-instance-id'
+```
+
+In Terminal B, proxy that instance's Web port and open <http://127.0.0.1:18081>:
+
+```bash
+agr instance proxy "$BRAIN_INSTANCE_ID" 18081:3080 --region "$AGR_REGION"
+```
+
+The instance proxy keeps the page's HTTP and WebSocket streams on the same Brain instance. Use the Deployment proxy below for the stateless API.
+
+## 6. Exercise the API
+
+Keep the earlier shell as Terminal A. In Terminal C, set the same real Brain Deployment ID copied above, start the local proxy, and leave it running:
 
 ```bash
 export AGR_REGION=ap-shanghai
@@ -269,7 +289,7 @@ Run `agr instance list` again and confirm that the resumed instance still has `H
 
 ## Cleanup
 
-Stop the proxy with `Ctrl-C` in Terminal B. Delete the Brain Deployment and list its instances:
+Stop the Web and API proxies with `Ctrl-C` in Terminals B and C. Delete the Brain Deployment and list its instances:
 
 ```bash
 agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait

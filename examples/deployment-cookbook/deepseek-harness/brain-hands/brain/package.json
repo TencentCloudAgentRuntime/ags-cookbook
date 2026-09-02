@@ -6,6 +6,7 @@
   "packageManager": "pnpm@11.19.0",
   "scripts": {
     "brain": "tsx src/brain/server.ts",
+    "start": "node dist/brain/launcher.js",
     "build": "tsc --project tsconfig.build.json",
     "migrate": "tsx src/mysql/migrate.ts",
     "test": "vitest run",
@@ -14,6 +15,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh": "0.1.0-rc.8",
     "@deepseek-ai/dsh-agent": "0.1.0-rc.8",
     "@deepseek-ai/dsh-agent-spine-demo": "0.1.0-rc.8",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.8",

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1040" height="520" viewBox="0 0 1040 520" role="img" aria-labelledby="title desc">
   <title id="title">Brain–Hands deployment topology</title>
-  <desc id="desc">Multiple stateless Brain replicas store session state in MySQL and use E2B to reach Hands. AGS retains the complete filesystem of each Hands instance.</desc>
+  <desc id="desc">Multiple stateless Brain replicas serve DSH Web and the API, store session state in MySQL, and use E2B to reach Hands. AGS retains the complete filesystem of each Hands instance.</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#e2e8f0" stroke-width="0.6"/>
@@ -20,10 +20,10 @@
   <text x="70" y="124" class="frame-label">Brain Deployment · ap-shanghai</text>
   <rect x="82" y="166" width="170" height="104" rx="12" class="node"/>
   <text x="167" y="207" text-anchor="middle" class="label">Brain replica</text>
-  <text x="167" y="233" text-anchor="middle" class="sub">stateless</text>
+  <text x="167" y="233" text-anchor="middle" class="sub">Web 3080 · API 8080</text>
   <rect x="274" y="166" width="170" height="104" rx="12" class="node"/>
   <text x="359" y="207" text-anchor="middle" class="label">Brain replica</text>
-  <text x="359" y="233" text-anchor="middle" class="sub">stateless</text>
+  <text x="359" y="233" text-anchor="middle" class="sub">Web 3080 · API 8080</text>
   <rect x="151" y="334" width="224" height="78" rx="12" class="db"/>
   <text x="263" y="366" text-anchor="middle" class="label">MySQL 8</text>
   <text x="263" y="390" text-anchor="middle" class="sub">DSH session state</text>
@@ -32,13 +32,12 @@
 
   <rect x="562" y="96" width="430" height="328" rx="18" class="frame"/>
   <text x="584" y="124" class="frame-label">Hands Deployment · ap-shanghai</text>
-  <rect x="612" y="166" width="330" height="104" rx="12" class="node"/>
-  <text x="777" y="207" text-anchor="middle" class="label">Hands instance</text>
-  <text x="777" y="233" text-anchor="middle" class="sub">envd · port 49983</text>
-  <rect x="612" y="316" width="330" height="78" rx="12" class="fs"/>
-  <text x="777" y="348" text-anchor="middle" class="label">Complete filesystem</text>
-  <text x="777" y="372" text-anchor="middle" class="sub">retained by AGS across PAUSE and resume</text>
-  <path d="M777 270V316" class="edge"/>
+  <rect x="612" y="166" width="330" height="228" rx="12" class="node"/>
+  <text x="777" y="201" text-anchor="middle" class="label">Hands instance · envd 49983</text>
+  <rect x="640" y="242" width="274" height="118" rx="12" class="fs"/>
+  <text x="777" y="287" text-anchor="middle" class="label">Complete filesystem</text>
+  <text x="777" y="314" text-anchor="middle" class="sub">retained across PAUSE and resume</text>
+  <text x="777" y="337" text-anchor="middle" class="sub">/workspace is the tool root</text>
 
   <path d="M444 218H612" class="edge"/>
   <rect x="497" y="196" width="62" height="24" rx="6" fill="#f8fafc"/>

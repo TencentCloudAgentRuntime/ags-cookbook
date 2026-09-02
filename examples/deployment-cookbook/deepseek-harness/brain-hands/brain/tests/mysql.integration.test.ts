@@ -19,6 +19,8 @@ import {
   MysqlRuntimeState,
   SessionBusyError,
   StaleTurnClaimError,
+  workspaceClaimId,
+  type TurnClaim,
 } from "../src/runtime/mysql-state.js";
 import { TurnContext } from "../src/runtime/turn-context.js";
 
@@ -175,6 +177,39 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
     }
   });
 
+  it("links an already materialized Web session to an active Hands workspace", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const mounted = await mount();
+    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const id = sessionId();
+    const workspaceId = sessionId();
+    const key = { mode: "USER" as const, identity: workspaceId };
+    try {
+      const meta = header(id);
+      const reservation = await state.reserveBinding(key);
+      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
+      await expect(state.linkSession(meta, key, reservation.binding.generation))
+        .rejects.toThrow(/not materialized/);
+      expect(await state.getSessionBinding(id)).toBeUndefined();
+
+      await mounted.context.sessionPersistence.create(meta);
+      await mounted.context.sessionPersistence.append(meta.id, completedTurn());
+
+      await state.linkSession(meta, key, reservation.binding.generation);
+
+      expect(await state.getSessionBinding(id)).toMatchObject({
+        mode: "USER",
+        identity: workspaceId,
+        state: "ACTIVE",
+        deploymentId: "dpl-example",
+        affinityId: "affinity-secret",
+      });
+    } finally {
+      await mounted.dispose();
+      await state.close();
+    }
+  });
+
   it("fences concurrent and stale turns with a monotonic generation", async () => {
     await runMigrations(mysqlConfigFromEnv());
     const state = new MysqlRuntimeState(mysqlConfigFromEnv());
@@ -194,18 +229,103 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
     }
   });
 
-  it("issues globally monotonic generations for sessions sharing one workspace", async () => {
+  it("serializes sessions sharing one Hands workspace", async () => {
     await runMigrations(mysqlConfigFromEnv());
     const state = new MysqlRuntimeState(mysqlConfigFromEnv());
     const firstId = sessionId();
     const secondId = sessionId();
+    const key = { mode: "USER" as const, identity: sessionId() };
+    createdIds.push(workspaceClaimId(key));
     try {
-      const first = await state.claimTurn(firstId, "brain-a", 10_000);
+      const reservation = await state.reserveBinding(key);
+      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
+
+      const first = await state.claimTurn(firstId, "brain-a", 10_000, key);
+      await expect(state.claimTurn(secondId, "brain-b", 10_000, key))
+        .rejects.toBeInstanceOf(SessionBusyError);
       await state.completeTurn(first);
-      const second = await state.claimTurn(secondId, "brain-b", 10_000);
+      const second = await state.claimTurn(secondId, "brain-b", 10_000, key);
       expect(BigInt(second.generation)).toBeGreaterThan(BigInt(first.generation));
       await state.completeTurn(second);
     } finally {
+      await state.close();
+    }
+  });
+
+  it("atomically links a new Web session before its workspace turn becomes active", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const context = new Context();
+    await context.plugin(SessionStore);
+    const persistence = await context.plugin(MysqlSessionPersistence, {
+      connection: mysqlConfigFromEnv(),
+      writeBatchMaxDelayMs: 1,
+      currentTurnClaim: async () => null,
+    });
+    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const id = sessionId();
+    const key = { mode: "USER" as const, identity: sessionId() };
+    createdIds.push(workspaceClaimId(key));
+    const meta = header(id);
+    try {
+      await context.sessionPersistence.create(meta);
+      const reservation = await state.reserveBinding(key);
+      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
+
+      const claim = await state.claimTurn(id, "brain-a", 10_000, key, meta);
+      expect(await state.getSessionBinding(id)).toMatchObject(key);
+      const titleEvent = {
+        type: "session/title",
+        seq: 0,
+        time: 5,
+        data: { title: "renamed", source: { kind: "fallback" }, messageSeqs: [] },
+      } as SessionEvent;
+      await expect(context.sessionPersistence.append(meta.id, [titleEvent]))
+        .rejects.toThrow(/active turn claim/);
+
+      await state.completeTurn(claim);
+      await expect(context.sessionPersistence.append(meta.id, [titleEvent])).resolves.toBeUndefined();
+    } finally {
+      await persistence.dispose();
+      await state.close();
+    }
+  });
+
+  it("waits for live session initialization before claiming its first Web turn", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const context = new Context();
+    await context.plugin(SessionStore);
+    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const id = sessionId();
+    const key = { mode: "USER" as const, identity: sessionId() };
+    createdIds.push(workspaceClaimId(key));
+    let claim: TurnClaim | undefined;
+    const persistence = await context.plugin(MysqlSessionPersistence, {
+      connection: mysqlConfigFromEnv(),
+      writeBatchMaxDelayMs: 1,
+      currentTurnClaim: async (candidate, events) => {
+        if (!events.some((event) => event.type === "turn/start")) return null;
+        const live = context.sessions.get(SessionId(candidate));
+        if (live === undefined) return undefined;
+        claim = await state.claimTurn(candidate, "brain-a", 10_000, key, live.header);
+        return claim;
+      },
+    });
+    try {
+      const reservation = await state.reserveBinding(key);
+      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
+
+      const live = context.sessions.create(SessionId(id), { meta: { cwd: "/workspace" } });
+      live.append("turn/start", { turn: 1 });
+      await context.sessions.flush(live);
+
+      expect(claim).toBeDefined();
+      expect(await state.getSessionBinding(id)).toMatchObject(key);
+      if (claim === undefined) throw new Error("The first Web turn was not claimed");
+      await state.completeTurn(claim);
+      claim = undefined;
+    } finally {
+      if (claim !== undefined) await state.completeTurn(claim);
+      await persistence.dispose();
       await state.close();
     }
   });
@@ -219,7 +339,7 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
     let activeClaim = await state.claimTurn(id, "brain-a", 10_000);
     const persistence = await context.plugin(MysqlSessionPersistence, {
       connection: mysqlConfigFromEnv(),
-      currentTurnClaim: (candidate) => candidate === id ? activeClaim : undefined,
+      currentTurnClaim: async (candidate) => candidate === id ? activeClaim : undefined,
     });
     try {
       const meta = header(id);

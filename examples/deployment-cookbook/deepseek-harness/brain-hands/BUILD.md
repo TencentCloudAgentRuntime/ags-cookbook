@@ -5,7 +5,7 @@ English | [中文](./BUILD_zh.md)
 The [deployment tutorial](./README.md) uses these published `linux/amd64` images, so you can skip this page:
 
 ```text
-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.1
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6
 ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:hands-envd-v0.6.13-ags.1
 ```
 
@@ -28,7 +28,7 @@ Prepare your own CCR namespace, then tag and push the local images:
 
 ```bash
 export CCR_REGISTRY='ccr.ccs.tencentyun.com/replace-me'
-export BRAIN_IMAGE="$CCR_REGISTRY/deepseek-harness:brain-v0.1.0-rc.8-ags.1"
+export BRAIN_IMAGE="$CCR_REGISTRY/deepseek-harness:brain-v0.1.0-rc.8-ags.6"
 export HANDS_IMAGE="$CCR_REGISTRY/deepseek-harness:hands-envd-v0.6.13-ags.1"
 
 podman login ccr.ccs.tencentyun.com

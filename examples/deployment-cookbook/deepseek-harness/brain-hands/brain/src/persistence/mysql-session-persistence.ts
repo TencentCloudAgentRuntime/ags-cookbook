@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import { type Context } from "@deepseek-ai/cordis";
 import type {
@@ -32,7 +33,11 @@ import {
 
 import { mysqlPoolOptions, type MysqlConnectionConfig } from "../mysql/config.js";
 import { runMigrations } from "../mysql/migrations.js";
-import type { TurnClaim } from "../runtime/mysql-state.js";
+import {
+  workspaceClaimId,
+  type TurnClaim,
+  type WorkspaceBindingMode,
+} from "../runtime/mysql-state.js";
 
 interface SessionRow extends RowDataPacket {
   readonly session_id: string;
@@ -50,13 +55,26 @@ interface StoreRow extends RowDataPacket {
   readonly store_id: string;
 }
 
+interface SessionWorkspaceRow extends RowDataPacket {
+  readonly binding_mode: WorkspaceBindingMode;
+  readonly binding_identity: string;
+}
+
+interface ActiveClaimRow extends RowDataPacket {
+  readonly state: "ACTIVE" | "COMPLETED" | "INTERRUPTED";
+  readonly unexpired: number | string;
+}
+
 export interface MysqlSessionPersistenceConfig {
   readonly connection: MysqlConnectionConfig;
   readonly preparedSessionCacheSize?: number;
   readonly writeBatchMaxDelayMs?: number;
   readonly migrateOnStart?: boolean;
   /** Required by the Brain runtime so a stale replica cannot append after losing its lease. */
-  readonly currentTurnClaim?: (sessionId: string) => TurnClaim | undefined;
+  readonly currentTurnClaim?: (
+    sessionId: string,
+    events: readonly SessionEvent[],
+  ) => TurnClaim | null | undefined | Promise<TurnClaim | null | undefined>;
 }
 
 export class MysqlSessionConflictError extends Error {
@@ -288,7 +306,7 @@ export class MysqlSessionPersistence extends SessionPersistence implements Persi
     try {
       await connection.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
       await connection.beginTransaction();
-      await this.lockActiveTurnClaim(connection, meta.id);
+      await this.lockActiveTurnClaim(connection, meta.id, events);
       const [rows] = await connection.execute<SessionRow[]>(`
         SELECT session_id, CAST(header_json AS CHAR) AS header_json,
                incarnation, next_seq, revision
@@ -312,7 +330,10 @@ export class MysqlSessionPersistence extends SessionPersistence implements Persi
         `, [meta.id]);
         row = created[0];
       } else if (!isMaterialized) {
-        throw new MysqlSessionConflictError(`Session ${meta.id} was concurrently materialized`);
+        const storedHeader = parseJson<SessionHeader>(row.header_json, "session header");
+        if (exactSeq(row.next_seq, "next_seq") !== 0 || !isDeepStrictEqual(storedHeader, meta)) {
+          throw new MysqlSessionConflictError(`Session ${meta.id} was concurrently materialized`);
+        }
       }
       if (row === undefined) throw new Error(`Session ${meta.id} could not be materialized`);
 
@@ -341,17 +362,55 @@ export class MysqlSessionPersistence extends SessionPersistence implements Persi
     }
   }
 
-  private async lockActiveTurnClaim(connection: PoolConnection, sessionId: string): Promise<void> {
+  private async lockActiveTurnClaim(
+    connection: PoolConnection,
+    sessionId: string,
+    events: readonly SessionEvent[],
+  ): Promise<void> {
     if (this.config.currentTurnClaim === undefined) return;
-    const claim = this.config.currentTurnClaim(sessionId);
+    const claim = await this.config.currentTurnClaim(sessionId, events);
+    if (claim === null) {
+      const [links] = await connection.execute<SessionWorkspaceRow[]>(`
+        SELECT binding_mode, binding_identity
+        FROM dsh_session_workspaces
+        WHERE session_id = ?
+      `, [sessionId]);
+      const link = links[0];
+      if (link === undefined) return;
+
+      const [bindings] = await connection.execute<RowDataPacket[]>(`
+        SELECT state
+        FROM workspace_bindings
+        WHERE binding_mode = ? AND binding_identity = ?
+        FOR UPDATE
+      `, [link.binding_mode, link.binding_identity]);
+      if (bindings[0]?.state !== "ACTIVE") {
+        throw new MysqlSessionConflictError("The workspace binding is not active");
+      }
+
+      const [claims] = await connection.execute<ActiveClaimRow[]>(`
+        SELECT state, expires_at > CURRENT_TIMESTAMP(6) AS unexpired
+        FROM turn_claims
+        WHERE session_id = ?
+        FOR SHARE
+      `, [workspaceClaimId({ mode: link.binding_mode, identity: link.binding_identity })]);
+      const active = claims[0];
+      if (active?.state === "ACTIVE" && (active.unexpired === 1 || active.unexpired === "1")) {
+        throw new MysqlSessionConflictError("Workspace has an active turn claim");
+      }
+      return;
+    }
     if (claim === undefined) throw new MysqlSessionConflictError("No active turn claim permits this write");
+    if (claim.sessionId !== sessionId) {
+      throw new MysqlSessionConflictError("The turn claim belongs to another session");
+    }
     const [rows] = await connection.execute<RowDataPacket[]>(`
       SELECT generation
       FROM turn_claims
       WHERE session_id = ? AND holder_instance_id = ? AND generation = ?
         AND state = 'ACTIVE' AND expires_at > CURRENT_TIMESTAMP(6)
       FOR SHARE
-    `, [claim.sessionId, claim.holderInstanceId, claim.generation]);
+    `, [claim.claimId, claim.holderInstanceId, claim.generation]);
     if (rows.length !== 1) throw new MysqlSessionConflictError("The turn claim no longer permits writes");
   }
 

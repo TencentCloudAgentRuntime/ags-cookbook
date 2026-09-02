@@ -5,7 +5,7 @@ import {
   type ResultSetHeader,
   type RowDataPacket,
 } from "mysql2/promise";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SessionHeader } from "@deepseek-ai/dsh-session";
 
 import { mysqlPoolOptions, type MysqlConnectionConfig } from "../mysql/config.js";
@@ -29,6 +29,16 @@ export interface WorkspaceBinding extends WorkspaceBindingKey {
 export interface BindingReservation {
   readonly binding: WorkspaceBinding;
   readonly owner: boolean;
+}
+
+/** Stable lease scope for every session that shares one Hands filesystem. */
+export function workspaceClaimId(key: WorkspaceBindingKey): string {
+  const digest = createHash("sha256")
+    .update(key.mode)
+    .update("\0")
+    .update(key.identity)
+    .digest("hex");
+  return `workspace-${key.mode.toLowerCase()}-${digest}`;
 }
 
 interface BindingRow extends RowDataPacket {
@@ -55,6 +65,7 @@ interface StoreGenerationRow extends RowDataPacket {
 
 export interface TurnClaim {
   readonly sessionId: string;
+  readonly claimId: string;
   readonly holderInstanceId: string;
   readonly generation: string;
 }
@@ -191,6 +202,27 @@ export class MysqlRuntimeState {
     });
   }
 
+  /** Attach an already materialized DSH session to an ACTIVE workspace binding. */
+  public async linkSession(
+    meta: SessionHeader,
+    bindingKey: WorkspaceBindingKey,
+    generation: string,
+  ): Promise<void> {
+    await inTransaction(this.pool, async (connection) => {
+      const [bindings] = await connection.execute<BindingRow[]>(`
+        SELECT binding_mode, binding_identity, state, generation,
+               deployment_id, affinity_id, failure_code
+        FROM workspace_bindings
+        WHERE binding_mode = ? AND binding_identity = ? FOR UPDATE
+      `, [bindingKey.mode, bindingKey.identity]);
+      const current = bindings[0];
+      if (current?.state !== "ACTIVE" || current.generation !== generation) {
+        throw new RuntimeStateConflictError("Workspace binding is not active");
+      }
+      await this.linkMaterializedSession(connection, meta, bindingKey);
+    });
+  }
+
   /** Atomically publish the allocated affinity and the first DSH Session header. */
   public async activateBindingAndProvisionSession(
     meta: SessionHeader,
@@ -234,6 +266,46 @@ export class MysqlRuntimeState {
       INSERT INTO dsh_session_workspaces (session_id, binding_mode, binding_identity)
       VALUES (?, ?, ?)
     `, [meta.id, bindingKey.mode, bindingKey.identity]);
+  }
+
+  private async linkMaterializedSession(
+    connection: PoolConnection,
+    meta: SessionHeader,
+    bindingKey: WorkspaceBindingKey,
+    provisionIfMissing = false,
+  ): Promise<void> {
+    const [sessions] = await connection.execute<RowDataPacket[]>(`
+      SELECT CAST(header_json AS CHAR) AS header_json
+      FROM dsh_sessions WHERE session_id = ? FOR UPDATE
+    `, [meta.id]);
+    const storedHeader = sessions[0]?.header_json;
+    if (typeof storedHeader !== "string") {
+      if (provisionIfMissing) {
+        await this.insertProvisionedSession(connection, meta, bindingKey);
+        return;
+      }
+      throw new RuntimeStateConflictError("Session is not materialized");
+    }
+    const parsed = JSON.parse(storedHeader) as SessionHeader;
+    if (parsed.id !== meta.id || parsed.cwd !== meta.cwd) {
+      throw new RuntimeStateConflictError("Stored session header does not match the live session");
+    }
+
+    const [links] = await connection.execute<RowDataPacket[]>(`
+      SELECT binding_mode, binding_identity
+      FROM dsh_session_workspaces WHERE session_id = ? FOR UPDATE
+    `, [meta.id]);
+    const link = links[0];
+    if (link === undefined) {
+      await connection.execute<ResultSetHeader>(`
+        INSERT INTO dsh_session_workspaces (session_id, binding_mode, binding_identity)
+        VALUES (?, ?, ?)
+      `, [meta.id, bindingKey.mode, bindingKey.identity]);
+      return;
+    }
+    if (link.binding_mode !== bindingKey.mode || link.binding_identity !== bindingKey.identity) {
+      throw new RuntimeStateConflictError("Session is already attached to another workspace binding");
+    }
   }
 
   public async getSessionBinding(sessionId: string): Promise<WorkspaceBinding | undefined> {
@@ -316,19 +388,41 @@ export class MysqlRuntimeState {
     sessionId: string,
     holderInstanceId: string,
     leaseMs: number,
+    claimScope?: WorkspaceBindingKey,
+    sessionHeader?: SessionHeader,
   ): Promise<TurnClaim> {
     validateIdentity(sessionId, "session id");
+    if (sessionHeader !== undefined && sessionHeader.id !== sessionId) {
+      throw new Error("Session header does not match the claimed session");
+    }
+    if (sessionHeader !== undefined && claimScope === undefined) {
+      throw new Error("A session header requires a workspace claim scope");
+    }
+    const claimId = claimScope === undefined ? sessionId : workspaceClaimId(claimScope);
+    validateIdentity(claimId, "claim id");
     validateIdentity(holderInstanceId, "holder instance id");
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1_000 || leaseMs > 300_000) {
       throw new Error("leaseMs must be between 1000 and 300000");
     }
     const leaseMicros = leaseMs * 1_000;
     return inTransaction(this.pool, async (connection) => {
+      if (claimScope !== undefined) {
+        const [bindingRows] = await connection.execute<BindingRow[]>(`
+          SELECT binding_mode, binding_identity, state, generation,
+                 deployment_id, affinity_id, failure_code
+          FROM workspace_bindings
+          WHERE binding_mode = ? AND binding_identity = ?
+          FOR UPDATE
+        `, [claimScope.mode, claimScope.identity]);
+        if (bindingRows[0]?.state !== "ACTIVE") {
+          throw new RuntimeStateConflictError("Workspace binding is not active");
+        }
+      }
       const [rows] = await connection.execute<ClaimRow[]>(`
         SELECT session_id, holder_instance_id, generation, state,
                expires_at > CURRENT_TIMESTAMP(6) AS unexpired
         FROM turn_claims WHERE session_id = ? FOR UPDATE
-      `, [sessionId]);
+      `, [claimId]);
       const current = rows[0];
       if (current?.state === "ACTIVE" && (current.unexpired === 1 || current.unexpired === "1")) {
         throw new SessionBusyError(sessionId);
@@ -348,7 +442,7 @@ export class MysqlRuntimeState {
             (session_id, holder_instance_id, generation, state, expires_at, heartbeat_at)
           VALUES (?, ?, ?, 'ACTIVE',
                   DATE_ADD(CURRENT_TIMESTAMP(6), INTERVAL ? MICROSECOND), CURRENT_TIMESTAMP(6))
-        `, [sessionId, holderInstanceId, generation, leaseMicros]);
+        `, [claimId, holderInstanceId, generation, leaseMicros]);
       } else {
         await connection.execute<ResultSetHeader>(`
           UPDATE turn_claims
@@ -356,9 +450,12 @@ export class MysqlRuntimeState {
               expires_at = DATE_ADD(CURRENT_TIMESTAMP(6), INTERVAL ? MICROSECOND),
               heartbeat_at = CURRENT_TIMESTAMP(6)
           WHERE session_id = ? AND generation = ?
-        `, [holderInstanceId, generation, leaseMicros, sessionId, current.generation]);
+        `, [holderInstanceId, generation, leaseMicros, claimId, current.generation]);
       }
-      return { sessionId, holderInstanceId, generation };
+      if (sessionHeader !== undefined && claimScope !== undefined) {
+        await this.linkMaterializedSession(connection, sessionHeader, claimScope, true);
+      }
+      return { sessionId, claimId, holderInstanceId, generation };
     });
   }
 
@@ -372,7 +469,7 @@ export class MysqlRuntimeState {
           expires_at = DATE_ADD(CURRENT_TIMESTAMP(6), INTERVAL ? MICROSECOND)
       WHERE session_id = ? AND holder_instance_id = ? AND generation = ?
         AND state = 'ACTIVE' AND expires_at > CURRENT_TIMESTAMP(6)
-    `, [leaseMs * 1_000, claim.sessionId, claim.holderInstanceId, claim.generation]);
+    `, [leaseMs * 1_000, claim.claimId, claim.holderInstanceId, claim.generation]);
     if (result.affectedRows !== 1) throw new StaleTurnClaimError(claim.sessionId);
   }
 
@@ -383,7 +480,7 @@ export class MysqlRuntimeState {
              expires_at > CURRENT_TIMESTAMP(6) AS unexpired
       FROM turn_claims
       WHERE session_id = ? AND holder_instance_id = ? AND generation = ?
-    `, [claim.sessionId, claim.holderInstanceId, claim.generation]);
+    `, [claim.claimId, claim.holderInstanceId, claim.generation]);
     const row = rows[0];
     if (row?.state !== "ACTIVE" || (row.unexpired !== 1 && row.unexpired !== "1")) {
       throw new StaleTurnClaimError(claim.sessionId);
@@ -396,7 +493,7 @@ export class MysqlRuntimeState {
       SET state = 'COMPLETED', expires_at = CURRENT_TIMESTAMP(6)
       WHERE session_id = ? AND holder_instance_id = ? AND generation = ?
         AND state = 'ACTIVE'
-    `, [claim.sessionId, claim.holderInstanceId, claim.generation]);
+    `, [claim.claimId, claim.holderInstanceId, claim.generation]);
     if (result.affectedRows !== 1) throw new StaleTurnClaimError(claim.sessionId);
   }
 

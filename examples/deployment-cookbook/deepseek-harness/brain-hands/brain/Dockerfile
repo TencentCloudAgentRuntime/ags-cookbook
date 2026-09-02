@@ -18,6 +18,7 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 COPY migrations ./migrations
+COPY web ./web
 
 RUN pnpm build \
     && pnpm prune --prod
@@ -32,11 +33,14 @@ COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/migrations ./migrations
+COPY --from=build --chown=node:node /app/web ./web
+
+RUN mkdir -p /workspace && chown node:node /workspace
 
 USER node
 
-EXPOSE 8080/tcp
+EXPOSE 8080/tcp 3080/tcp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8080/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 
-ENTRYPOINT ["node", "/app/dist/brain/server.js"]
+ENTRYPOINT ["node", "/app/dist/brain/launcher.js"]

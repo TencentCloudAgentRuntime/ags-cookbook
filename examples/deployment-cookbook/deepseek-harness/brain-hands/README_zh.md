@@ -6,9 +6,9 @@
 
 ![Brain–Hands 部署拓扑](./assets/brain-hands-overview-zh.svg)
 
-文字等价说明：请求进入 `ap-shanghai` 中可互换的 Brain 副本。Brain 把 DSH session 状态保存到 MySQL，并通过 E2B 访问 Hands。Hands 的 `envd` 监听 `49983` 端口，AGS 会在 `PAUSE` 和恢复之间保留实例文件系统。
+文字等价说明：无状态 API 请求进入 `ap-shanghai` 中可互换的 Brain 副本；本地 DSH Web 连接一个选定的 Brain 实例。Brain 把 DSH session 状态保存到 MySQL，并通过 E2B 访问 Hands。Hands 的 `envd` 监听 `49983` 端口，AGS 会在 `PAUSE` 和恢复之间保留实例文件系统。
 
-Brain 包含 DeepSeek Harness（DSH）、TokenHub 模型 adapter 和 HTTP API，session 状态保存在 MySQL。Hands 提供 `envd` 与常用命令行工具，AGS 会在 Hands `PAUSE` 和恢复之间保留整个实例文件系统。`/workspace` 是本 cookbook 的 Brain 工具所暴露的默认工作目录，并不是 AGS 的持久化边界。
+Brain 包含 DeepSeek Harness（DSH）、DSH Web、TokenHub 模型 adapter 和 HTTP API，session 状态保存在 MySQL。Hands 提供 `envd` 与常用命令行工具，AGS 会在 Hands `PAUSE` 和恢复之间保留整个实例文件系统。`/workspace` 是本 cookbook 的 Brain 工具所暴露的默认工作目录，并不是 AGS 的持久化边界。
 
 这个参考部署使用一个由部署者配置的 `BRAIN_WORKSPACE_USER_ID`。
 
@@ -42,7 +42,7 @@ Brain 启动时初始化数据库结构，完成后开放 `/readyz`。
 
 ## 2. 使用已发布镜像
 
-- Brain：`ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.1`
+- Brain：`ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6`
 - Hands：`ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:hands-envd-v0.6.13-ags.1`
 
 下方 Tool 定义直接使用这两个已发布 tag。如需构建并推送副本到自己的 registry，请参见 [BUILD_zh.md](./BUILD_zh.md)。
@@ -138,9 +138,9 @@ agr tool create \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
   --custom-configuration '{
-    "Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.1",
+    "Image":"ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6",
     "ImageRegistryType":"personal",
-    "Command":["node","/app/dist/brain/server.js"],
+    "Command":["node","/app/dist/brain/launcher.js"],
     "Env":[
       {"Name":"MYSQL_HOST","Value":"mysql.example.com"},
       {"Name":"MYSQL_PORT","Value":"3306"},
@@ -154,7 +154,10 @@ agr tool create \
       {"Name":"TENCENTCLOUD_SECRET_KEY","Value":"replace-me"},
       {"Name":"TOKENHUB_API_KEY","Value":"replace-me"}
     ],
-    "Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],
+    "Ports":[
+      {"Name":"http","Port":8080,"Protocol":"TCP"},
+      {"Name":"web","Port":3080,"Protocol":"TCP"}
+    ],
     "Resources":{"CPU":"2000m","Memory":"4Gi"},
     "Probe":{"HttpGet":{"Path":"/readyz","Port":8080,"Scheme":"HTTP"}}
   }' \
@@ -196,9 +199,26 @@ export BRAIN_DEPLOYMENT_ID='dpl-replace-me'
 
 不要给 Brain 配置 session affinity。MySQL 保存 session 历史与 workspace binding，因此任意副本都能处理任意请求。
 
-## 5. 调用 API
+## 5. 打开 DSH Web
 
-保留前面使用的 shell 作为终端 A。在终端 B 设置上一步复制的同一个真实 Brain Deployment ID，启动本地 proxy，并让它持续运行：
+选择一个正在运行的 Brain 实例：
+
+```bash
+agr instance list --tool-id "$BRAIN_TOOL_ID" --region "$AGR_REGION"
+export BRAIN_INSTANCE_ID='replace-with-running-instance-id'
+```
+
+在终端 B 代理该实例的 Web 端口，然后打开 <http://127.0.0.1:18081>：
+
+```bash
+agr instance proxy "$BRAIN_INSTANCE_ID" 18081:3080 --region "$AGR_REGION"
+```
+
+instance proxy 会让页面的 HTTP 与 WebSocket stream 落到同一个 Brain 实例。无状态 API 仍使用下方的 Deployment proxy。
+
+## 6. 调用 API
+
+保留前面使用的 shell 作为终端 A。在终端 C 设置上一步复制的同一个真实 Brain Deployment ID，启动本地 proxy，并让它持续运行：
 
 ```bash
 export AGR_REGION=ap-shanghai
@@ -269,7 +289,7 @@ curl --fail-with-body --silent --show-error \
 
 ## 清理
 
-先在终端 B 按 `Ctrl-C` 停止 proxy，然后删除 Brain Deployment 并列出它的实例：
+先在终端 B 和 C 按 `Ctrl-C` 停止 Web 与 API proxy，然后删除 Brain Deployment 并列出它的实例：
 
 ```bash
 agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait

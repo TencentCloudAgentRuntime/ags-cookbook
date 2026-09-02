@@ -182,7 +182,12 @@ export class BrainRuntime {
     }
     let claim;
     try {
-      claim = await this.state.claimTurn(sessionId, this.config.instanceId, this.config.turnLeaseMs);
+      claim = await this.state.claimTurn(
+        sessionId,
+        this.config.instanceId,
+        this.config.turnLeaseMs,
+        binding,
+      );
     } catch (error) {
       if (error instanceof SessionBusyError) throw new HttpError(409, "SESSION_BUSY", error.message);
       throw error;

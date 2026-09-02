@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1040" height="520" viewBox="0 0 1040 520" role="img" aria-labelledby="title desc">
   <title id="title">Brain–Hands 部署拓扑</title>
-  <desc id="desc">多个无状态 Brain 副本把 session 状态保存到 MySQL，并通过 E2B 访问 Hands。AGS 保留每个 Hands 实例的完整文件系统。</desc>
+  <desc id="desc">多个无状态 Brain 副本提供 DSH Web 与 API，把 session 状态保存到 MySQL，并通过 E2B 访问 Hands。AGS 保留每个 Hands 实例的完整文件系统。</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#e2e8f0" stroke-width="0.6"/>
@@ -20,10 +20,10 @@
   <text x="70" y="124" class="frame-label">Brain Deployment · ap-shanghai</text>
   <rect x="82" y="166" width="170" height="104" rx="12" class="node"/>
   <text x="167" y="207" text-anchor="middle" class="label">Brain 副本</text>
-  <text x="167" y="233" text-anchor="middle" class="sub">无状态</text>
+  <text x="167" y="233" text-anchor="middle" class="sub">Web 3080 · API 8080</text>
   <rect x="274" y="166" width="170" height="104" rx="12" class="node"/>
   <text x="359" y="207" text-anchor="middle" class="label">Brain 副本</text>
-  <text x="359" y="233" text-anchor="middle" class="sub">无状态</text>
+  <text x="359" y="233" text-anchor="middle" class="sub">Web 3080 · API 8080</text>
   <rect x="151" y="334" width="224" height="78" rx="12" class="db"/>
   <text x="263" y="366" text-anchor="middle" class="label">MySQL 8</text>
   <text x="263" y="390" text-anchor="middle" class="sub">DSH session 状态</text>
@@ -32,13 +32,12 @@
 
   <rect x="562" y="96" width="430" height="328" rx="18" class="frame"/>
   <text x="584" y="124" class="frame-label">Hands Deployment · ap-shanghai</text>
-  <rect x="612" y="166" width="330" height="104" rx="12" class="node"/>
-  <text x="777" y="207" text-anchor="middle" class="label">Hands 实例</text>
-  <text x="777" y="233" text-anchor="middle" class="sub">envd · 端口 49983</text>
-  <rect x="612" y="316" width="330" height="78" rx="12" class="fs"/>
-  <text x="777" y="348" text-anchor="middle" class="label">完整文件系统</text>
-  <text x="777" y="372" text-anchor="middle" class="sub">AGS 跨 PAUSE 与恢复保留</text>
-  <path d="M777 270V316" class="edge"/>
+  <rect x="612" y="166" width="330" height="228" rx="12" class="node"/>
+  <text x="777" y="201" text-anchor="middle" class="label">Hands 实例 · envd 49983</text>
+  <rect x="640" y="242" width="274" height="118" rx="12" class="fs"/>
+  <text x="777" y="287" text-anchor="middle" class="label">完整文件系统</text>
+  <text x="777" y="314" text-anchor="middle" class="sub">跨 PAUSE 与恢复保留</text>
+  <text x="777" y="337" text-anchor="middle" class="sub">/workspace 是工具根目录</text>
 
   <path d="M444 218H612" class="edge"/>
   <rect x="497" y="196" width="62" height="24" rx="6" fill="#f8fafc"/>
