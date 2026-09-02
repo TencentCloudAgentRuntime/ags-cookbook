@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="600" data-theme="light" viewBox="0 0 1040 600" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+<style><![CDATA[@font-face { font-family: 'JetBrains Mono'; font-weight: 400; src: local('JetBrains Mono'), local('JetBrainsMono-Regular'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; src: local('JetBrains Mono'), local('JetBrainsMono-Regular'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 600; src: local('JetBrains Mono'), local('JetBrainsMono-Regular'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 700; src: local('JetBrains Mono'), local('JetBrainsMono-Regular'); }
+svg { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace; }
+g[id^='node-'] text[data-detail='context'] { font-size: 10px; }
+g[data-edge-label] text { font-size: 11px; }
+.c-grid { stroke: #e2e8f0; fill: none; }
+.c-mask { fill: #ffffff; stroke: none; }
+.c-frontend { fill: #22d3ee; fill-opacity: 0.15; stroke: #0891b2; }
+.c-backend { fill: #34d399; fill-opacity: 0.18; stroke: #059669; }
+.c-database { fill: #a78bfa; fill-opacity: 0.20; stroke: #7c3aed; }
+.c-cloud { fill: #fbbf24; fill-opacity: 0.18; stroke: #d97706; }
+.c-security { fill: #fb7185; fill-opacity: 0.15; stroke: #e11d48; }
+.c-messagebus { fill: #fb923c; fill-opacity: 0.15; stroke: #ea580c; }
+.c-external { fill: #94a3b8; fill-opacity: 0.18; stroke: #64748b; }
+.c-security-group { fill: none; stroke: #e11d48; stroke-dasharray: 4 4; }
+.c-region { fill: #fbbf24; fill-opacity: 0.05; stroke: #d97706; stroke-dasharray: 8 4; }
+.t-primary { fill: #0f172a; }
+.t-muted { fill: #64748b; }
+.t-dim { fill: #94a3b8; }
+.t-frontend { fill: #0891b2; }
+.t-backend { fill: #059669; }
+.t-database { fill: #7c3aed; }
+.t-cloud { fill: #d97706; }
+.t-security { fill: #e11d48; }
+.t-messagebus { fill: #ea580c; }
+.t-external { fill: #64748b; }
+.a-default { stroke: #94a3b8; fill: none; }
+.a-emphasis { stroke: #059669; fill: none; }
+.a-security { stroke: #e11d48; fill: none; stroke-dasharray: 5 5; }
+.a-dashed { stroke: #7c3aed; fill: none; stroke-dasharray: 4 4; }
+.m-default { fill: #94a3b8; }
+.m-emphasis { fill: #059669; }
+.m-security { fill: #e11d48; }
+.m-dashed { fill: #7c3aed; }
+.semantic-sigil { fill: none; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; opacity: 0.76; }
+.semantic-sigil > * { vector-effect: non-scaling-stroke; }
+.s-frontend { stroke: #0891b2; }
+.s-backend { stroke: #059669; }
+.s-database { stroke: #7c3aed; }
+.s-cloud { stroke: #d97706; }
+.s-security { stroke: #e11d48; }
+.s-messagebus { stroke: #ea580c; }
+.s-external { stroke: #64748b; }
+]]></style>
+<rect fill="#f8fafc" width="1040" height="600"/>
+        <title id="archify-diagram-title">状态与持久化边界</title>
+        <desc id="archify-diagram-description">Brain 副本无状态。MySQL 保存 DSH session 状态。AGS 跨 PAUSE 和恢复保留 Hands 实例文件系统的全部路径；/workspace 是该文件系统中的工具根目录。</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Boundaries (behind everything) -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="security-group" data-composition-frame-id="0" data-composition-frame-label="单个 AGS Hands Sandbox 实例" x="352" y="217" width="666" height="348" rx="8" class="c-security-group" stroke-width="1"/>
+
+        <!-- Connection paths (before components for correct z-order) -->
+        <path data-edge-from="brain" data-edge-to="mysql" data-edge-label="session 状态" data-edge-key="0" data-edge-id="brainToMysql" data-composition-points="145,230;145,206;356,206;356,95;380,95" d="M 145 230 L 145 214 Q 145 206 153 206 L 348 206 Q 356 206 356 198 L 356 103 Q 356 95 364 95 L 380 95" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="brain" data-edge-to="hands" data-edge-label="E2B 操作" data-edge-key="1" data-edge-id="brainToHands" data-composition-points="250,290;380,290" d="M 250 290 L 380 290" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="hands" data-edge-to="filesystem" data-edge-label="读 / 写 / 执行" data-edge-key="2" data-edge-id="handsToFilesystem" data-composition-points="630,305;750,305" d="M 630 305 L 750 305" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="filesystem" data-edge-to="workspace" data-edge-label="包含" data-edge-key="3" data-edge-id="filesystemContainsWorkspace" data-composition-points="870,365;870,440" d="M 870 365 L 870 440" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+
+        <!-- Components -->
+        <g id="node-brain" data-node-id="brain" data-node-label="Brain 副本" data-node-kind="backend" data-node-sublabel="无状态" data-node-context="架构组件">
+          <title>Brain 副本 · 无状态 · 架构组件</title>
+          <rect x="40" y="230" width="210" height="120" rx="6" class="c-mask"/>
+          <rect x="40" y="230" width="210" height="120" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 236) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="145" y="286" class="t-primary" font-size="14" font-weight="600" text-anchor="middle">Brain 副本</text>
+        <text data-detail="context" x="145" y="309" class="t-muted" font-size="12" text-anchor="middle">无状态</text>
+        </g>
+
+        <g id="node-mysql" data-node-id="mysql" data-node-label="MySQL 8" data-node-kind="database" data-node-sublabel="DSH session 状态" data-node-context="架构组件">
+          <title>MySQL 8 · DSH session 状态 · 架构组件</title>
+          <rect x="380" y="35" width="250" height="120" rx="6" class="c-mask"/>
+          <rect x="380" y="35" width="250" height="120" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(386 41) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="505" y="91" class="t-primary" font-size="14" font-weight="600" text-anchor="middle">MySQL 8</text>
+        <text data-detail="context" x="505" y="114" class="t-muted" font-size="12" text-anchor="middle">DSH session 状态</text>
+        </g>
+
+        <g id="node-hands" data-node-id="hands" data-node-label="Hands 实例" data-node-kind="backend" data-node-sublabel="envd · 端口 49983" data-node-context="单个 AGS Hands Sandbox 实例">
+          <title>Hands 实例 · envd · 端口 49983 · 单个 AGS Hands Sandbox 实例</title>
+          <rect x="380" y="245" width="250" height="120" rx="6" class="c-mask"/>
+          <rect x="380" y="245" width="250" height="120" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(386 251) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="505" y="301" class="t-primary" font-size="14" font-weight="600" text-anchor="middle">Hands 实例</text>
+        <text data-detail="context" x="505" y="324" class="t-muted" font-size="12" text-anchor="middle">envd · 端口 49983</text>
+        </g>
+
+        <g id="node-filesystem" data-node-id="filesystem" data-node-label="完整文件系统" data-node-kind="database" data-node-sublabel="AGS 保留全部路径" data-node-context="单个 AGS Hands Sandbox 实例">
+          <title>完整文件系统 · AGS 保留全部路径 · 单个 AGS Hands Sandbox 实例</title>
+          <rect x="750" y="245" width="240" height="120" rx="6" class="c-mask"/>
+          <rect x="750" y="245" width="240" height="120" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(756 251) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="870" y="301" class="t-primary" font-size="14" font-weight="600" text-anchor="middle">完整文件系统</text>
+        <text data-detail="context" x="870" y="324" class="t-muted" font-size="12" text-anchor="middle">AGS 保留全部路径</text>
+        </g>
+
+        <g id="node-workspace" data-node-id="workspace" data-node-label="/workspace" data-node-kind="cloud" data-node-sublabel="文件系统内的工具根目录" data-node-context="单个 AGS Hands Sandbox 实例">
+          <title>/workspace · 文件系统内的工具根目录 · 单个 AGS Hands Sandbox 实例</title>
+          <rect x="750" y="440" width="240" height="105" rx="6" class="c-mask"/>
+          <rect x="750" y="440" width="240" height="105" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(756 446) scale(0.6875)">
+            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="870" y="488" class="t-primary" font-size="14" font-weight="600" text-anchor="middle">/workspace</text>
+        <text data-detail="context" x="870" y="512" class="t-muted" font-size="12" text-anchor="middle">文件系统内的工具根目录</text>
+        </g>
+
+        <!-- Connection labels -->
+        <g data-detail="context" data-edge-from="brain" data-edge-to="mysql" data-edge-label="session 状态" data-edge-key="0" data-edge-id="brainToMysql">
+          <rect x="276" y="165" width="68" height="14" rx="3" class="c-mask"/>
+          <text x="310" y="175" class="t-backend" font-size="11" text-anchor="middle">session 状态</text>
+        </g>
+        <g data-detail="context" data-edge-from="brain" data-edge-to="hands" data-edge-label="E2B 操作" data-edge-key="1" data-edge-id="brainToHands">
+          <rect x="290.8" y="270" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="315" y="280" class="t-backend" font-size="11" text-anchor="middle">E2B 操作</text>
+        </g>
+        <g data-detail="context" data-edge-from="hands" data-edge-to="filesystem" data-edge-label="读 / 写 / 执行" data-edge-key="2" data-edge-id="handsToFilesystem">
+          <rect x="651.4" y="285" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="690" y="295" class="t-backend" font-size="11" text-anchor="middle">读 / 写 / 执行</text>
+        </g>
+        <g data-detail="context" data-edge-from="filesystem" data-edge-to="workspace" data-edge-label="包含" data-edge-key="3" data-edge-id="filesystemContainsWorkspace">
+          <rect x="855" y="395" width="30" height="14" rx="3" class="c-mask"/>
+          <text x="870" y="405" class="t-messagebus" font-size="11" text-anchor="middle">包含</text>
+        </g>
+
+        <!-- Boundary labels (foreground masks keep routes out of titles) -->
+        <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="security-group" data-composition-frame-label="单个 AGS Hands Sandbox 实例">
+          <rect data-graph-role="structural-frame-label-mask" x="356" y="225" width="155.79999999999998" height="16" rx="3" class="c-mask"/>
+          <text data-boundary-label="" x="360" y="238" class="t-security" font-size="11" font-weight="600">单个 AGS Hands Sandbox 实例</text>
+        </g>
+
+        <!-- Legend -->
+
+      </svg>

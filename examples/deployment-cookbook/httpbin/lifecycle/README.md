@@ -1,8 +1,10 @@
 # Idle lifecycle for an httpbin Deployment
 
-This tutorial creates an independent httpbin Deployment, observes idle `STOP`, and then switches to `PAUSE` with a full configuration update. `STOP` releases the Sandbox Instance; `PAUSE` preserves instance state for resumption. Because httpbin is stateless, the example verifies instance state and request resumption rather than treating response content as proof of persistence.
+This tutorial creates an independent httpbin Deployment, observes idle `STOP`, and then switches to `PAUSE` with a full configuration update. `STOP` releases the Sandbox Instance; `PAUSE` preserves its state for the next request.
 
-Run every command directly in a terminal. Copy resource IDs and tokens manually, and time each wait yourself; the document contains no extraction, polling, or waiting scripts. Real values in sample output are masked.
+Complete the shared [httpbin prerequisites](../README.md#prerequisites) before starting.
+
+Run every command directly in a terminal, copy resource IDs and tokens from the output, and use the wait intervals shown in each step. Real values in sample output are masked.
 
 ## 1. Set variables and create the Tool
 
@@ -213,7 +215,7 @@ ID                    TOOL                         STATUS  TIMEOUT  EXPIRES  MOU
 <masked-instance-id>  httpbin-lifecycle-****       PAUSED  0s       -        -       <masked-time>
 ```
 
-Send the same request again to restore available capacity. `PAUSE` preserves instance state but does not guarantee fixed resume latency.
+Send the same request again to resume the instance and restore available capacity.
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -223,20 +225,17 @@ curl --fail-with-body --silent --show-error \
 
 ## 5. Clean up
 
+List the instances and copy the ID of the current `RUNNING` or `PAUSED` instance created by the exercise:
+
 ```bash
-agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
-```
-
-A paused instance may remain visible after the `PAUSE` experiment. Copy and delete each non-`STOPPED` instance ID:
-
-```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-Finally, delete the Tool:
+Delete the instance, Deployment, and Tool:
 
 ```bash
+agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait
 ```

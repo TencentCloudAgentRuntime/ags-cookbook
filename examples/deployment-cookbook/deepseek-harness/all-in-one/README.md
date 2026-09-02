@@ -2,18 +2,16 @@
 
 This guide runs the DeepSeek Harness Web UI, Agent Host, and command-execution environment in one Sandbox Instance and exposes it through one Deployment. You will:
 
-1. Create a Sandbox Tool from a pinned image.
+1. Create a Sandbox Tool from the published image.
 2. Create a scale-to-zero Deployment that pauses when idle and uses exclusive session affinity.
 3. Open the Web UI through `agr deployment proxy`.
 4. Connect Tencent Cloud TokenHub in the Web UI and complete a real coding task with a Standard Agent.
 5. Let the instance reach `PAUSED`, then resume the same workspace and session with its affinity ID.
 
-The response examples follow actual command output structures with account details, resource IDs, timestamps, and request IDs masked. Do not reuse placeholder values from those responses.
-
 ## Prerequisites
 
 - Install `agr`; the current account must be able to create and delete Sandbox Tools, Deployments, and Instances.
-- Prepare a CAM role ARN that lets AGR pull the CCR image.
+- Prepare an Agent Runtime CAM role ARN. The published image below is public; add repository pull permission only if you replace it with an image from your own private CCR or TCR repository.
 - Keep local port `18080` available.
 - Activate Tencent Cloud TokenHub and prepare an API key. See the [official TokenHub API guide](https://cloud.tencent.com/document/product/1823/130078).
 - Ensure that `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4` is reachable.
@@ -50,7 +48,7 @@ Auth:
 
 ## 2. Create the DeepSeek Harness Tool
 
-The Tool uses the pinned image, `2 vCPU / 4 GiB`, and HTTP port `3080`. Its launch arguments bind the container to `0.0.0.0` and trust both the external Deployment hostnames in `ap-shanghai` and the internal instance hostnames used when the gateway forwards requests to the container. `--allow-remote-management` lets requests that are both trusted and protected by the AGS Deployment-token gateway perform Provider, credential, and other Web UI management operations; it does not admit a request that misses `trustedHosts`. See [dockerfiles](./dockerfiles/README.md) for the official-source build.
+The Tool uses the published image, `2 vCPU / 4 GiB`, and HTTP port `3080`. Its launch arguments expose the Web UI through the AGS Deployment gateway. See [dockerfiles](./dockerfiles/README.md) for the optional source build.
 
 ```bash
 agr tool create \
@@ -134,7 +132,7 @@ The configuration has three important effects:
 
 - `MinInstanceCount=0` permits scale-to-zero when no session is active.
 - `IdleTimeoutSeconds=60` with `PAUSE` pauses the instance 60 seconds after its last Deployment connection closes while preserving workspace state.
-- `EXCLUSIVE` dedicates one non-migrating instance to each affinity ID. `MaxInstanceCount=3` therefore also limits simultaneous exclusive sessions to three.
+- `EXCLUSIVE` dedicates one instance to each affinity ID. `MaxInstanceCount=3` therefore also limits simultaneous exclusive sessions to three.
 
 ```bash
 agr deployment create \
@@ -207,9 +205,9 @@ Press Ctrl+C to stop.
 Affinity ID: <masked-affinity-id>
 ```
 
-The proxy is for local debugging only. Production clients should acquire a short-lived token through `AcquireDeploymentToken` and call the Deployment data-plane domain directly. An HTTP port uses `https://{port}-{deployment-id}.{region}.agents.{data-plane-domain}`; the default data-plane domain is `tencentags.com`, so this example uses `https://3080-{deployment-id}.ap-shanghai.agents.tencentags.com`.
+The proxy provides local access. Production clients use a short-lived token from `AcquireDeploymentToken` and call `https://3080-{deployment-id}.ap-shanghai.agents.tencentags.com` directly.
 
-Keep the proxy running and open <http://127.0.0.1:18080>. A new instance may add cold-start latency before the first page appears. If the first request exceeds the proxy response timeout and shows `Bad Gateway`, refresh after the Instance has started.
+Keep the proxy running and open <http://127.0.0.1:18080>. A new instance may add cold-start latency before the first page appears.
 
 As soon as the proxy prints the affinity ID, copy it and set it in another terminal for the resume step:
 
@@ -232,7 +230,7 @@ If the first-run dialog asks for an official DeepSeek API key, choose “Configu
 
 After creating the provider, create an Agent with the `Standard` preset and select `tokenhub/deepseek-v4-flash`. Do not install an extra plugin or modify the shipped DeepSeek Harness preset.
 
-Before sending the task, switch the file-access control next to the composer to `Full access`. The current all-in-one image does not install an OS sandbox backend that DeepSeek Harness can use. With `workspace-write`, Bash calls fail and enter an escalation approval, leaving the page at `Waiting for approval`. This tutorial uses one dedicated instance per affinity session and has already accepted running as root, so it uses `Full access` directly.
+Before sending the task, switch the file-access control next to the composer to `Full access`. This matches the tutorial's dedicated instance per affinity session and lets the Agent work throughout `/workspace`.
 
 ## 6. Complete a real task
 
@@ -260,7 +258,7 @@ Verify at least that:
 
 ## 7. Observe idle pause
 
-Return to the proxy terminal and press `Ctrl+C`. Do not access the local page again. Wait manually for at least 60 seconds; the state transition is asynchronous and may take slightly longer.
+Return to the proxy terminal, press `Ctrl+C`, and keep the Deployment idle for at least 60 seconds.
 
 In another terminal, list Instances for the Tool:
 
@@ -275,7 +273,7 @@ ID                    TOOL                                STATUS  TIMEOUT  EXPIR
 <masked-instance-id>  deepseek-harness-all-in-one-****    PAUSED  0s       -        -       <masked-time>
 ```
 
-If it is still `RUNNING`, keep all connections closed and run the same query later. The guide deliberately uses no polling script.
+Repeat the query until the instance reaches `PAUSED`.
 
 ## 8. Resume the same exclusive session
 
@@ -289,7 +287,7 @@ agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
   --affinity-id "$DSH_AFFINITY_ID"
 ```
 
-The proxy resumes the paused Instance owned by that affinity ID instead of migrating the session. Reopen <http://127.0.0.1:18080> and confirm that both the earlier Agent session and `/workspace/todo-cli` remain available.
+The proxy resumes the paused Instance for that affinity ID. Reopen <http://127.0.0.1:18080> and confirm that both the earlier Agent session and `/workspace/todo-cli` remain available.
 
 Send one incremental task:
 
@@ -297,26 +295,21 @@ Send one incremental task:
 Continue in the existing /workspace/todo-cli project. Add a clear-completed command that removes every completed item, update the tests and README, and run node --test again. Do not rewrite the existing implementation.
 ```
 
-After `clear-completed` passes, the example has demonstrated exclusive affinity routing, `PAUSE` recovery, and workspace continuity together.
+After `clear-completed` passes, the example has exercised exclusive affinity routing, `PAUSE` recovery, and workspace continuity together.
 
 ## 9. Clean up
 
-After acceptance, press `Ctrl+C` to stop the proxy and delete the Deployment:
+After acceptance, press `Ctrl+C` to stop the proxy. List the instances and copy the ID of the current `RUNNING` or `PAUSED` instance created by the exercise:
 
 ```bash
-agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$DSH_TOOL_ID" --region "$AGR_REGION"
-```
-
-If any Instance is not `STOPPED`, copy each ID, set it first, and delete it:
-
-```bash
 export DSH_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$DSH_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-Finally, delete the Tool:
+Delete the instance, Deployment, and Tool:
 
 ```bash
+agr instance delete "$DSH_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr tool delete "$DSH_TOOL_ID" --region "$AGR_REGION" --yes --wait
 ```

@@ -1,4 +1,4 @@
-ARG NODE_IMAGE=docker.io/library/node:24.8.0-bookworm-slim@sha256:81a8fcfa2aa85bc07d22d9ddff227d0a52cfc3b08e571a21b16efc9153842106
+ARG NODE_IMAGE=docker.io/library/node:24.8.0-bookworm-slim
 
 FROM --platform=linux/amd64 ${NODE_IMAGE} AS build
 

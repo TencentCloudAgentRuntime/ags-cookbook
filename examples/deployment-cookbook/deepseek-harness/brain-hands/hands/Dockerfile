@@ -1,5 +1,5 @@
-ARG ENVD_BUILDER_IMAGE=docker.io/library/golang:1.26.5-alpine@sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
-ARG HANDS_RUNTIME_IMAGE=docker.io/library/ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+ARG ENVD_BUILDER_IMAGE=docker.io/library/golang:1.26.5-alpine
+ARG HANDS_RUNTIME_IMAGE=docker.io/library/ubuntu:24.04
 
 FROM ${ENVD_BUILDER_IMAGE} AS envd-builder
 

@@ -1,14 +1,15 @@
 # httpbin Deployment 会话亲和
 
-本教程创建一个共享 httpbin Tool 和三个独立 Deployment，对比全部会话亲和模式。亲和配置不能通过 `deployment update` 修改，因此每种模式使用独立 Deployment。
+本教程创建一个共享 httpbin Tool 和两个独立 Deployment，对比共享与独占会话亲和。亲和配置不能通过 `deployment update` 修改，因此每种模式使用独立 Deployment。
 
-| 模式 | 目标实例不可用时 | 实例所有权 |
+开始前，请完成 [httpbin 公共前置条件](../README_zh.md#前置条件)。
+
+| 模式 | 路由行为 | 实例所有权 |
 | --- | --- | --- |
-| `BEST_EFFORT` | 可以选择其他实例 | 共享 |
-| `STRICT` | 请求失败，不迁移 | 共享 |
-| `EXCLUSIVE` | 不迁移 | 每个 affinity ID 独占一个实例 |
+| `BEST_EFFORT` | 为同一个 affinity ID 复用共享容量 | 共享 |
+| `EXCLUSIVE` | 每个 affinity ID 始终使用自己的专属实例 | 每个 affinity ID 独占一个实例 |
 
-请求与响应使用 `X-Httpbin-Affinity`。本例通过响应 header 和 HTTP 状态观察路由契约，不开启真实 hostname，也不使用提取、验证或轮询脚本。示例输出中的真实信息均已脱敏。
+请求与响应使用 `X-Httpbin-Affinity`，响应 header 会显示选中的路由。示例输出中的真实信息均已脱敏。
 
 ## 1. 设置环境变量并创建共享 Tool
 
@@ -20,7 +21,6 @@ export AGR_DOMAIN=tencentags.com
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
 export HTTPBIN_TOOL_NAME='httpbin-affinity-your-name'
 export BEST_EFFORT_DEPLOYMENT_NAME='httpbin-best-effort-your-name'
-export STRICT_DEPLOYMENT_NAME='httpbin-strict-your-name'
 export EXCLUSIVE_DEPLOYMENT_NAME='httpbin-exclusive-your-name'
 
 agr status
@@ -93,9 +93,9 @@ Created:     <masked-time>
 export HTTPBIN_TOOL_ID='sdt-replace-me'
 ```
 
-## 2. 创建三个 Deployment
+## 2. 创建两个 Deployment
 
-三个 Deployment 使用相同 header 名和 30 秒 `STOP` 空闲策略，以便手工观察目标实例不可用后的差异。`EXCLUSIVE` 最多允许三个独占实例。
+两个 Deployment 使用相同 header 名和 30 秒 `STOP` 空闲策略。`EXCLUSIVE` 最多允许三个独占实例。
 
 ```bash
 agr deployment create \
@@ -113,24 +113,6 @@ agr deployment create \
   }' \
   --affinity-configuration '{
     "Mode": "BEST_EFFORT",
-    "HeaderName": "X-Httpbin-Affinity"
-  }'
-
-agr deployment create \
-  --region "$AGR_REGION" \
-  --deployment-name "$STRICT_DEPLOYMENT_NAME" \
-  --tool-id "$HTTPBIN_TOOL_ID" \
-  --scaling-configuration '{
-    "MinInstanceCount": 0,
-    "MaxInstanceCount": 2,
-    "MaxInstanceRequestConcurrency": 10
-  }' \
-  --lifecycle-configuration '{
-    "IdleTimeoutSeconds": 30,
-    "IdleAction": "STOP"
-  }' \
-  --affinity-configuration '{
-    "Mode": "STRICT",
     "HeaderName": "X-Httpbin-Affinity"
   }'
 
@@ -164,33 +146,30 @@ Affinity:
   Header:                       X-Httpbin-Affinity
 ```
 
-按创建顺序复制三个 ID：
+按创建顺序复制两个 ID：
 
 ```bash
 export BEST_EFFORT_DEPLOYMENT_ID='dpl-replace-me'
-export STRICT_DEPLOYMENT_ID='dpl-replace-me'
 export EXCLUSIVE_DEPLOYMENT_ID='dpl-replace-me'
 ```
 
-## 3. 获取三个 Deployment Token
+## 3. 获取两个 Deployment Token
 
 Token 只适用于目标 Deployment，不能跨 Deployment 使用。
 
 ```bash
 agr api call AcquireDeploymentToken --region "$AGR_REGION" --request '{"DeploymentId":"'$BEST_EFFORT_DEPLOYMENT_ID'"}' --output json
-agr api call AcquireDeploymentToken --region "$AGR_REGION" --request '{"DeploymentId":"'$STRICT_DEPLOYMENT_ID'"}' --output json
 agr api call AcquireDeploymentToken --region "$AGR_REGION" --request '{"DeploymentId":"'$EXCLUSIVE_DEPLOYMENT_ID'"}' --output json
 ```
 
-分别复制三个响应中的 `Data.Response.Response.Token`：
+分别复制两个响应中的 `Data.Response.Response.Token`：
 
 ```bash
 export BEST_EFFORT_TOKEN='replace-with-token'
-export STRICT_TOKEN='replace-with-token'
 export EXCLUSIVE_TOKEN='replace-with-token'
 ```
 
-## 4. `BEST_EFFORT`：优先复用，允许迁移
+## 4. `BEST_EFFORT`：复用共享容量
 
 第一次请求不带 affinity header：
 
@@ -221,37 +200,9 @@ curl --include --silent --show-error \
   "https://8080-$BEST_EFFORT_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
 ```
 
-保持空闲至少 30 秒使目标实例停止，再执行同一请求。`BEST_EFFORT` 可以改选其他实例继续执行，因此仍应得到成功响应；返回的 affinity ID 可能变化。
+第二次请求应返回 HTTP `200` 并继续携带同一个 affinity ID，确认该 ID 可用于后续请求。
 
-## 5. `STRICT`：必须复用，不允许迁移
-
-先获取并复制 affinity ID：
-
-```bash
-curl --include --silent --show-error \
-  --header "X-Access-Token: $STRICT_TOKEN" \
-  "https://8080-$STRICT_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
-```
-
-```bash
-export STRICT_AFFINITY_ID='replace-with-response-header'
-
-curl --include --silent --show-error \
-  --header "X-Access-Token: $STRICT_TOKEN" \
-  --header "X-Httpbin-Affinity: $STRICT_AFFINITY_ID" \
-  "https://8080-$STRICT_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
-```
-
-保持空闲至少 30 秒，使目标实例停止；再次执行相同请求。`STRICT` 会返回非 2xx 响应，而不是选择新实例。具体状态码和错误文本可能随服务版本变化，响应格式类似：
-
-```http
-HTTP/2 <non-2xx-status>
-content-type: application/json
-
-{"Response":{"Error":{"Code":"<masked-code>","Message":"<masked-message>"},"RequestId":"<masked-request-id>"}}
-```
-
-## 6. `EXCLUSIVE`：一个 affinity ID 独占一个实例
+## 5. `EXCLUSIVE`：一个 affinity ID 独占一个实例
 
 连续发送两次不带 affinity header 的请求：
 
@@ -270,25 +221,24 @@ curl --include --silent --show-error --header "X-Access-Token: $EXCLUSIVE_TOKEN"
 curl --include --silent --show-error --header "X-Access-Token: $EXCLUSIVE_TOKEN" --header "X-Httpbin-Affinity: $EXCLUSIVE_AFFINITY_ID_B" "https://8080-$EXCLUSIVE_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
 ```
 
-两个 ID 对应两个互不共享、不可迁移的实例；实例上限也因此限制可同时存在的独占会话数。
+这两个 ID 现在可用于两个独立的 `EXCLUSIVE` 会话；实例上限也限制可同时存在的独占会话数。
 
-## 7. 清理资源
+## 6. 清理资源
 
 ```bash
 agr deployment delete "$BEST_EFFORT_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr deployment delete "$STRICT_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr deployment delete "$EXCLUSIVE_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 
-若仍有非 `STOPPED` 实例，逐个复制 ID 并删除：
+复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
 
 ```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-最后删除共享 Tool：
+删除共享 Tool：
 
 ```bash
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

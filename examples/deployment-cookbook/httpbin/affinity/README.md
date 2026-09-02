@@ -1,14 +1,15 @@
 # Session affinity for httpbin Deployments
 
-This tutorial creates one shared httpbin Tool and three independent Deployments to compare every session-affinity mode. Affinity configuration cannot be changed with `deployment update`, so each mode uses a separate Deployment.
+This tutorial creates one shared httpbin Tool and two independent Deployments to compare shared and exclusive session affinity. Affinity configuration cannot be changed with `deployment update`, so each mode uses a separate Deployment.
 
-| Mode | When the target instance is unavailable | Instance ownership |
+Complete the shared [httpbin prerequisites](../README.md#prerequisites) before starting.
+
+| Mode | Routing behavior | Instance ownership |
 | --- | --- | --- |
-| `BEST_EFFORT` | Another instance may be selected | Shared |
-| `STRICT` | The request fails; it does not migrate | Shared |
-| `EXCLUSIVE` | It does not migrate | One instance is dedicated to each affinity ID |
+| `BEST_EFFORT` | Reuses shared capacity for the same affinity ID | Shared |
+| `EXCLUSIVE` | Keeps each affinity ID on its dedicated instance | One instance is dedicated to each affinity ID |
 
-Requests and responses use `X-Httpbin-Affinity`. The example observes routing through response headers and HTTP status. It does not expose real hostnames or use extraction, validation, or polling scripts. Real values in sample output are masked.
+Requests and responses use `X-Httpbin-Affinity`, and response headers show the selected route. Real values in sample output are masked.
 
 ## 1. Set variables and create the shared Tool
 
@@ -20,7 +21,6 @@ export AGR_DOMAIN=tencentags.com
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
 export HTTPBIN_TOOL_NAME='httpbin-affinity-your-name'
 export BEST_EFFORT_DEPLOYMENT_NAME='httpbin-best-effort-your-name'
-export STRICT_DEPLOYMENT_NAME='httpbin-strict-your-name'
 export EXCLUSIVE_DEPLOYMENT_NAME='httpbin-exclusive-your-name'
 
 agr status
@@ -93,9 +93,9 @@ Copy `ID`:
 export HTTPBIN_TOOL_ID='sdt-replace-me'
 ```
 
-## 2. Create three Deployments
+## 2. Create two Deployments
 
-All three Deployments use the same header name and a 30-second `STOP` idle policy so you can observe what happens when a target instance becomes unavailable. `EXCLUSIVE` permits at most three dedicated instances.
+Both Deployments use the same header name and a 30-second `STOP` idle policy. `EXCLUSIVE` permits at most three dedicated instances.
 
 ```bash
 agr deployment create \
@@ -113,24 +113,6 @@ agr deployment create \
   }' \
   --affinity-configuration '{
     "Mode": "BEST_EFFORT",
-    "HeaderName": "X-Httpbin-Affinity"
-  }'
-
-agr deployment create \
-  --region "$AGR_REGION" \
-  --deployment-name "$STRICT_DEPLOYMENT_NAME" \
-  --tool-id "$HTTPBIN_TOOL_ID" \
-  --scaling-configuration '{
-    "MinInstanceCount": 0,
-    "MaxInstanceCount": 2,
-    "MaxInstanceRequestConcurrency": 10
-  }' \
-  --lifecycle-configuration '{
-    "IdleTimeoutSeconds": 30,
-    "IdleAction": "STOP"
-  }' \
-  --affinity-configuration '{
-    "Mode": "STRICT",
     "HeaderName": "X-Httpbin-Affinity"
   }'
 
@@ -164,21 +146,19 @@ Affinity:
   Header:                       X-Httpbin-Affinity
 ```
 
-Copy the three IDs in create order:
+Copy the two IDs in create order:
 
 ```bash
 export BEST_EFFORT_DEPLOYMENT_ID='dpl-replace-me'
-export STRICT_DEPLOYMENT_ID='dpl-replace-me'
 export EXCLUSIVE_DEPLOYMENT_ID='dpl-replace-me'
 ```
 
-## 3. Acquire three Deployment tokens
+## 3. Acquire two Deployment tokens
 
 A token is scoped to its target Deployment and cannot be shared across Deployments.
 
 ```bash
 agr api call AcquireDeploymentToken --region "$AGR_REGION" --request '{"DeploymentId":"'$BEST_EFFORT_DEPLOYMENT_ID'"}' --output json
-agr api call AcquireDeploymentToken --region "$AGR_REGION" --request '{"DeploymentId":"'$STRICT_DEPLOYMENT_ID'"}' --output json
 agr api call AcquireDeploymentToken --region "$AGR_REGION" --request '{"DeploymentId":"'$EXCLUSIVE_DEPLOYMENT_ID'"}' --output json
 ```
 
@@ -186,11 +166,10 @@ Copy `Data.Response.Response.Token` from each response:
 
 ```bash
 export BEST_EFFORT_TOKEN='replace-with-token'
-export STRICT_TOKEN='replace-with-token'
 export EXCLUSIVE_TOKEN='replace-with-token'
 ```
 
-## 4. `BEST_EFFORT`: prefer reuse, allow migration
+## 4. `BEST_EFFORT`: reuse shared capacity
 
 The first request omits the affinity header:
 
@@ -221,37 +200,9 @@ curl --include --silent --show-error \
   "https://8080-$BEST_EFFORT_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
 ```
 
-Idle for at least 30 seconds so the target instance stops, then repeat the request. `BEST_EFFORT` may select another instance and should still return success; the returned affinity ID may change.
+The second request should return HTTP `200` and continue carrying the same affinity ID, confirming that the ID can be used for later requests.
 
-## 5. `STRICT`: require reuse, forbid migration
-
-Acquire and copy an affinity ID:
-
-```bash
-curl --include --silent --show-error \
-  --header "X-Access-Token: $STRICT_TOKEN" \
-  "https://8080-$STRICT_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
-```
-
-```bash
-export STRICT_AFFINITY_ID='replace-with-response-header'
-
-curl --include --silent --show-error \
-  --header "X-Access-Token: $STRICT_TOKEN" \
-  --header "X-Httpbin-Affinity: $STRICT_AFFINITY_ID" \
-  "https://8080-$STRICT_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
-```
-
-Idle for at least 30 seconds so the target instance stops, then repeat the same request. `STRICT` returns a non-2xx response instead of choosing a new instance. The exact status and error text may vary by service version; the response has this shape:
-
-```http
-HTTP/2 <non-2xx-status>
-content-type: application/json
-
-{"Response":{"Error":{"Code":"<masked-code>","Message":"<masked-message>"},"RequestId":"<masked-request-id>"}}
-```
-
-## 6. `EXCLUSIVE`: one dedicated instance per affinity ID
+## 5. `EXCLUSIVE`: one dedicated instance per affinity ID
 
 Send two requests without affinity headers:
 
@@ -270,25 +221,24 @@ curl --include --silent --show-error --header "X-Access-Token: $EXCLUSIVE_TOKEN"
 curl --include --silent --show-error --header "X-Access-Token: $EXCLUSIVE_TOKEN" --header "X-Httpbin-Affinity: $EXCLUSIVE_AFFINITY_ID_B" "https://8080-$EXCLUSIVE_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/headers"
 ```
 
-The IDs own separate, non-shared, non-migrating instances. The instance ceiling therefore also limits simultaneous exclusive sessions.
+The two IDs can now be used for two independent `EXCLUSIVE` sessions. The instance ceiling also limits the number of simultaneous exclusive sessions.
 
-## 7. Clean up
+## 6. Clean up
 
 ```bash
 agr deployment delete "$BEST_EFFORT_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr deployment delete "$STRICT_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr deployment delete "$EXCLUSIVE_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 
-If any instance is not `STOPPED`, copy and delete each instance ID:
+Copy each current `RUNNING` or `PAUSED` instance ID and run the delete command for each one:
 
 ```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-Finally, delete the shared Tool:
+Delete the shared Tool:
 
 ```bash
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

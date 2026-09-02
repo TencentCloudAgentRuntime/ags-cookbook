@@ -3,7 +3,5 @@
 dist/
 node_modules/
 coverage/
-!dockerfiles/hands/contract.json
-!release-manifest.json
 !tsconfig.json
 !tsconfig.build.json
