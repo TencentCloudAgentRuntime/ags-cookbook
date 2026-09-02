@@ -6,11 +6,9 @@ import { mysqlConfigFromEnv, type MysqlConnectionConfig } from "../mysql/config.
 export interface BrainConfig {
   readonly port: number;
   readonly instanceId: string;
-  readonly workspaceUserId: string;
   readonly mysql: MysqlConnectionConfig;
   readonly hands: {
-    readonly deploymentId: string;
-    readonly baseUrl: string;
+    readonly oses: readonly HandsOsConfig[];
     readonly apiEndpoint: string;
     readonly region: string;
     readonly secretId: string;
@@ -27,20 +25,24 @@ export interface BrainConfig {
   readonly turnLeaseMs: number;
 }
 
+export interface HandsOsConfig {
+  readonly id: string;
+  readonly label: string;
+  readonly deploymentId: string;
+  readonly baseUrl: string;
+}
+
 export function brainConfigFromEnv(env: NodeJS.ProcessEnv = process.env): BrainConfig {
   const region = required(env, "AGS_REGION");
-  const deploymentId = required(env, "HANDS_DEPLOYMENT_ID");
   const dataPlaneDomain = optional(env, "AGS_DATA_PLANE_DOMAIN") ?? "tencentags.com";
+  const oses = handsOsConfigs(env, region, dataPlaneDomain);
   const sessionToken = optional(env, "TENCENTCLOUD_TOKEN");
   return {
     port: integer(env, "BRAIN_PORT", 8080, 1, 65_535),
     instanceId: optional(env, "BRAIN_INSTANCE_ID") ?? `${hostname()}-${process.pid}-${randomUUID()}`,
-    workspaceUserId: required(env, "BRAIN_WORKSPACE_USER_ID"),
     mysql: mysqlConfigFromEnv(env),
     hands: {
-      deploymentId,
-      baseUrl: optional(env, "HANDS_BASE_URL")
-        ?? `https://49983-${deploymentId}.${region}.agents.${dataPlaneDomain}`,
+      oses,
       apiEndpoint: optional(env, "AGS_API_ENDPOINT") ?? "ags.tencentcloudapi.com",
       region,
       secretId: required(env, "TENCENTCLOUD_SECRET_ID"),
@@ -56,6 +58,46 @@ export function brainConfigFromEnv(env: NodeJS.ProcessEnv = process.env): BrainC
     },
     turnLeaseMs: integer(env, "BRAIN_TURN_LEASE_MS", 60_000, 5_000, 300_000),
   };
+}
+
+function handsOsConfigs(
+  env: NodeJS.ProcessEnv,
+  region: string,
+  dataPlaneDomain: string,
+): readonly HandsOsConfig[] {
+  const catalog = optional(env, "HANDS_OS_DEPLOYMENTS");
+  if (catalog === undefined) {
+    const deploymentId = required(env, "HANDS_DEPLOYMENT_ID");
+    return [{
+      id: "ubuntu",
+      label: "Ubuntu",
+      deploymentId,
+      baseUrl: optional(env, "HANDS_BASE_URL")
+        ?? `https://49983-${deploymentId}.${region}.agents.${dataPlaneDomain}`,
+    }];
+  }
+  const seen = new Set<string>();
+  return catalog.split(",").map((entry) => {
+    const separator = entry.indexOf("=");
+    if (separator <= 0) {
+      throw new Error("HANDS_OS_DEPLOYMENTS must use os=deployment-id entries");
+    }
+    const id = entry.slice(0, separator).trim().toLowerCase();
+    const deploymentId = entry.slice(separator + 1).trim();
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(id) || deploymentId.length === 0) {
+      throw new Error("HANDS_OS_DEPLOYMENTS must use os=deployment-id entries");
+    }
+    if (seen.has(id)) throw new Error(`HANDS_OS_DEPLOYMENTS contains duplicate OS ${id}`);
+    seen.add(id);
+    return {
+      id,
+      label: id.split(/[._-]+/u)
+        .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+        .join(" "),
+      deploymentId,
+      baseUrl: `https://49983-${deploymentId}.${region}.agents.${dataPlaneDomain}`,
+    };
+  });
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {

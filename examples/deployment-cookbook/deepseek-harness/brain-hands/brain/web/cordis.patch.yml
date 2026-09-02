@@ -4,6 +4,15 @@
 - id: session-persistence-jsonl
   disabled: true
 
+- id: settings
+  disabled: true
+
+- id: credentials
+  disabled: true
+
+- id: directory-picker
+  disabled: true
+
 - id: llm-deepseek
   disabled: true
 
@@ -43,8 +52,23 @@
     - id: ags-web-startup
       name: file:///app/dist/web/startup.js
 
+    - id: ags-settings-mysql
+      name: file:///app/dist/web/mysql-settings.js
+
+    - id: ags-credentials-environment
+      name: file:///app/dist/web/environment-credentials.js
+
+    - id: ags-directory-picker
+      name: file:///app/dist/web/directory-picker.js
+
     - id: ags-web-runtime
       name: file:///app/dist/web/runtime.js
+
+    - id: ags-workspace-api
+      name: file:///app/dist/web/workspace-api.js
+
+    - id: ags-workspace-flow
+      name: '@ags-cookbook/dsh-workspace-flow'
 
     - id: ags-session-persistence-mysql
       name: file:///app/dist/web/mysql-session-persistence.js

@@ -1,0 +1,123 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -131,6 +131,16 @@
+ 		return;
+ 	}
+ }
++/** Parse the one wildcard shape used by AGS-generated instance authorities. */
++function wildcardSuffix(entry) {
++	if (!entry.startsWith("*.")) return;
++	const suffix = entry.slice(2);
++	if (suffix === "" || suffix.includes("*") || suffix.includes(":")) return;
++	const suffixUrl = parseAuthority(suffix);
++	if (suffixUrl === void 0 || suffixUrl.port !== "") return;
++	if (canonicalAuthority(suffix, suffixUrl) !== suffix.toLowerCase()) return;
++	return suffixUrl.hostname;
++}
+ /**
+ * Assert one configured `trustedHosts` entry is a bare authority (`host` or
+ * `host:port`) in canonical form: it must survive WHATWG parsing unchanged
+@@ -146,6 +156,7 @@
+ * @param entry - the configured value, verbatim.
+ */
+ function assertTrustedAuthority(entry) {
++	if (wildcardSuffix(entry) !== void 0) return;
+ 	const entryUrl = parseAuthority(entry);
+ 	if (entryUrl !== void 0 && canonicalAuthority(entry, entryUrl) === entry.toLowerCase()) return;
+ 	throw new Error(`client-connection: trustedHosts entry ${JSON.stringify(entry)} is not a bare host[:port] authority`);
+@@ -170,6 +181,11 @@
+ */
+ function isTrustedAuthority(hostUrl, trustedHosts) {
+ 	return trustedHosts.some((entry) => {
++		const suffix = wildcardSuffix(entry);
++		if (suffix !== void 0) {
++			const prefix = hostUrl.hostname.endsWith(`.${suffix}`) ? hostUrl.hostname.slice(0, -(suffix.length + 1)) : "";
++			return prefix !== "" && !prefix.includes(".");
++		}
+ 		const entryUrl = parseAuthority(entry);
+ 		if (entryUrl === void 0) return false;
+ 		return canonicalAuthority(entry, entryUrl) === entryUrl.hostname ? entryUrl.hostname === hostUrl.hostname : entryUrl.host === hostUrl.host;
+@@ -191,7 +207,9 @@
+ 	const origin = header(request.headers, "origin");
+ 	if (origin === void 0) return true;
+ 	try {
+-		return new URL(origin).host === hostUrl.host;
++		const originUrl = new URL(origin);
++		if (originUrl.host === hostUrl.host) return true;
++		return isLoopbackHostname(originUrl.hostname) && isTrustedAuthority(hostUrl, trustedHosts);
+ 	} catch {
+ 		return false;
+ 	}
+@@ -482,20 +500,13 @@
+ 	maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES)
+ });
+ /**
+-* Methods gated to loopback even on a trusted-host deployment. Native dialogs
+-* act on the host machine; the settings and credential domains mutate the
+-* user's configuration and secret store, and READING them is equally
+-* privileged — `settings.describe` returns every exposed namespace's
+-* configuration and `credentials.describe` reports whether an arbitrary
+-* environment-variable name is configured and where from, which is
+-* reconnaissance no anonymous caller should have. `trustedHosts` is a
+-* DNS-rebinding fence, explicitly not authentication, so the whole
+-* configuration plane stays loopback-same-origin until a real authentication
+-* layer exists. `llm.discoverModels` belongs to that plane on both counts: it
+-* carries a draft credential, and it makes the HOST issue a GET to a URL the
+-* caller chose and reports back the status or the parsed body — an anonymous
+-* LAN caller would have a probe for whatever the host can reach and the
+-* browser cannot.
++* Methods that require the browser trust fence. AGS authenticates access at
++* deployment ingress, while `agr proxy` keeps the browser Origin on loopback
++* and forwards an AGS instance authority as Host. Apply the configured AGS
++* authorities here as well as on the outer RPC route so Settings and related
++* configuration calls work through that authenticated path. Cross-site
++* requests and authorities outside the generated AGS host patterns remain
++* rejected by `isTrustedApiRequest`.
+ *
+ * The model catalog (`llm.providers`, `llm.models`) is deliberately NOT here:
+ * it carries provider ids, display names, and model lists — no endpoints,
+@@ -522,8 +533,8 @@
+ * Mounts the API gateway under the browser transport prefix. Every request on
+ * the prefix passes the browser-trust fence first (DNS-rebinding and
+ * cross-site defense — [api-request-trust](./api-request-trust.ts));
+-* privileged methods additionally pass it with an empty trust list, which
+-* pins them to loopback.
++* privileged methods pass the same fence so AGS-authenticated proxy sessions
++* can use the configuration plane.
+ * @param ctx - Host plugin context.
+ * @param config - resolved plugin config (schema defaults applied).
+ */
+@@ -535,7 +546,7 @@
+ 	const fetchHandler = new HostConnectionService(ctx, trustedHosts).createSharedFetchHandler(API_PATH, { async fetch(request) {
+ 		const pathname = new URL(request.url).pathname;
+ 		const method = pathname.startsWith(`/api/`) ? pathname.slice(5) : void 0;
+-		if (method !== void 0 && PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, [])) return new Response("forbidden", { status: 403 });
++		if (method !== void 0 && PRIVILEGED_METHODS.has(method) && !isTrustedApiRequest(request, trustedHosts)) return new Response("forbidden", { status: 403 });
+ 		if (request.method === "GET" && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) return new Response("upgrade required", {
+ 			status: 426,
+ 			headers: {
+@@ -586,3 +597,3 @@
+ }
+ //#endregion
+-export { API_PATH, Config, HOST_EVENTS_PATH, HostConnectionService, MUX_EVENTS_PATH, apply, inject, name };
++export { API_PATH, Config, HOST_EVENTS_PATH, HostConnectionService, MUX_EVENTS_PATH, apply, inject, isTrustedApiRequest, name };
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -1,5 +1,6 @@
+ /** Host HTTP bridge for browser-client RPC. */
+ import type { Context } from '@deepseek-ai/cordis';
+ import z from '@deepseek-ai/schemastery';
++import type { IncomingMessage } from 'node:http';
+ export type { ConnectionRpcAuthority, ConnectionRpcEndpointMatcher, ConnectionRpcHandler, ConnectionRpcHandlerOptions, HostConnectionHandle, HostConnectionRpc, } from './rpc.ts';
+ export { HostConnectionService } from './rpc-host.ts';
+@@ -24,6 +25,8 @@
+ }
+ export declare const Config: z<ConnectionConfig>;
++/** Apply the same Host, Origin, and Fetch Metadata fence used by the /api bridge. */
++export declare function isTrustedApiRequest(request: IncomingMessage | Request, trustedHosts: readonly string[]): boolean;
+ /**
+  * Mounts the API gateway under the browser transport prefix. Every request on
+  * the prefix passes the browser-trust fence first (DNS-rebinding and
+  * cross-site defense — [api-request-trust](./api-request-trust.ts));

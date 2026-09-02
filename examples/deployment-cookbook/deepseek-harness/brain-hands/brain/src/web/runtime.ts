@@ -9,13 +9,13 @@ import { TencentCloudDeploymentTokenProvider } from "../hands/deployment-token.j
 import { HandsGateway, type HandsTarget } from "../hands/gateway.js";
 import {
   MysqlRuntimeState,
+  type HandsWorkspace,
   type TurnClaim,
-  type WorkspaceBinding,
-  type WorkspaceBindingKey,
 } from "../runtime/mysql-state.js";
+import { workspaceIdFromCwd } from "./workspace-path.js";
 
 interface OpenedTurn {
-  readonly binding: WorkspaceBinding;
+  readonly workspace: HandsWorkspace;
   readonly claim: TurnClaim;
   readonly target: HandsTarget;
   readonly release: () => void;
@@ -50,7 +50,7 @@ export class AgsWebRuntime extends Service {
 
   private readonly config: BrainConfig;
   private readonly state: MysqlRuntimeState;
-  private readonly tokenProvider: TencentCloudDeploymentTokenProvider;
+  private readonly tokenProviders: readonly TencentCloudDeploymentTokenProvider[];
   private readonly gateway: HandsGateway;
   private readonly targets = new ActiveTurnTargets();
   private readonly active = new Map<string, ActiveTurn>();
@@ -62,8 +62,8 @@ export class AgsWebRuntime extends Service {
     super(ctx, "agsWebRuntime");
     this.config = brainConfigFromEnv();
     this.state = new MysqlRuntimeState(this.config.mysql);
-    this.tokenProvider = new TencentCloudDeploymentTokenProvider({
-      deploymentId: this.config.hands.deploymentId,
+    this.tokenProviders = this.config.hands.oses.map((os) => new TencentCloudDeploymentTokenProvider({
+      deploymentId: os.deploymentId,
       endpoint: this.config.hands.apiEndpoint,
       region: this.config.hands.region,
       secretId: this.config.hands.secretId,
@@ -71,12 +71,12 @@ export class AgsWebRuntime extends Service {
       ...(this.config.hands.sessionToken === undefined
         ? {}
         : { sessionToken: this.config.hands.sessionToken }),
-    });
-    this.gateway = new HandsGateway(new DeploymentSandboxFactory({
-      baseUrl: this.config.hands.baseUrl,
-      deploymentId: this.config.hands.deploymentId,
-      deploymentToken: this.tokenProvider,
-    }), this.state);
+    }));
+    this.gateway = new HandsGateway(this.config.hands.oses.map((os, index) => new DeploymentSandboxFactory({
+      baseUrl: os.baseUrl,
+      deploymentId: os.deploymentId,
+      deploymentToken: this.tokenProviders[index]!,
+    })), this.state);
 
     ctx.inject(["tools"], (toolsCtx) => {
       const definitions = handsToolDefinitions({ gateway: this.gateway, targets: this.targets });
@@ -105,7 +105,7 @@ export class AgsWebRuntime extends Service {
     ctx.effect(() => async () => {
       await Promise.allSettled([...this.active.values()].map((activity) => this.closeTurn(activity)));
       await Promise.allSettled([...this.tails.values()]);
-      this.tokenProvider.close();
+      for (const provider of this.tokenProviders) provider.close();
       await this.state.close();
     }, "close AGS Web runtime");
   }
@@ -202,26 +202,26 @@ export class AgsWebRuntime extends Service {
   }
 
   private async openTurn(agent: Agent): Promise<{
-    readonly binding: WorkspaceBinding;
+    readonly workspace: HandsWorkspace;
     readonly claim: TurnClaim;
     readonly target: HandsTarget;
     readonly release: () => void;
   }> {
-    const binding = await this.ensureBinding(agent.session.header);
-    if (binding.deploymentId === undefined || binding.affinityId === undefined) {
+    const workspace = await this.ensureWorkspace(agent.session.header);
+    if (workspace.affinityId === undefined) {
       throw new Error(`Session ${agent.id} has no active Hands target`);
     }
     const claim = await this.state.claimTurn(
       agent.id,
       this.config.instanceId,
       this.config.turnLeaseMs,
-      binding,
+      workspace.id,
       agent.session.header,
     );
     try {
       const target: HandsTarget = {
-        deploymentId: binding.deploymentId,
-        affinityId: binding.affinityId,
+        deploymentId: workspace.deploymentId,
+        affinityId: workspace.affinityId,
         claim,
       };
       const unbind = this.targets.bind(agent.id, target);
@@ -238,7 +238,7 @@ export class AgsWebRuntime extends Service {
         clearInterval(heartbeat);
         unbind();
       };
-      return { binding, claim, target, release };
+      return { workspace, claim, target, release };
     } catch (error) {
       await this.state.completeTurn(claim);
       throw error;
@@ -271,32 +271,61 @@ export class AgsWebRuntime extends Service {
     }
   }
 
-  private async ensureBinding(meta: SessionHeader): Promise<WorkspaceBinding> {
-    const existing = await this.state.getSessionBinding(meta.id);
+  private async ensureWorkspace(meta: SessionHeader): Promise<HandsWorkspace> {
+    const workspaceId = workspaceIdFromCwd(meta.cwd);
+    if (workspaceId === undefined) throw new Error("Session does not belong to a managed Workspace");
+    const existing = await this.state.getWorkspace(workspaceId);
     if (existing?.state === "ACTIVE") return existing;
-
-    const key: WorkspaceBindingKey = {
-      mode: "USER",
-      identity: this.config.workspaceUserId,
-    };
-    const reservation = await this.state.reserveBinding(key);
-    if (reservation.binding.state === "ACTIVE") return reservation.binding;
-    if (reservation.owner) {
-      const affinityId = await this.gateway.allocateAffinity();
-      return this.state.activateBinding(
-        key,
-        reservation.binding.generation,
-        this.config.hands.deploymentId,
-        affinityId,
-      );
+    const allocation = await this.state.claimWorkspaceAllocation(workspaceId);
+    if (allocation.workspace.state === "ACTIVE") return allocation.workspace;
+    if (allocation.owner) {
+      if (allocation.token === undefined) throw new Error("Workspace allocation token is missing");
+      const allocationToken = allocation.token;
+      const abort = new AbortController();
+      let leaseFailure: unknown;
+      const heartbeat = setInterval(() => {
+        void this.state.heartbeatWorkspaceAllocation(
+          workspaceId,
+          allocationToken,
+          allocation.workspace.generation,
+        ).catch((error: unknown) => {
+          leaseFailure = error;
+          abort.abort(error);
+        });
+      }, 10_000);
+      heartbeat.unref();
+      try {
+        const affinityId = await this.gateway.allocateAffinity(
+          allocation.workspace.deploymentId,
+          abort.signal,
+        );
+        if (leaseFailure !== undefined) throw leaseFailure;
+        return await this.state.activateWorkspace(
+          workspaceId,
+          allocationToken,
+          allocation.workspace.generation,
+          affinityId,
+        );
+      } catch (error) {
+        await this.state.failWorkspaceAllocation(
+          workspaceId,
+          allocationToken,
+          allocation.workspace.generation,
+          "ALLOCATION_FAILED",
+        ).catch(() => undefined);
+        throw error;
+      } finally {
+        clearInterval(heartbeat);
+      }
     }
 
-    for (let attempt = 0; attempt < 150; attempt += 1) {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
-      const binding = await this.state.getBinding(key);
-      if (binding?.state === "ACTIVE") return binding;
+      const workspace = await this.state.getWorkspace(workspaceId);
+      if (workspace?.state === "ACTIVE") return workspace;
+      if (attempt > 0 && attempt % 25 === 0) return this.ensureWorkspace(meta);
     }
-    throw new Error("Hands workspace allocation did not become active");
+    throw new Error("Workspace allocation did not become active");
   }
 }
 

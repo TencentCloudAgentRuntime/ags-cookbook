@@ -1,5 +1,7 @@
 ARG ENVD_BUILDER_IMAGE=docker.io/library/golang:1.26.5-alpine
-ARG HANDS_RUNTIME_IMAGE=docker.io/library/ubuntu:24.04
+ARG UBUNTU_RUNTIME_IMAGE=docker.io/library/ubuntu:24.04
+ARG ALPINE_RUNTIME_IMAGE=docker.io/library/alpine:3.22
+ARG HANDS_OS=ubuntu
 
 FROM ${ENVD_BUILDER_IMAGE} AS envd-builder
 
@@ -24,9 +26,7 @@ RUN set -eux; \
     test "$(/out/envd -version)" = "${ENVD_VERSION}"; \
     cp /src/LICENSE /out/LICENSE
 
-FROM ${HANDS_RUNTIME_IMAGE}
-
-ARG ENVD_VERSION=0.6.13
+FROM ${UBUNTU_RUNTIME_IMAGE} AS ubuntu-runtime
 
 RUN set -eux; \
     for file in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
@@ -39,8 +39,19 @@ RUN set -eux; \
     done; \
     apt-get update; \
     apt-get install -y --no-install-recommends bash ca-certificates curl git procps ripgrep util-linux; \
-    rm -rf /var/lib/apt/lists/*; \
-    install -d -m 0755 /workspace /workspace/.ags /usr/share/doc/envd
+    rm -rf /var/lib/apt/lists/*
+
+FROM ${ALPINE_RUNTIME_IMAGE} AS alpine-runtime
+
+RUN set -eux; \
+    sed -i 's|https\?://dl-cdn.alpinelinux.org/alpine|https://mirrors.cloud.tencent.com/alpine|g' /etc/apk/repositories; \
+    apk add --no-cache bash ca-certificates curl git procps ripgrep util-linux
+
+FROM ${HANDS_OS}-runtime
+
+ARG ENVD_VERSION=0.6.13
+
+RUN install -d -m 0755 /workspace /workspace/.ags /usr/share/doc/envd
 
 COPY --from=envd-builder /out/envd /usr/bin/envd
 COPY --from=envd-builder /out/LICENSE /usr/share/doc/envd/LICENSE

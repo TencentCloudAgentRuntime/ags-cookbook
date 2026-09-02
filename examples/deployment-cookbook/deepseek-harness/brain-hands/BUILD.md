@@ -2,18 +2,19 @@
 
 English | [中文](./BUILD_zh.md)
 
-The [deployment tutorial](./README.md) uses these published `linux/amd64` images, so you can skip this page:
+The [deployment tutorial](./README.md) already provides these `linux/amd64` images:
 
 ```text
-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6
-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:hands-envd-v0.6.13-ags.1
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-brain:v0.1.1-rc.2-ags.4
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-hands-ubuntu:v0.6.13
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-hands-alpine:v0.6.13
 ```
 
-Build a copy only when you change the source or need to publish to your own registry.
+Use this page only when you change the source or publish to your own registry.
 
-## Build and verify locally
+## Verify and build locally
 
-Install Node.js 22.19 or later, pnpm 11.19, and Podman. Then run from the `brain-hands` directory:
+Install Node.js 24, pnpm 11.19, and Podman. From the `brain-hands` directory, run:
 
 ```bash
 make install
@@ -22,20 +23,29 @@ make test
 make build
 ```
 
-## Push a private copy
+The local image tags are:
 
-Prepare your own CCR namespace, then tag and push the local images:
-
-```bash
-export CCR_REGISTRY='ccr.ccs.tencentyun.com/replace-me'
-export BRAIN_IMAGE="$CCR_REGISTRY/deepseek-harness:brain-v0.1.0-rc.8-ags.6"
-export HANDS_IMAGE="$CCR_REGISTRY/deepseek-harness:hands-envd-v0.6.13-ags.1"
-
-podman login ccr.ccs.tencentyun.com
-podman tag ags-cookbook/dsh-brain:local "$BRAIN_IMAGE"
-podman tag ags-cookbook/dsh-hands:local "$HANDS_IMAGE"
-podman push "$BRAIN_IMAGE"
-podman push "$HANDS_IMAGE"
+```text
+ags-cookbook/dsh-brain:local
+ags-cookbook/dsh-hands:ubuntu-local
+ags-cookbook/dsh-hands:alpine-local
 ```
 
-Replace the two `Image` values in the deployment tutorial with these tags. Keep `ImageRegistryType` as `personal` for CCR; use the registry type required by your target registry if you publish elsewhere.
+## Publish to your registry
+
+Tag each local image for the target registry, then push it with Podman:
+
+```bash
+podman login ccr.ccs.tencentyun.com
+podman tag ags-cookbook/dsh-brain:local ccr.ccs.tencentyun.com/replace-me/deepseek-harness-brain:v0.1.1-rc.2-ags.4
+podman tag ags-cookbook/dsh-hands:ubuntu-local ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-ubuntu:v0.6.13
+podman tag ags-cookbook/dsh-hands:alpine-local ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-alpine:v0.6.13
+```
+
+```bash
+podman push ccr.ccs.tencentyun.com/replace-me/deepseek-harness-brain:v0.1.1-rc.2-ags.4
+podman push ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-ubuntu:v0.6.13
+podman push ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-alpine:v0.6.13
+```
+
+Replace the three `Image` values in the deployment tutorial with your tags.

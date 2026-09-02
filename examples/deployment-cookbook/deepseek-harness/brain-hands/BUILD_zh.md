@@ -2,18 +2,19 @@
 
 [English](./BUILD.md) | 中文
 
-[部署教程](./README_zh.md)直接使用下列已发布的 `linux/amd64` 镜像，因此可以跳过本页：
+[部署教程](./README_zh.md)已经提供以下 `linux/amd64` 镜像，可以直接使用：
 
 ```text
-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:brain-v0.1.0-rc.8-ags.6
-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:hands-envd-v0.6.13-ags.1
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-brain:v0.1.1-rc.2-ags.4
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-hands-ubuntu:v0.6.13
+ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-hands-alpine:v0.6.13
 ```
 
-只有修改源码或需要发布到自己的镜像仓库时，才需要自行构建。
+只有修改源码或发布到自己的镜像仓库时才需要执行本页。
 
-## 本地构建与验证
+## 本地验证与构建
 
-安装 Node.js 22.19 或更高版本、pnpm 11.19 和 Podman，然后在 `brain-hands` 目录运行：
+安装 Node.js 24、pnpm 11.19 和 Podman，然后在 `brain-hands` 目录运行：
 
 ```bash
 make install
@@ -22,20 +23,29 @@ make test
 make build
 ```
 
-## 推送自有副本
+三个镜像的本地 tag 为：
 
-准备自己的 CCR namespace，再给本地镜像添加 tag 并推送：
-
-```bash
-export CCR_REGISTRY='ccr.ccs.tencentyun.com/replace-me'
-export BRAIN_IMAGE="$CCR_REGISTRY/deepseek-harness:brain-v0.1.0-rc.8-ags.6"
-export HANDS_IMAGE="$CCR_REGISTRY/deepseek-harness:hands-envd-v0.6.13-ags.1"
-
-podman login ccr.ccs.tencentyun.com
-podman tag ags-cookbook/dsh-brain:local "$BRAIN_IMAGE"
-podman tag ags-cookbook/dsh-hands:local "$HANDS_IMAGE"
-podman push "$BRAIN_IMAGE"
-podman push "$HANDS_IMAGE"
+```text
+ags-cookbook/dsh-brain:local
+ags-cookbook/dsh-hands:ubuntu-local
+ags-cookbook/dsh-hands:alpine-local
 ```
 
-把部署教程中的两个 `Image` 值替换为这些 tag。CCR 继续使用 `ImageRegistryType: personal`；发布到其它 registry 时，使用目标 registry 要求的类型。
+## 发布到自己的仓库
+
+为三个本地镜像分别添加目标 tag，然后使用 Podman 推送：
+
+```bash
+podman login ccr.ccs.tencentyun.com
+podman tag ags-cookbook/dsh-brain:local ccr.ccs.tencentyun.com/replace-me/deepseek-harness-brain:v0.1.1-rc.2-ags.4
+podman tag ags-cookbook/dsh-hands:ubuntu-local ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-ubuntu:v0.6.13
+podman tag ags-cookbook/dsh-hands:alpine-local ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-alpine:v0.6.13
+```
+
+```bash
+podman push ccr.ccs.tencentyun.com/replace-me/deepseek-harness-brain:v0.1.1-rc.2-ags.4
+podman push ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-ubuntu:v0.6.13
+podman push ccr.ccs.tencentyun.com/replace-me/deepseek-harness-hands-alpine:v0.6.13
+```
+
+在部署教程中把三个 `Image` 值替换为自己的 tag。

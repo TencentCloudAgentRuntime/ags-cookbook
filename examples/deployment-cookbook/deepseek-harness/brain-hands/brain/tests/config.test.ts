@@ -32,17 +32,34 @@ describe("Brain configuration", () => {
   it("derives the envd data-plane URL without exposing client-controlled identity", () => {
     const config = brainConfigFromEnv({
       ...validEnv,
-      BRAIN_WORKSPACE_USER_ID: "cookbook-user",
       AGS_REGION: "ap-shanghai",
       HANDS_DEPLOYMENT_ID: "dpl-example",
       TENCENTCLOUD_SECRET_ID: "id",
       TENCENTCLOUD_SECRET_KEY: "key",
     });
-    expect(config.hands.baseUrl).toBe(
+    expect(config.hands.oses).toEqual([expect.objectContaining({
+      id: "ubuntu",
+      label: "Ubuntu",
+      deploymentId: "dpl-example",
+      baseUrl:
       "https://49983-dpl-example.ap-shanghai.agents.tencentags.com",
-    );
+    })]);
     expect(config.hands.apiEndpoint).toBe("ags.tencentcloudapi.com");
     expect(config.llm).toMatchObject({ provider: "tokenhub", model: "deepseek-v4-flash" });
-    expect(config.workspaceUserId).toBe("cookbook-user");
+  });
+
+  it("maps public OS choices to internal Hands Deployments", () => {
+    const config = brainConfigFromEnv({
+      ...validEnv,
+      AGS_REGION: "ap-shanghai",
+      HANDS_OS_DEPLOYMENTS: "ubuntu=dpl-ubuntu,alpine=dpl-alpine",
+      TENCENTCLOUD_SECRET_ID: "id",
+      TENCENTCLOUD_SECRET_KEY: "key",
+    });
+    expect(config.hands.oses.map(({ id, label, deploymentId }) => ({ id, label, deploymentId })))
+      .toEqual([
+        { id: "ubuntu", label: "Ubuntu", deploymentId: "dpl-ubuntu" },
+        { id: "alpine", label: "Alpine", deploymentId: "dpl-alpine" },
+      ]);
   });
 });

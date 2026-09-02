@@ -36,8 +36,8 @@ import { runMigrations } from "../mysql/migrations.js";
 import {
   workspaceClaimId,
   type TurnClaim,
-  type WorkspaceBindingMode,
 } from "../runtime/mysql-state.js";
+import { workspaceIdFromCwd } from "../web/workspace-path.js";
 
 interface SessionRow extends RowDataPacket {
   readonly session_id: string;
@@ -53,11 +53,6 @@ interface EventRow extends RowDataPacket {
 
 interface StoreRow extends RowDataPacket {
   readonly store_id: string;
-}
-
-interface SessionWorkspaceRow extends RowDataPacket {
-  readonly binding_mode: WorkspaceBindingMode;
-  readonly binding_identity: string;
 }
 
 interface ActiveClaimRow extends RowDataPacket {
@@ -370,22 +365,27 @@ export class MysqlSessionPersistence extends SessionPersistence implements Persi
     if (this.config.currentTurnClaim === undefined) return;
     const claim = await this.config.currentTurnClaim(sessionId, events);
     if (claim === null) {
-      const [links] = await connection.execute<SessionWorkspaceRow[]>(`
-        SELECT binding_mode, binding_identity
-        FROM dsh_session_workspaces
+      const [sessions] = await connection.execute<SessionRow[]>(`
+        SELECT session_id, CAST(header_json AS CHAR) AS header_json,
+               incarnation, next_seq, revision
+        FROM dsh_sessions
         WHERE session_id = ?
       `, [sessionId]);
-      const link = links[0];
-      if (link === undefined) return;
+      const row = sessions[0];
+      if (row === undefined) return;
+      const workspaceId = workspaceIdFromCwd(
+        parseJson<SessionHeader>(row.header_json, "session header").cwd,
+      );
+      if (workspaceId === undefined) return;
 
-      const [bindings] = await connection.execute<RowDataPacket[]>(`
+      const [workspaces] = await connection.execute<RowDataPacket[]>(`
         SELECT state
-        FROM workspace_bindings
-        WHERE binding_mode = ? AND binding_identity = ?
+        FROM dsh_workspaces
+        WHERE workspace_id = ?
         FOR UPDATE
-      `, [link.binding_mode, link.binding_identity]);
-      if (bindings[0]?.state !== "ACTIVE") {
-        throw new MysqlSessionConflictError("The workspace binding is not active");
+      `, [workspaceId]);
+      if (workspaces[0]?.state !== "ACTIVE") {
+        throw new MysqlSessionConflictError("The workspace is not active");
       }
 
       const [claims] = await connection.execute<ActiveClaimRow[]>(`
@@ -393,7 +393,7 @@ export class MysqlSessionPersistence extends SessionPersistence implements Persi
         FROM turn_claims
         WHERE session_id = ?
         FOR SHARE
-      `, [workspaceClaimId({ mode: link.binding_mode, identity: link.binding_identity })]);
+      `, [workspaceClaimId(workspaceId)]);
       const active = claims[0];
       if (active?.state === "ACTIVE" && (active.unexpired === 1 || active.unexpired === "1")) {
         throw new MysqlSessionConflictError("Workspace has an active turn claim");

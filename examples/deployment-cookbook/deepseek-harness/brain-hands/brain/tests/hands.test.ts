@@ -36,13 +36,30 @@ function fakeGateway(): {
   const asserted: string[] = [];
   const sandbox = {
     files: {
-      read: async (path: string) => new TextEncoder().encode(files.get(path) ?? ""),
+      read: async (path: string) => new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(files.get(path) ?? ""));
+          controller.close();
+        },
+      }),
       write: async (path: string, contents: string) => { files.set(path, contents); },
     },
     commands: {
       run: async (command: string) => {
         commands.push(command);
-        return command.includes("turn-generation") ? commandResult() : commandResult("done\n");
+        const copy = command.match(/cp -- '([^']+)' '([^']+)'/u);
+        if (copy?.[1] !== undefined && copy[2] !== undefined) {
+          files.set(copy[2], files.get(copy[1]) ?? "");
+        }
+        if (command.includes("ulimit -f")) {
+          const root = command.match(/\/tmp\/ags-dsh-[0-9a-f-]+/u)?.[0];
+          if (root !== undefined) {
+            files.set(`${root}/stdout`, "done\n");
+            files.set(`${root}/stderr`, "");
+          }
+          return commandResult("0");
+        }
+        return commandResult();
       },
     },
   };
@@ -63,9 +80,36 @@ describe("Hands gateway", () => {
     const fixture = fakeGateway();
     const result = await fixture.gateway.bash(target, "printf done");
     expect(result.stdout).toBe("done\n");
-    expect(fixture.asserted).toEqual(["7"]);
-    expect(fixture.commands[0]).toContain("turn-generation");
-    expect(fixture.commands[1]).toBe("printf done");
+    expect(fixture.asserted).toEqual(["7", "7"]);
+    const command = fixture.commands.find((candidate) => candidate.includes("ulimit -f"));
+    expect(command).toContain("turn-generation");
+    expect(command).toContain("flock -x 9");
+    expect(command).toContain("bash /tmp/ags-dsh-");
+  });
+
+  it("does not contact envd after the MySQL turn claim is stale", async () => {
+    const filesRead = vi.fn();
+    const filesWrite = vi.fn();
+    const commandsRun = vi.fn();
+    const connect = vi.fn(async () => ({
+      files: { read: filesRead, write: filesWrite },
+      commands: { run: commandsRun },
+    }));
+    const gateway = new HandsGateway({
+      deploymentId: "dpl-test",
+      allocateAffinity: async () => "affinity-test",
+      health: async () => new Response(null, { status: 200 }),
+      connect,
+    }, {
+      assertTurn: async () => { throw new Error("stale claim"); },
+    });
+
+    await expect(gateway.write(target, "/workspace/file.txt", "content"))
+      .rejects.toThrow("stale claim");
+    expect(connect).not.toHaveBeenCalled();
+    expect(filesRead).not.toHaveBeenCalled();
+    expect(filesWrite).not.toHaveBeenCalled();
+    expect(commandsRun).not.toHaveBeenCalled();
   });
 
   it("provides exact-match edit over the retained workspace", async () => {
@@ -73,6 +117,15 @@ describe("Hands gateway", () => {
     fixture.files.set("/workspace/file.txt", "alpha beta gamma");
     await fixture.gateway.edit(target, "/workspace/file.txt", "beta", "delta");
     expect(fixture.files.get("/workspace/file.txt")).toBe("alpha delta gamma");
+    const copies = fixture.commands.filter((command) => command.includes("cp --"));
+    expect(copies).toHaveLength(2);
+    expect(copies.every((command) => command.includes("flock -x 9"))).toBe(true);
+  });
+
+  it("stops file reads above the Brain memory boundary", async () => {
+    const fixture = fakeGateway();
+    fixture.files.set("/workspace/large.txt", "x".repeat(1024 * 1024 + 1));
+    await expect(fixture.gateway.read(target, "/workspace/large.txt")).rejects.toThrow(/exceeds/);
   });
 
   it("rejects traversal outside /workspace", async () => {

@@ -1,3 +1,5 @@
+import type { SessionHeader } from "@deepseek-ai/dsh-session";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createPool,
   type Pool,
@@ -5,49 +7,46 @@ import {
   type ResultSetHeader,
   type RowDataPacket,
 } from "mysql2/promise";
-import { createHash, randomUUID } from "node:crypto";
-import type { SessionHeader } from "@deepseek-ai/dsh-session";
 
 import { mysqlPoolOptions, type MysqlConnectionConfig } from "../mysql/config.js";
 
-export type WorkspaceBindingMode = "USER" | "SESSION";
-export type WorkspaceBindingState = "PENDING" | "ACTIVE" | "FAILED";
+export type WorkspaceState = "PENDING" | "ACTIVE" | "FAILED";
+const WORKSPACE_ALLOCATION_LEASE_SECONDS = 120;
 
-export interface WorkspaceBindingKey {
-  readonly mode: WorkspaceBindingMode;
-  readonly identity: string;
-}
-
-export interface WorkspaceBinding extends WorkspaceBindingKey {
-  readonly state: WorkspaceBindingState;
+export interface HandsWorkspace {
+  readonly id: string;
+  readonly title: string;
+  readonly osId: string;
+  readonly deploymentId: string;
+  readonly state: WorkspaceState;
   readonly generation: string;
-  readonly deploymentId?: string;
   readonly affinityId?: string;
   readonly failureCode?: string;
 }
 
-export interface BindingReservation {
-  readonly binding: WorkspaceBinding;
+export interface WorkspaceAllocation {
+  readonly workspace: HandsWorkspace;
   readonly owner: boolean;
+  readonly token?: string;
 }
 
-/** Stable lease scope for every session that shares one Hands filesystem. */
-export function workspaceClaimId(key: WorkspaceBindingKey): string {
-  const digest = createHash("sha256")
-    .update(key.mode)
-    .update("\0")
-    .update(key.identity)
-    .digest("hex");
-  return `workspace-${key.mode.toLowerCase()}-${digest}`;
-}
-
-interface BindingRow extends RowDataPacket {
-  readonly binding_mode: WorkspaceBindingMode;
-  readonly binding_identity: string;
-  readonly state: WorkspaceBindingState;
+export interface TurnClaim {
+  readonly sessionId: string;
+  readonly claimId: string;
+  readonly holderInstanceId: string;
   readonly generation: string;
-  readonly deployment_id: string | null;
+}
+
+interface WorkspaceRow extends RowDataPacket {
+  readonly workspace_id: string;
+  readonly title: string;
+  readonly os_id: string;
+  readonly deployment_id: string;
+  readonly state: WorkspaceState;
+  readonly generation: string;
   readonly affinity_id: string | null;
+  readonly allocation_token: string | null;
+  readonly allocation_started_at: Date | null;
   readonly failure_code: string | null;
 }
 
@@ -60,13 +59,6 @@ interface ClaimRow extends RowDataPacket {
 }
 
 interface StoreGenerationRow extends RowDataPacket {
-  readonly generation: string;
-}
-
-export interface TurnClaim {
-  readonly sessionId: string;
-  readonly claimId: string;
-  readonly holderInstanceId: string;
   readonly generation: string;
 }
 
@@ -91,21 +83,39 @@ export class StaleTurnClaimError extends Error {
   }
 }
 
-function binding(row: BindingRow): WorkspaceBinding {
+export function workspaceClaimId(workspaceId: string): string {
+  const digest = createHash("sha256").update(workspaceId).digest("hex");
+  return `workspace-${digest}`;
+}
+
+function workspace(row: WorkspaceRow): HandsWorkspace {
   return {
-    mode: row.binding_mode,
-    identity: row.binding_identity,
+    id: row.workspace_id,
+    title: row.title,
+    osId: row.os_id,
+    deploymentId: row.deployment_id,
     state: row.state,
     generation: row.generation,
-    ...(row.deployment_id === null ? {} : { deploymentId: row.deployment_id }),
     ...(row.affinity_id === null ? {} : { affinityId: row.affinity_id }),
     ...(row.failure_code === null ? {} : { failureCode: row.failure_code }),
   };
 }
 
-function validateIdentity(value: string, field: string, maxLength = 191): void {
-  if (value.length === 0 || value.length > maxLength) {
-    throw new Error(`${field} must be between 1 and ${maxLength} characters`);
+function validateText(value: string, field: string, maxLength = 191): void {
+  if (value.length === 0 || value.length > maxLength || /[\u0000-\u001f]/u.test(value)) {
+    throw new Error(`${field} must be between 1 and ${maxLength} printable characters`);
+  }
+}
+
+function validateWorkspaceId(value: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value)) {
+    throw new Error("workspace id must be a UUID");
+  }
+}
+
+function validateOsId(value: string): void {
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/u.test(value)) {
+    throw new Error("os id is invalid");
   }
 }
 
@@ -129,7 +139,7 @@ async function inTransaction<T>(pool: Pool, work: (connection: PoolConnection) =
   }
 }
 
-/** MySQL authority for workspace identity and per-session turn fencing. */
+/** MySQL authority for DSH Workspaces, Hands affinity, and turn fencing. */
 export class MysqlRuntimeState {
   private readonly pool: Pool;
 
@@ -141,138 +151,197 @@ export class MysqlRuntimeState {
     await this.pool.query("SELECT 1");
   }
 
-  public async getBinding(key: WorkspaceBindingKey): Promise<WorkspaceBinding | undefined> {
-    const [rows] = await this.pool.execute<BindingRow[]>(`
-      SELECT binding_mode, binding_identity, state, generation,
-             deployment_id, affinity_id, failure_code
-      FROM workspace_bindings
-      WHERE binding_mode = ? AND binding_identity = ?
-    `, [key.mode, key.identity]);
-    return rows[0] === undefined ? undefined : binding(rows[0]);
-  }
-
-  /**
-   * Reserve an identity before asking AGS for a Hands affinity. An existing
-   * PENDING row is returned unchanged, so a crashed allocation is fail-closed
-   * instead of silently allocating a second workspace.
-   */
-  public async beginBinding(key: WorkspaceBindingKey): Promise<WorkspaceBinding> {
-    return (await this.reserveBinding(key)).binding;
-  }
-
-  public async reserveBinding(key: WorkspaceBindingKey): Promise<BindingReservation> {
-    validateIdentity(key.identity, "binding identity");
-    return inTransaction(this.pool, async (connection) => {
-      const [rows] = await connection.execute<BindingRow[]>(`
-        SELECT binding_mode, binding_identity, state, generation,
-               deployment_id, affinity_id, failure_code
-        FROM workspace_bindings
-        WHERE binding_mode = ? AND binding_identity = ?
-        FOR UPDATE
-      `, [key.mode, key.identity]);
-      const current = rows[0];
-      if (current !== undefined) return { binding: binding(current), owner: false };
-      await connection.execute<ResultSetHeader>(`
-        INSERT INTO workspace_bindings
-          (binding_mode, binding_identity, state, generation)
-        VALUES (?, ?, 'PENDING', 1)
-      `, [key.mode, key.identity]);
-      return { binding: { ...key, state: "PENDING", generation: "1" }, owner: true };
-    });
-  }
-
-  /** Publish a new DSH header against an already ACTIVE shared workspace. */
-  public async provisionSession(
-    meta: SessionHeader,
-    bindingKey: WorkspaceBindingKey,
-    generation: string,
-  ): Promise<void> {
-    await inTransaction(this.pool, async (connection) => {
-      const [bindings] = await connection.execute<BindingRow[]>(`
-        SELECT binding_mode, binding_identity, state, generation,
-               deployment_id, affinity_id, failure_code
-        FROM workspace_bindings
-        WHERE binding_mode = ? AND binding_identity = ? FOR UPDATE
-      `, [bindingKey.mode, bindingKey.identity]);
-      const current = bindings[0];
-      if (current?.state !== "ACTIVE" || current.generation !== generation) {
-        throw new RuntimeStateConflictError("Workspace binding is not active");
-      }
-      await this.insertProvisionedSession(connection, meta, bindingKey);
-    });
-  }
-
-  /** Attach an already materialized DSH session to an ACTIVE workspace binding. */
-  public async linkSession(
-    meta: SessionHeader,
-    bindingKey: WorkspaceBindingKey,
-    generation: string,
-  ): Promise<void> {
-    await inTransaction(this.pool, async (connection) => {
-      const [bindings] = await connection.execute<BindingRow[]>(`
-        SELECT binding_mode, binding_identity, state, generation,
-               deployment_id, affinity_id, failure_code
-        FROM workspace_bindings
-        WHERE binding_mode = ? AND binding_identity = ? FOR UPDATE
-      `, [bindingKey.mode, bindingKey.identity]);
-      const current = bindings[0];
-      if (current?.state !== "ACTIVE" || current.generation !== generation) {
-        throw new RuntimeStateConflictError("Workspace binding is not active");
-      }
-      await this.linkMaterializedSession(connection, meta, bindingKey);
-    });
-  }
-
-  /** Atomically publish the allocated affinity and the first DSH Session header. */
-  public async activateBindingAndProvisionSession(
-    meta: SessionHeader,
-    bindingKey: WorkspaceBindingKey,
-    generation: string,
+  public async createWorkspace(
+    workspaceId: string,
+    title: string,
+    osId: string,
     deploymentId: string,
-    affinityId: string,
-  ): Promise<WorkspaceBinding> {
-    validateIdentity(deploymentId, "deployment id");
-    validateIdentity(affinityId, "affinity id", 1024);
+  ): Promise<HandsWorkspace> {
+    validateWorkspaceId(workspaceId);
+    validateText(title, "workspace title");
+    validateOsId(osId);
+    validateText(deploymentId, "deployment id");
     return inTransaction(this.pool, async (connection) => {
-      const [updated] = await connection.execute<ResultSetHeader>(`
-        UPDATE workspace_bindings
-        SET state = 'ACTIVE', deployment_id = ?, affinity_id = ?, failure_code = NULL
-        WHERE binding_mode = ? AND binding_identity = ?
-          AND state = 'PENDING' AND generation = ?
-      `, [deploymentId, affinityId, bindingKey.mode, bindingKey.identity, generation]);
-      if (updated.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace binding changed");
-      await this.insertProvisionedSession(connection, meta, bindingKey);
+      const [rows] = await connection.execute<WorkspaceRow[]>(`
+        SELECT workspace_id, title, os_id, deployment_id, state, generation,
+               affinity_id, allocation_token, failure_code
+        FROM dsh_workspaces
+        WHERE workspace_id = ?
+        FOR UPDATE
+      `, [workspaceId]);
+      const current = rows[0];
+      if (current !== undefined) {
+        if (current.title !== title || current.os_id !== osId || current.deployment_id !== deploymentId) {
+          throw new RuntimeStateConflictError("Workspace id already has different metadata");
+        }
+        return workspace(current);
+      }
+      await connection.execute<ResultSetHeader>(`
+        INSERT INTO dsh_workspaces
+          (workspace_id, title, os_id, deployment_id, state, generation)
+        VALUES (?, ?, ?, ?, 'PENDING', 1)
+      `, [workspaceId, title, osId, deploymentId]);
       return {
-        ...bindingKey,
-        state: "ACTIVE",
-        generation,
+        id: workspaceId,
+        title,
+        osId,
         deploymentId,
-        affinityId,
+        state: "PENDING",
+        generation: "1",
       };
     });
   }
 
-  private async insertProvisionedSession(
-    connection: PoolConnection,
-    meta: SessionHeader,
-    bindingKey: WorkspaceBindingKey,
-  ): Promise<void> {
-    await connection.execute<ResultSetHeader>(`
-      INSERT INTO dsh_sessions
-        (session_id, header_json, incarnation, next_seq, revision)
-      VALUES (?, CAST(? AS JSON), ?, 0, 0)
-    `, [meta.id, JSON.stringify(meta), randomUUID()]);
-    await connection.execute<ResultSetHeader>(`
-      INSERT INTO dsh_session_workspaces (session_id, binding_mode, binding_identity)
-      VALUES (?, ?, ?)
-    `, [meta.id, bindingKey.mode, bindingKey.identity]);
+  public async listWorkspaces(): Promise<readonly HandsWorkspace[]> {
+    const [rows] = await this.pool.execute<WorkspaceRow[]>(`
+      SELECT workspace_id, title, os_id, deployment_id, state, generation,
+             affinity_id, allocation_token, failure_code
+      FROM dsh_workspaces
+      ORDER BY created_at ASC
+    `);
+    return rows.map(workspace);
   }
 
-  private async linkMaterializedSession(
+  public async getWorkspace(workspaceId: string): Promise<HandsWorkspace | undefined> {
+    validateWorkspaceId(workspaceId);
+    const [rows] = await this.pool.execute<WorkspaceRow[]>(`
+      SELECT workspace_id, title, os_id, deployment_id, state, generation,
+             affinity_id, allocation_token, failure_code
+      FROM dsh_workspaces
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+    return rows[0] === undefined ? undefined : workspace(rows[0]);
+  }
+
+  public async claimWorkspaceAllocation(workspaceId: string): Promise<WorkspaceAllocation> {
+    validateWorkspaceId(workspaceId);
+    return inTransaction(this.pool, async (connection) => {
+      const [rows] = await connection.execute<WorkspaceRow[]>(`
+        SELECT workspace_id, title, os_id, deployment_id, state, generation,
+               affinity_id, allocation_token, allocation_started_at, failure_code
+        FROM dsh_workspaces
+        WHERE workspace_id = ?
+        FOR UPDATE
+      `, [workspaceId]);
+      const current = rows[0];
+      if (current === undefined) throw new RuntimeStateConflictError("Workspace does not exist");
+      const selected = workspace(current);
+      if (selected.state === "ACTIVE") return { workspace: selected, owner: false };
+      if (selected.state === "FAILED") {
+        const token = randomUUID();
+        const generation = String(BigInt(selected.generation) + 1n);
+        const [updated] = await connection.execute<ResultSetHeader>(`
+          UPDATE dsh_workspaces
+          SET state = 'PENDING', generation = ?, allocation_token = ?,
+              allocation_started_at = CURRENT_TIMESTAMP(6), failure_code = NULL
+          WHERE workspace_id = ? AND state = 'FAILED' AND generation = ?
+        `, [generation, token, workspaceId, selected.generation]);
+        if (updated.affectedRows !== 1) {
+          throw new RuntimeStateConflictError("Workspace allocation changed");
+        }
+        return {
+          workspace: {
+            id: selected.id,
+            title: selected.title,
+            osId: selected.osId,
+            deploymentId: selected.deploymentId,
+            state: "PENDING",
+            generation,
+          },
+          owner: true,
+          token,
+        };
+      }
+      if (selected.state !== "PENDING") {
+        throw new RuntimeStateConflictError("Workspace cannot be allocated");
+      }
+      if (current.allocation_token !== null) {
+        const token = randomUUID();
+        const [reclaimed] = await connection.execute<ResultSetHeader>(`
+          UPDATE dsh_workspaces
+          SET allocation_token = ?, allocation_started_at = CURRENT_TIMESTAMP(6)
+          WHERE workspace_id = ? AND state = 'PENDING'
+            AND allocation_token = ?
+            AND allocation_started_at <= DATE_SUB(
+              CURRENT_TIMESTAMP(6), INTERVAL ${WORKSPACE_ALLOCATION_LEASE_SECONDS} SECOND
+            )
+        `, [token, workspaceId, current.allocation_token]);
+        return reclaimed.affectedRows === 1
+          ? { workspace: selected, owner: true, token }
+          : { workspace: selected, owner: false };
+      }
+      const token = randomUUID();
+      const [updated] = await connection.execute<ResultSetHeader>(`
+        UPDATE dsh_workspaces
+        SET allocation_token = ?, allocation_started_at = CURRENT_TIMESTAMP(6)
+        WHERE workspace_id = ? AND state = 'PENDING' AND allocation_token IS NULL
+      `, [token, workspaceId]);
+      if (updated.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace allocation changed");
+      return { workspace: selected, owner: true, token };
+    });
+  }
+
+  public async heartbeatWorkspaceAllocation(
+    workspaceId: string,
+    token: string,
+    generation: string,
+  ): Promise<void> {
+    validateWorkspaceId(workspaceId);
+    validateText(token, "allocation token");
+    const [updated] = await this.pool.execute<ResultSetHeader>(`
+      UPDATE dsh_workspaces
+      SET allocation_started_at = CURRENT_TIMESTAMP(6)
+      WHERE workspace_id = ? AND state = 'PENDING'
+        AND generation = ? AND allocation_token = ?
+    `, [workspaceId, generation, token]);
+    if (updated.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace allocation changed");
+  }
+
+  public async activateWorkspace(
+    workspaceId: string,
+    token: string,
+    generation: string,
+    affinityId: string,
+  ): Promise<HandsWorkspace> {
+    validateWorkspaceId(workspaceId);
+    validateText(token, "allocation token");
+    validateText(affinityId, "affinity id", 1024);
+    const [updated] = await this.pool.execute<ResultSetHeader>(`
+      UPDATE dsh_workspaces
+      SET state = 'ACTIVE', affinity_id = ?, allocation_token = NULL,
+          allocation_started_at = NULL, failure_code = NULL
+      WHERE workspace_id = ? AND state = 'PENDING'
+        AND generation = ? AND allocation_token = ?
+    `, [affinityId, workspaceId, generation, token]);
+    if (updated.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace allocation changed");
+    const active = await this.getWorkspace(workspaceId);
+    if (active === undefined) throw new RuntimeStateConflictError("Workspace disappeared");
+    return active;
+  }
+
+  public async failWorkspaceAllocation(
+    workspaceId: string,
+    token: string,
+    generation: string,
+    failureCode: string,
+  ): Promise<void> {
+    validateWorkspaceId(workspaceId);
+    validateText(token, "allocation token");
+    validateText(failureCode, "failure code", 64);
+    const [updated] = await this.pool.execute<ResultSetHeader>(`
+      UPDATE dsh_workspaces
+      SET state = 'FAILED', failure_code = ?, allocation_token = NULL,
+          allocation_started_at = NULL
+      WHERE workspace_id = ? AND state = 'PENDING'
+        AND generation = ? AND allocation_token = ?
+    `, [failureCode, workspaceId, generation, token]);
+    if (updated.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace allocation changed");
+  }
+
+  private async materializeSession(
     connection: PoolConnection,
     meta: SessionHeader,
-    bindingKey: WorkspaceBindingKey,
-    provisionIfMissing = false,
+    provisionIfMissing: boolean,
   ): Promise<void> {
     const [sessions] = await connection.execute<RowDataPacket[]>(`
       SELECT CAST(header_json AS CHAR) AS header_json
@@ -280,142 +349,54 @@ export class MysqlRuntimeState {
     `, [meta.id]);
     const storedHeader = sessions[0]?.header_json;
     if (typeof storedHeader !== "string") {
-      if (provisionIfMissing) {
-        await this.insertProvisionedSession(connection, meta, bindingKey);
-        return;
-      }
-      throw new RuntimeStateConflictError("Session is not materialized");
-    }
-    const parsed = JSON.parse(storedHeader) as SessionHeader;
-    if (parsed.id !== meta.id || parsed.cwd !== meta.cwd) {
-      throw new RuntimeStateConflictError("Stored session header does not match the live session");
-    }
-
-    const [links] = await connection.execute<RowDataPacket[]>(`
-      SELECT binding_mode, binding_identity
-      FROM dsh_session_workspaces WHERE session_id = ? FOR UPDATE
-    `, [meta.id]);
-    const link = links[0];
-    if (link === undefined) {
+      if (!provisionIfMissing) throw new RuntimeStateConflictError("Session is not materialized");
       await connection.execute<ResultSetHeader>(`
-        INSERT INTO dsh_session_workspaces (session_id, binding_mode, binding_identity)
-        VALUES (?, ?, ?)
-      `, [meta.id, bindingKey.mode, bindingKey.identity]);
-      return;
-    }
-    if (link.binding_mode !== bindingKey.mode || link.binding_identity !== bindingKey.identity) {
-      throw new RuntimeStateConflictError("Session is already attached to another workspace binding");
-    }
-  }
-
-  public async getSessionBinding(sessionId: string): Promise<WorkspaceBinding | undefined> {
-    const [rows] = await this.pool.execute<BindingRow[]>(`
-      SELECT b.binding_mode, b.binding_identity, b.state, b.generation,
-             b.deployment_id, b.affinity_id, b.failure_code
-      FROM dsh_session_workspaces s
-      JOIN workspace_bindings b
-        ON b.binding_mode = s.binding_mode AND b.binding_identity = s.binding_identity
-      WHERE s.session_id = ?
-    `, [sessionId]);
-    return rows[0] === undefined ? undefined : binding(rows[0]);
-  }
-
-  public async activateBinding(
-    key: WorkspaceBindingKey,
-    generation: string,
-    deploymentId: string,
-    affinityId: string,
-  ): Promise<WorkspaceBinding> {
-    validateIdentity(deploymentId, "deployment id");
-    validateIdentity(affinityId, "affinity id", 1024);
-    const [result] = await this.pool.execute<ResultSetHeader>(`
-      UPDATE workspace_bindings
-      SET state = 'ACTIVE', deployment_id = ?, affinity_id = ?, failure_code = NULL
-      WHERE binding_mode = ? AND binding_identity = ?
-        AND state = 'PENDING' AND generation = ?
-    `, [deploymentId, affinityId, key.mode, key.identity, generation]);
-    if (result.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace binding changed");
-    return {
-      ...key,
-      state: "ACTIVE",
-      generation,
-      deploymentId,
-      affinityId,
-    };
-  }
-
-  public async failBinding(
-    key: WorkspaceBindingKey,
-    generation: string,
-    failureCode: string,
-  ): Promise<void> {
-    validateIdentity(failureCode, "failure code", 64);
-    const [result] = await this.pool.execute<ResultSetHeader>(`
-      UPDATE workspace_bindings
-      SET state = 'FAILED', failure_code = ?
-      WHERE binding_mode = ? AND binding_identity = ?
-        AND state = 'PENDING' AND generation = ?
-    `, [failureCode, key.mode, key.identity, generation]);
-    if (result.affectedRows !== 1) throw new RuntimeStateConflictError("Workspace binding changed");
-  }
-
-  /** Explicit operator recovery for a failed or abandoned binding. */
-  public async retryBinding(key: WorkspaceBindingKey): Promise<WorkspaceBinding> {
-    return inTransaction(this.pool, async (connection) => {
-      const [rows] = await connection.execute<BindingRow[]>(`
-        SELECT binding_mode, binding_identity, state, generation,
-               deployment_id, affinity_id, failure_code
-        FROM workspace_bindings
-        WHERE binding_mode = ? AND binding_identity = ?
-        FOR UPDATE
-      `, [key.mode, key.identity]);
-      const current = rows[0];
-      if (current === undefined || current.state === "ACTIVE") {
-        throw new RuntimeStateConflictError("Only a PENDING or FAILED binding can be retried explicitly");
+        INSERT INTO dsh_sessions
+          (session_id, header_json, incarnation, next_seq, revision)
+        VALUES (?, CAST(? AS JSON), ?, 0, 0)
+      `, [meta.id, JSON.stringify(meta), randomUUID()]);
+    } else {
+      const parsed = JSON.parse(storedHeader) as SessionHeader;
+      if (parsed.id !== meta.id || parsed.cwd !== meta.cwd) {
+        throw new RuntimeStateConflictError("Stored session header does not match the live session");
       }
-      const nextGeneration = (BigInt(current.generation) + 1n).toString();
-      await connection.execute<ResultSetHeader>(`
-        UPDATE workspace_bindings
-        SET state = 'PENDING', generation = ?, deployment_id = NULL,
-            affinity_id = NULL, failure_code = NULL
-        WHERE binding_mode = ? AND binding_identity = ? AND generation = ?
-      `, [nextGeneration, key.mode, key.identity, current.generation]);
-      return { ...key, state: "PENDING", generation: nextGeneration };
-    });
+    }
+
   }
 
   public async claimTurn(
     sessionId: string,
     holderInstanceId: string,
     leaseMs: number,
-    claimScope?: WorkspaceBindingKey,
+    workspaceId?: string,
     sessionHeader?: SessionHeader,
   ): Promise<TurnClaim> {
-    validateIdentity(sessionId, "session id");
+    validateText(sessionId, "session id");
+    validateText(holderInstanceId, "holder instance id");
     if (sessionHeader !== undefined && sessionHeader.id !== sessionId) {
       throw new Error("Session header does not match the claimed session");
     }
-    if (sessionHeader !== undefined && claimScope === undefined) {
-      throw new Error("A session header requires a workspace claim scope");
+    if (sessionHeader !== undefined && workspaceId === undefined) {
+      throw new Error("A session header requires a workspace");
     }
-    const claimId = claimScope === undefined ? sessionId : workspaceClaimId(claimScope);
-    validateIdentity(claimId, "claim id");
-    validateIdentity(holderInstanceId, "holder instance id");
+    if (workspaceId !== undefined) validateWorkspaceId(workspaceId);
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1_000 || leaseMs > 300_000) {
       throw new Error("leaseMs must be between 1000 and 300000");
     }
+    const claimId = workspaceId === undefined ? sessionId : workspaceClaimId(workspaceId);
+    validateText(claimId, "claim id");
     const leaseMicros = leaseMs * 1_000;
     return inTransaction(this.pool, async (connection) => {
-      if (claimScope !== undefined) {
-        const [bindingRows] = await connection.execute<BindingRow[]>(`
-          SELECT binding_mode, binding_identity, state, generation,
-                 deployment_id, affinity_id, failure_code
-          FROM workspace_bindings
-          WHERE binding_mode = ? AND binding_identity = ?
+      if (workspaceId !== undefined) {
+        const [workspaces] = await connection.execute<WorkspaceRow[]>(`
+          SELECT workspace_id, title, os_id, deployment_id, state, generation,
+                 affinity_id, allocation_token, failure_code
+          FROM dsh_workspaces
+          WHERE workspace_id = ?
           FOR UPDATE
-        `, [claimScope.mode, claimScope.identity]);
-        if (bindingRows[0]?.state !== "ACTIVE") {
-          throw new RuntimeStateConflictError("Workspace binding is not active");
+        `, [workspaceId]);
+        if (workspaces[0]?.state !== "ACTIVE") {
+          throw new RuntimeStateConflictError("Workspace is not active");
         }
       }
       const [rows] = await connection.execute<ClaimRow[]>(`
@@ -452,8 +433,8 @@ export class MysqlRuntimeState {
           WHERE session_id = ? AND generation = ?
         `, [holderInstanceId, generation, leaseMicros, claimId, current.generation]);
       }
-      if (sessionHeader !== undefined && claimScope !== undefined) {
-        await this.linkMaterializedSession(connection, sessionHeader, claimScope, true);
+      if (sessionHeader !== undefined && workspaceId !== undefined) {
+        await this.materializeSession(connection, sessionHeader, true);
       }
       return { sessionId, claimId, holderInstanceId, generation };
     });

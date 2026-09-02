@@ -12,6 +12,7 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
+COPY plugins ./plugins
 
 RUN pnpm install --frozen-lockfile
 
@@ -21,7 +22,7 @@ COPY migrations ./migrations
 COPY web ./web
 
 RUN pnpm build \
-    && pnpm prune --prod
+    && pnpm install --prod --offline --frozen-lockfile
 
 FROM --platform=linux/amd64 ${NODE_IMAGE}
 
@@ -35,7 +36,8 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/migrations ./migrations
 COPY --from=build --chown=node:node /app/web ./web
 
-RUN mkdir -p /workspace && chown node:node /workspace
+RUN mkdir -p /workspace \
+    && chown node:node /workspace
 
 USER node
 

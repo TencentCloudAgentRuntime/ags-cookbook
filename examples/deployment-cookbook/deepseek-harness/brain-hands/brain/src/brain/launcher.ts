@@ -1,7 +1,19 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdir, symlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
+
+import { runMigrations } from "../mysql/migrations.js";
+import { brainConfigFromEnv } from "./config.js";
 
 const appRoot = fileURLToPath(new URL("../../", import.meta.url));
+loadDotenv();
+const config = brainConfigFromEnv();
+await runMigrations(config.mysql);
+await mkdir("/tmp/dsh-home", { recursive: true });
+await symlink("/app/node_modules", "/tmp/dsh-home/node_modules", "dir").catch((error: unknown) => {
+  if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+});
 const server = spawn(process.execPath, [`${appRoot}/dist/brain/server.js`], {
   cwd: "/workspace",
   env: process.env,

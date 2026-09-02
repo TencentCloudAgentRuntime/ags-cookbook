@@ -2,14 +2,15 @@ import { randomUUID } from "node:crypto";
 import "dotenv/config";
 
 import { Context } from "@deepseek-ai/cordis";
+import * as AgentSpine from "@deepseek-ai/dsh-agent-spine-demo";
+import { SettingsConflictError, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import SessionStore, {
   SESSION_FORMAT_VERSION,
   SessionId,
   type SessionEvent,
   type SessionHeader,
 } from "@deepseek-ai/dsh-session";
-import * as AgentSpine from "@deepseek-ai/dsh-agent-spine-demo";
-import { createPool } from "mysql2/promise";
+import { createPool, type RowDataPacket } from "mysql2/promise";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mysqlConfigFromEnv, mysqlPoolOptions } from "../src/mysql/config.js";
@@ -17,28 +18,50 @@ import { runMigrations } from "../src/mysql/migrations.js";
 import MysqlSessionPersistence from "../src/persistence/mysql-session-persistence.js";
 import {
   MysqlRuntimeState,
+  RuntimeStateConflictError,
   SessionBusyError,
   StaleTurnClaimError,
   workspaceClaimId,
+  type HandsWorkspace,
   type TurnClaim,
 } from "../src/runtime/mysql-state.js";
 import { TurnContext } from "../src/runtime/turn-context.js";
+import { workspacePath } from "../src/web/workspace-path.js";
+import MysqlSettingsProvider from "../src/web/mysql-settings.js";
 
 const enabled = process.env.RUN_MYSQL_INTEGRATION === "1";
-const createdIds: string[] = [];
+const createdSessionIds: string[] = [];
+const createdWorkspaceIds: string[] = [];
+const createdSettingsNamespaces: string[] = [];
+
+class TestMysqlSettingsProvider extends MysqlSettingsProvider {
+  public loadForTest(): Promise<Record<string, unknown>> {
+    return this.load();
+  }
+
+  public persistForTest(namespace: string, section: Record<string, unknown>): Promise<void> {
+    return this.persist(settingsNamespace(namespace), section);
+  }
+}
 
 function sessionId(): string {
   const id = `cookbook-test-${randomUUID()}`;
-  createdIds.push(id);
+  createdSessionIds.push(id);
   return id;
 }
 
-function header(id: string): SessionHeader {
+function workspaceId(): string {
+  const id = randomUUID();
+  createdWorkspaceIds.push(id);
+  return id;
+}
+
+function header(id: string, cwd = "/workspace"): SessionHeader {
   return {
     version: SESSION_FORMAT_VERSION,
     id: SessionId(id),
     createdAt: Date.now(),
-    cwd: "/workspace",
+    cwd,
   };
 }
 
@@ -64,14 +87,32 @@ async function mount(): Promise<{
   return { context, dispose: () => fiber.dispose() };
 }
 
+async function activeWorkspace(
+  state: MysqlRuntimeState,
+  id = workspaceId(),
+  osId = "ubuntu",
+  deploymentId = "dpl-ubuntu",
+): Promise<HandsWorkspace> {
+  await state.createWorkspace(id, `Workspace ${id.slice(0, 8)}`, osId, deploymentId);
+  const allocation = await state.claimWorkspaceAllocation(id);
+  if (!allocation.owner || allocation.token === undefined) throw new Error("allocation claim missing");
+  return state.activateWorkspace(id, allocation.token, allocation.workspace.generation, `affinity-${id}`);
+}
+
 afterEach(async () => {
-  if (!enabled || createdIds.length === 0) return;
+  if (!enabled) return;
   const pool = createPool(mysqlPoolOptions(mysqlConfigFromEnv()));
   try {
-    for (const id of createdIds.splice(0)) {
+    for (const id of createdSessionIds.splice(0)) {
       await pool.execute("DELETE FROM turn_claims WHERE session_id = ?", [id]);
       await pool.execute("DELETE FROM dsh_sessions WHERE session_id = ?", [id]);
-      await pool.execute("DELETE FROM workspace_bindings WHERE binding_identity = ?", [id]);
+    }
+    for (const id of createdWorkspaceIds.splice(0)) {
+      await pool.execute("DELETE FROM turn_claims WHERE session_id = ?", [workspaceClaimId(id)]);
+      await pool.execute("DELETE FROM dsh_workspaces WHERE workspace_id = ?", [id]);
+    }
+    for (const namespace of createdSettingsNamespaces.splice(0)) {
+      await pool.execute("DELETE FROM dsh_settings WHERE namespace = ?", [namespace]);
     }
   } finally {
     await pool.end();
@@ -79,7 +120,7 @@ afterEach(async () => {
 });
 
 describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
-  it("runs checksum migrations idempotently", async () => {
+  it("runs the convergent schema migration idempotently", async () => {
     const first = await runMigrations(mysqlConfigFromEnv());
     const second = await runMigrations(mysqlConfigFromEnv());
     expect(first.applied.length + first.skipped.length).toBeGreaterThan(0);
@@ -93,7 +134,6 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
     try {
       await mounted.context.sessionPersistence.create(meta);
       expect((await mounted.context.sessionPersistence.list()).some((item) => item.id === meta.id)).toBe(false);
-
       await mounted.context.sessionPersistence.append(meta.id, completedTurn());
       const loaded = await mounted.context.sessionPersistence.load(meta.id);
       expect(loaded.meta).toEqual(meta);
@@ -125,87 +165,203 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
     }
   });
 
-  it("binds one identity once and requires explicit recovery", async () => {
+  it("creates a named PENDING Workspace with an internal OS Deployment mapping", async () => {
     await runMigrations(mysqlConfigFromEnv());
     const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const identity = sessionId();
-    const key = { mode: "SESSION" as const, identity };
+    const id = workspaceId();
     try {
-      const pending = await state.beginBinding(key);
-      expect(pending).toMatchObject({ state: "PENDING", generation: "1" });
-      expect(await state.beginBinding(key)).toEqual(pending);
+      const created = await state.createWorkspace(id, "Data science", "alpine", "dpl-alpine");
+      expect(created).toEqual({
+        id,
+        title: "Data science",
+        osId: "alpine",
+        deploymentId: "dpl-alpine",
+        state: "PENDING",
+        generation: "1",
+      });
+      expect(created.affinityId).toBeUndefined();
+    } finally {
+      await state.close();
+    }
+  });
 
-      await state.failBinding(key, pending.generation, "ALLOCATION_UNCERTAIN");
-      expect(await state.getBinding(key)).toMatchObject({ state: "FAILED" });
-      const retried = await state.retryBinding(key);
-      expect(retried).toMatchObject({ state: "PENDING", generation: "2" });
-      await state.activateBinding(key, retried.generation, "dpl-example", "affinity-secret");
-      expect(await state.getBinding(key)).toMatchObject({
+  it("grants exactly one owner for concurrent first-use allocation", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const left = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const right = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const id = workspaceId();
+    try {
+      await left.createWorkspace(id, "Ubuntu work", "ubuntu", "dpl-ubuntu");
+      const claims = await Promise.all([
+        left.claimWorkspaceAllocation(id),
+        right.claimWorkspaceAllocation(id),
+      ]);
+      expect(claims.filter((claim) => claim.owner)).toHaveLength(1);
+      const owner = claims.find((claim) => claim.owner);
+      if (owner?.token === undefined) throw new Error("owner token missing");
+      await left.activateWorkspace(id, owner.token, owner.workspace.generation, "affinity-ubuntu");
+      await expect(right.getWorkspace(id)).resolves.toMatchObject({
+        state: "ACTIVE",
+        deploymentId: "dpl-ubuntu",
+        affinityId: "affinity-ubuntu",
+      });
+    } finally {
+      await Promise.all([left.close(), right.close()]);
+    }
+  });
+
+  it("retries a failed first-use allocation with a new generation", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const id = workspaceId();
+    try {
+      await state.createWorkspace(id, "Retry work", "ubuntu", "dpl-ubuntu");
+      const first = await state.claimWorkspaceAllocation(id);
+      if (first.token === undefined) throw new Error("first allocation token missing");
+      await state.failWorkspaceAllocation(id, first.token, first.workspace.generation, "UNAVAILABLE");
+
+      const retry = await state.claimWorkspaceAllocation(id);
+      expect(retry).toMatchObject({ owner: true, workspace: { state: "PENDING", generation: "2" } });
+      if (retry.token === undefined) throw new Error("retry allocation token missing");
+      await state.activateWorkspace(id, retry.token, retry.workspace.generation, "affinity-retry");
+      await expect(state.getWorkspace(id)).resolves.toMatchObject({
         state: "ACTIVE",
         generation: "2",
-        deploymentId: "dpl-example",
-        affinityId: "affinity-secret",
+        affinityId: "affinity-retry",
       });
     } finally {
       await state.close();
     }
   });
 
-  it("atomically publishes the affinity and first DSH Session header", async () => {
+  it("fences stale activation after reclaiming an abandoned allocation", async () => {
     await runMigrations(mysqlConfigFromEnv());
     const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const id = sessionId();
-    const key = { mode: "SESSION" as const, identity: id };
+    const pool = createPool(mysqlPoolOptions(mysqlConfigFromEnv()));
+    const id = workspaceId();
     try {
-      const reservation = await state.reserveBinding(key);
-      expect(reservation.owner).toBe(true);
-      const active = await state.activateBindingAndProvisionSession(
-        header(id),
-        key,
-        reservation.binding.generation,
-        "dpl-example",
-        "affinity-secret",
+      await state.createWorkspace(id, "Recovered work", "ubuntu", "dpl-ubuntu");
+      const abandoned = await state.claimWorkspaceAllocation(id);
+      expect(abandoned.owner).toBe(true);
+      await pool.execute(`
+        UPDATE dsh_workspaces
+        SET allocation_started_at = DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 121 SECOND)
+        WHERE workspace_id = ?
+      `, [id]);
+      const recovered = await state.claimWorkspaceAllocation(id);
+      expect(recovered.owner).toBe(true);
+      expect(recovered.token).not.toBe(abandoned.token);
+      if (recovered.token === undefined) throw new Error("recovered allocation token missing");
+      await state.activateWorkspace(id, recovered.token, recovered.workspace.generation, `dsh-${id}`);
+      if (abandoned.token === undefined) throw new Error("abandoned allocation token missing");
+      await expect(state.activateWorkspace(
+        id,
+        abandoned.token,
+        abandoned.workspace.generation,
+        `dsh-${id}`,
+      )).rejects.toBeInstanceOf(RuntimeStateConflictError);
+    } finally {
+      await pool.end();
+      await state.close();
+    }
+  });
+
+  it("keeps a live Workspace allocation lease from being reclaimed", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const pool = createPool(mysqlPoolOptions(mysqlConfigFromEnv()));
+    const id = workspaceId();
+    try {
+      await state.createWorkspace(id, "Slow allocation", "ubuntu", "dpl-ubuntu");
+      const owner = await state.claimWorkspaceAllocation(id);
+      if (owner.token === undefined) throw new Error("allocation token missing");
+      await pool.execute(`
+        UPDATE dsh_workspaces
+        SET allocation_started_at = DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 121 SECOND)
+        WHERE workspace_id = ?
+      `, [id]);
+      await state.heartbeatWorkspaceAllocation(id, owner.token, owner.workspace.generation);
+      await expect(state.claimWorkspaceAllocation(id)).resolves.toMatchObject({ owner: false });
+    } finally {
+      await pool.end();
+      await state.close();
+    }
+  });
+
+  it("rejects a stale cross-replica Settings write instead of losing an update", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const namespace = `test-${randomUUID().replaceAll("-", "")}`;
+    createdSettingsNamespaces.push(namespace);
+    const leftContext = new Context();
+    const rightContext = new Context();
+    const leftFiber = leftContext.plugin(TestMysqlSettingsProvider);
+    const rightFiber = rightContext.plugin(TestMysqlSettingsProvider);
+    try {
+      await Promise.all([leftFiber.await(), rightFiber.await()]);
+      const left = leftContext.settings as TestMysqlSettingsProvider;
+      const right = rightContext.settings as TestMysqlSettingsProvider;
+      await left.persistForTest(namespace, { model: "first" });
+      await Promise.all([left.loadForTest(), right.loadForTest()]);
+      await left.persistForTest(namespace, { model: "second" });
+      await expect(right.persistForTest(namespace, { model: "stale" }))
+        .rejects.toBeInstanceOf(SettingsConflictError);
+
+      const pool = createPool(mysqlPoolOptions(mysqlConfigFromEnv()));
+      try {
+        const [rows] = await pool.execute<Array<{ section_json: string } & RowDataPacket>>(
+          "SELECT CAST(section_json AS CHAR) AS section_json FROM dsh_settings WHERE namespace = ?",
+          [namespace],
+        );
+        expect(JSON.parse(rows[0]?.section_json ?? "null")).toEqual({ model: "second" });
+      } finally {
+        await pool.end();
+      }
+    } finally {
+      await Promise.all([leftFiber.dispose(), rightFiber.dispose()]);
+    }
+  });
+
+  it("materializes a first Web session while claiming its Workspace turn", async () => {
+    await runMigrations(mysqlConfigFromEnv());
+    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const pool = createPool(mysqlPoolOptions(mysqlConfigFromEnv()));
+    const workspace = await activeWorkspace(state);
+    const id = sessionId();
+    const meta = header(id, workspacePath(workspace.id));
+    let claim: TurnClaim | undefined;
+    try {
+      claim = await state.claimTurn(id, "brain-a", 10_000, workspace.id, meta);
+      const [rows] = await pool.execute<Array<{ header_json: string } & RowDataPacket>>(
+        "SELECT CAST(header_json AS CHAR) AS header_json FROM dsh_sessions WHERE session_id = ?",
+        [id],
       );
-      expect(active.state).toBe("ACTIVE");
-      expect(await state.getSessionBinding(id)).toMatchObject({
-        mode: "SESSION",
-        identity: id,
-        state: "ACTIVE",
-      });
+      expect(JSON.parse(rows[0]?.header_json ?? "null")).toEqual(meta);
     } finally {
+      if (claim !== undefined) await state.completeTurn(claim);
+      await pool.end();
       await state.close();
     }
   });
 
-  it("links an already materialized Web session to an active Hands workspace", async () => {
+  it("serializes sessions in one Workspace while allowing different Workspaces", async () => {
     await runMigrations(mysqlConfigFromEnv());
-    const mounted = await mount();
     const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const id = sessionId();
-    const workspaceId = sessionId();
-    const key = { mode: "USER" as const, identity: workspaceId };
+    const firstWorkspace = await activeWorkspace(state);
+    const secondWorkspace = await activeWorkspace(state, workspaceId(), "alpine", "dpl-alpine");
+    const firstId = sessionId();
+    const secondId = sessionId();
+    const thirdId = sessionId();
+    let first: TurnClaim | undefined;
+    let third: TurnClaim | undefined;
     try {
-      const meta = header(id);
-      const reservation = await state.reserveBinding(key);
-      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
-      await expect(state.linkSession(meta, key, reservation.binding.generation))
-        .rejects.toThrow(/not materialized/);
-      expect(await state.getSessionBinding(id)).toBeUndefined();
-
-      await mounted.context.sessionPersistence.create(meta);
-      await mounted.context.sessionPersistence.append(meta.id, completedTurn());
-
-      await state.linkSession(meta, key, reservation.binding.generation);
-
-      expect(await state.getSessionBinding(id)).toMatchObject({
-        mode: "USER",
-        identity: workspaceId,
-        state: "ACTIVE",
-        deploymentId: "dpl-example",
-        affinityId: "affinity-secret",
-      });
+      first = await state.claimTurn(firstId, "brain-a", 10_000, firstWorkspace.id);
+      await expect(state.claimTurn(secondId, "brain-b", 10_000, firstWorkspace.id))
+        .rejects.toBeInstanceOf(SessionBusyError);
+      third = await state.claimTurn(thirdId, "brain-c", 10_000, secondWorkspace.id);
+      expect(third.claimId).not.toBe(first.claimId);
     } finally {
-      await mounted.dispose();
+      if (first !== undefined) await state.completeTurn(first);
+      if (third !== undefined) await state.completeTurn(third);
       await state.close();
     }
   });
@@ -219,156 +375,25 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
       await expect(state.claimTurn(id, "brain-b", 10_000)).rejects.toBeInstanceOf(SessionBusyError);
       await state.heartbeatTurn(first, 10_000);
       await state.completeTurn(first);
-
       const second = await state.claimTurn(id, "brain-b", 10_000);
       expect(BigInt(second.generation)).toBeGreaterThan(BigInt(first.generation));
       await expect(state.assertTurn(first)).rejects.toBeInstanceOf(StaleTurnClaimError);
       await state.assertTurn(second);
-    } finally {
-      await state.close();
-    }
-  });
-
-  it("serializes sessions sharing one Hands workspace", async () => {
-    await runMigrations(mysqlConfigFromEnv());
-    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const firstId = sessionId();
-    const secondId = sessionId();
-    const key = { mode: "USER" as const, identity: sessionId() };
-    createdIds.push(workspaceClaimId(key));
-    try {
-      const reservation = await state.reserveBinding(key);
-      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
-
-      const first = await state.claimTurn(firstId, "brain-a", 10_000, key);
-      await expect(state.claimTurn(secondId, "brain-b", 10_000, key))
-        .rejects.toBeInstanceOf(SessionBusyError);
-      await state.completeTurn(first);
-      const second = await state.claimTurn(secondId, "brain-b", 10_000, key);
-      expect(BigInt(second.generation)).toBeGreaterThan(BigInt(first.generation));
       await state.completeTurn(second);
     } finally {
       await state.close();
     }
   });
 
-  it("atomically links a new Web session before its workspace turn becomes active", async () => {
-    await runMigrations(mysqlConfigFromEnv());
-    const context = new Context();
-    await context.plugin(SessionStore);
-    const persistence = await context.plugin(MysqlSessionPersistence, {
-      connection: mysqlConfigFromEnv(),
-      writeBatchMaxDelayMs: 1,
-      currentTurnClaim: async () => null,
-    });
-    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const id = sessionId();
-    const key = { mode: "USER" as const, identity: sessionId() };
-    createdIds.push(workspaceClaimId(key));
-    const meta = header(id);
-    try {
-      await context.sessionPersistence.create(meta);
-      const reservation = await state.reserveBinding(key);
-      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
-
-      const claim = await state.claimTurn(id, "brain-a", 10_000, key, meta);
-      expect(await state.getSessionBinding(id)).toMatchObject(key);
-      const titleEvent = {
-        type: "session/title",
-        seq: 0,
-        time: 5,
-        data: { title: "renamed", source: { kind: "fallback" }, messageSeqs: [] },
-      } as SessionEvent;
-      await expect(context.sessionPersistence.append(meta.id, [titleEvent]))
-        .rejects.toThrow(/active turn claim/);
-
-      await state.completeTurn(claim);
-      await expect(context.sessionPersistence.append(meta.id, [titleEvent])).resolves.toBeUndefined();
-    } finally {
-      await persistence.dispose();
-      await state.close();
-    }
-  });
-
-  it("waits for live session initialization before claiming its first Web turn", async () => {
-    await runMigrations(mysqlConfigFromEnv());
-    const context = new Context();
-    await context.plugin(SessionStore);
-    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const id = sessionId();
-    const key = { mode: "USER" as const, identity: sessionId() };
-    createdIds.push(workspaceClaimId(key));
-    let claim: TurnClaim | undefined;
-    const persistence = await context.plugin(MysqlSessionPersistence, {
-      connection: mysqlConfigFromEnv(),
-      writeBatchMaxDelayMs: 1,
-      currentTurnClaim: async (candidate, events) => {
-        if (!events.some((event) => event.type === "turn/start")) return null;
-        const live = context.sessions.get(SessionId(candidate));
-        if (live === undefined) return undefined;
-        claim = await state.claimTurn(candidate, "brain-a", 10_000, key, live.header);
-        return claim;
-      },
-    });
-    try {
-      const reservation = await state.reserveBinding(key);
-      await state.activateBinding(key, reservation.binding.generation, "dpl-example", "affinity-secret");
-
-      const live = context.sessions.create(SessionId(id), { meta: { cwd: "/workspace" } });
-      live.append("turn/start", { turn: 1 });
-      await context.sessions.flush(live);
-
-      expect(claim).toBeDefined();
-      expect(await state.getSessionBinding(id)).toMatchObject(key);
-      if (claim === undefined) throw new Error("The first Web turn was not claimed");
-      await state.completeTurn(claim);
-      claim = undefined;
-    } finally {
-      if (claim !== undefined) await state.completeTurn(claim);
-      await persistence.dispose();
-      await state.close();
-    }
-  });
-
-  it("rejects a session append after another Brain owns the turn generation", async () => {
-    await runMigrations(mysqlConfigFromEnv());
-    const context = new Context();
-    await context.plugin(SessionStore);
-    const state = new MysqlRuntimeState(mysqlConfigFromEnv());
-    const id = sessionId();
-    let activeClaim = await state.claimTurn(id, "brain-a", 10_000);
-    const persistence = await context.plugin(MysqlSessionPersistence, {
-      connection: mysqlConfigFromEnv(),
-      currentTurnClaim: async (candidate) => candidate === id ? activeClaim : undefined,
-    });
-    try {
-      const meta = header(id);
-      await context.sessionPersistence.create(meta);
-      await state.completeTurn(activeClaim);
-      await state.claimTurn(id, "brain-b", 10_000);
-      await expect(context.sessionPersistence.append(meta.id, completedTurn()))
-        .rejects.toThrow(/claim no longer permits writes/);
-    } finally {
-      await persistence.dispose();
-      await state.close();
-    }
-  });
-
-  it("resumes an atomically provisioned empty DSH session", async () => {
+  it("resumes an empty session provisioned by its first Workspace turn", async () => {
     await runMigrations(mysqlConfigFromEnv());
     const state = new MysqlRuntimeState(mysqlConfigFromEnv());
+    const workspace = await activeWorkspace(state);
     const context = new Context();
     const turnContext = new TurnContext();
     const id = sessionId();
-    const key = { mode: "SESSION" as const, identity: id };
-    const reservation = await state.reserveBinding(key);
-    await state.activateBindingAndProvisionSession(
-      header(id),
-      key,
-      reservation.binding.generation,
-      "dpl-example",
-      "affinity-secret",
-    );
+    const meta = header(id, workspacePath(workspace.id));
+    const claim = await state.claimTurn(id, "brain-a", 10_000, workspace.id, meta);
     const persistence = context.plugin(MysqlSessionPersistence, {
       connection: mysqlConfigFromEnv(),
       currentTurnClaim: (candidate) => turnContext.current(candidate),
@@ -384,7 +409,6 @@ describe.skipIf(!enabled)("MySQL SessionPersistence", () => {
     });
     try {
       await Promise.all([persistence.await(), spine.await()]);
-      const claim = await state.claimTurn(id, "brain-a", 10_000);
       const handle = await turnContext.run(claim, () => context.agents.resume({
         resumeSessionId: SessionId(id),
       }));

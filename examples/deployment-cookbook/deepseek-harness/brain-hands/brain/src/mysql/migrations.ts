@@ -23,13 +23,6 @@ export interface MigrationResult {
   readonly skipped: readonly string[];
 }
 
-export class MigrationChecksumMismatchError extends Error {
-  public constructor(readonly migration: string) {
-    super(`Applied migration ${migration} does not match the image checksum`);
-    this.name = "MigrationChecksumMismatchError";
-  }
-}
-
 export class MigrationLockTimeoutError extends Error {
   public constructor() {
     super("Timed out waiting for the MySQL migration lock");
@@ -98,8 +91,7 @@ export async function runMigrations(
         [migration.name],
       );
       const recorded = rows[0]?.checksum;
-      if (recorded !== undefined) {
-        if (recorded !== checksum) throw new MigrationChecksumMismatchError(migration.name);
+      if (recorded === checksum) {
         skipped.push(migration.name);
         continue;
       }
@@ -108,10 +100,11 @@ export async function runMigrations(
       // implicitly, so the advisory lock and checksum journal provide startup
       // serialization while a rerun completes a partially applied migration.
       await connection.query(migration.sql);
-      await connection.execute(
-        "INSERT INTO dsh_schema_migrations (migration_id, checksum) VALUES (?, ?)",
-        [migration.name, checksum],
-      );
+      await connection.execute(`
+        INSERT INTO dsh_schema_migrations (migration_id, checksum)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE checksum = VALUES(checksum), applied_at = CURRENT_TIMESTAMP(6)
+      `, [migration.name, checksum]);
       applied.push(migration.name);
     }
     return { applied, skipped };
