@@ -1,6 +1,6 @@
 # Deployment 与 Session 联动
 
-本教程通过 Session Metadata 保存 Deployment ID 和当前 affinity ID，将 Session 与有状态 Deployment 关联起来；随后仅根据 Session 恢复这两个值，并继续访问 Deployment。
+本教程演示如何让 Session 与 Deployment 协同工作：应用将 Deployment ID 和当前 affinity ID 记录到 Session Metadata，并在后续请求中从 Session 恢复路由上下文，继续访问同一 Deployment。
 
 Session 不拥有、也不校验被引用的 Deployment。Metadata 只保存不透明 ID，删除任意一方都不会级联删除另一方。
 

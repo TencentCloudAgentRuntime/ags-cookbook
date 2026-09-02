@@ -1,6 +1,6 @@
 # Deployment and Session Integration
 
-This tutorial associates a Session with a stateful Deployment by storing the Deployment ID and the current affinity ID in Session Metadata. It then restores both values from the Session and uses them for a later Deployment request.
+This tutorial demonstrates how a Session and a Deployment work together. The application records the Deployment ID and current affinity ID in Session Metadata, then restores the routing context from the Session for later requests to the same Deployment.
 
 Session does not own or validate the referenced Deployment. Metadata stores opaque IDs only, and deleting either resource does not delete the other.
 
