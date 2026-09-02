@@ -53,7 +53,7 @@ export SESSION_SPACE_ID='space-replace-me'
 
 ## 3. Create a shared Tool
 
-Both Deployments use one persistent httpbin Tool. `USE_REAL_HOSTNAME` makes `/hostname` return the backend hostname so the Hands routing reuse is visible.
+Both Deployments use one persistent httpbin Tool. `USE_REAL_HOSTNAME` makes `/hostname` return the backend hostname so the Hands routing reuse is visible. Enable it only for this tutorial; production services should not expose backend hostnames.
 
 ```bash
 agr tool create \

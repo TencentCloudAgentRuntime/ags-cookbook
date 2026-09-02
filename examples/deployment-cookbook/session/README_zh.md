@@ -53,7 +53,7 @@ export SESSION_SPACE_ID='space-replace-me'
 
 ## 3. 创建共享 Tool
 
-两个 Deployment 共用一个持久化 httpbin Tool。`USE_REAL_HOSTNAME` 使 `/hostname` 返回后端 hostname，从而直观展示 Hands 路由复用。
+两个 Deployment 共用一个持久化 httpbin Tool。`USE_REAL_HOSTNAME` 使 `/hostname` 返回后端 hostname，从而直观展示 Hands 路由复用。该配置仅用于本教程，生产服务不应暴露后端 hostname。
 
 ```bash
 agr tool create \
