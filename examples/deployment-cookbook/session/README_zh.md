@@ -7,9 +7,8 @@ Session Metadata 只保存不透明 ID。Session 与 Deployment 的生命周期�
 ## 前置条件
 
 - 已安装 `agr` v0.6.6 或更高版本，并先运行 `agr version` 和 `agr status`。
-- 已创建 SessionSpace，并从控制台或 API 响应中复制其 ID。
 - 已准备允许 AGR 拉取示例 CCR 镜像的 CAM 角色 ARN。
-- 账号具有管理 Sandbox Tool、Deployment、Session 以及获取 Deployment Token 的权限。
+- 账号具有管理 SessionSpace、Session、Sandbox Tool、Deployment 以及获取 Deployment Token 的权限。
 
 在本目录运行 `make run` 只会输出导航信息，不会创建云资源。
 
@@ -21,7 +20,7 @@ Session Metadata 只保存不透明 ID。Session 与 Deployment 的生命周期�
 export AGR_REGION=ap-shanghai
 export AGR_DOMAIN=tencentags.com
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export SESSION_SPACE_ID='space-replace-me'
+export SESSION_SPACE_NAME='deployment-session-your-name'
 export SESSION_USER_ID='user-demo'
 export BRAIN_SESSION_ID='brain-session-your-name'
 export HANDS_SESSION_ID='hands-session-your-name'
@@ -32,7 +31,27 @@ export HANDS_DEPLOYMENT_NAME='httpbin-hands-your-name'
 agr status
 ```
 
-## 2. 创建共享 Tool
+## 2. 创建 SessionSpace
+
+为本教程创建一个独立的 SessionSpace：
+
+```bash
+agr api call CreateSessionSpace \
+  --region "$AGR_REGION" \
+  --request '{
+    "Name":"'$SESSION_SPACE_NAME'",
+    "Description":"Session and Deployment integration cookbook"
+  }' \
+  --output json
+```
+
+从响应中复制 SessionSpace ID：
+
+```bash
+export SESSION_SPACE_ID='space-replace-me'
+```
+
+## 3. 创建共享 Tool
 
 两个 Deployment 共用一个持久化 httpbin Tool。`USE_REAL_HOSTNAME` 使 `/hostname` 返回后端 hostname，从而直观展示 Hands 路由复用。
 
@@ -66,7 +85,7 @@ agr tool create \
 export SESSION_TOOL_ID='sdt-replace-me'
 ```
 
-## 3. 创建 Brain 和 Hands Deployment
+## 4. 创建 Brain 和 Hands Deployment
 
 创建 Brain Deployment：
 
@@ -98,7 +117,7 @@ export BRAIN_DEPLOYMENT_ID='dpl-replace-me'
 export HANDS_DEPLOYMENT_ID='dpl-replace-me'
 ```
 
-## 4. 分别创建 Brain 和 Hands Session
+## 5. 分别创建 Brain 和 Hands Session
 
 创建 Brain Session，并记录 Brain Deployment ID：
 
@@ -136,7 +155,7 @@ agr api call CreateSession \
 
 创建 Session 时不会检查被引用的 Deployment 是否真实存在。
 
-## 5. 访问 Brain Deployment
+## 6. 访问 Brain Deployment
 
 获取并复制 Brain Deployment Token：
 
@@ -163,7 +182,7 @@ curl --silent --show-error \
 {"hostname":"brain-backend-a"}
 ```
 
-## 6. 访问 Hands 并保存 affinity
+## 7. 访问 Hands 并保存 affinity
 
 获取并复制 Hands Deployment Token：
 
@@ -216,7 +235,7 @@ agr api call ModifySession \
 
 Hands affinity 存在时必须同时存在 Hands Deployment。不传 `Metadata` 表示保持不变，传空数组表示清空全部 Metadata；空字符串是保存的值，不表示删除。
 
-## 7. 恢复两个 Session，并展示 Hands 复用
+## 8. 恢复两个 Session，并展示 Hands 复用
 
 读取 Brain Session，恢复 `BRAIN_DEPLOYMENT_ID`：
 
@@ -255,7 +274,7 @@ hostname               hands-backend-a    hands-backend-a
 
 affinity 与 hostname 同时一致，表示恢复出的路由上下文到达了相同的 Hands 后端。`BEST_EFFORT` 在原目标不可用时可以选择新目标；返回值发生变化时，应持久化最新 affinity。
 
-## 8. 通过 Deployment 反查各自的 Session
+## 9. 通过 Deployment 反查各自的 Session
 
 反查 Brain Session：
 
@@ -287,7 +306,7 @@ agr api call DescribeSessions \
 
 同一 Filter 中多个 Value 是 OR；多个 Filter 之间是 AND；匹配方式为精确匹配。
 
-## 9. 删除当前 Hands affinity
+## 10. 删除当前 Hands affinity
 
 如果需要保留 Hands Deployment 关联并删除 affinity，应替换完整 Metadata 数组：
 
@@ -307,9 +326,9 @@ agr api call ModifySession \
 
 切换 Hands Deployment 时，必须删除旧 affinity，或在新请求流程中使用新获得的不同 affinity。
 
-## 10. 清理
+## 11. 清理
 
-显式删除两个 Session、两个 Deployment 和共享 Tool：
+先删除两个 Session，再删除其 SessionSpace，最后删除两个 Deployment 和共享 Tool：
 
 ```bash
 agr api call DeleteSession \
@@ -320,6 +339,11 @@ agr api call DeleteSession \
 agr api call DeleteSession \
   --region "$AGR_REGION" \
   --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$HANDS_SESSION_ID'"}' \
+  --output json
+
+agr api call DeleteSessionSpace \
+  --region "$AGR_REGION" \
+  --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
   --output json
 
 agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
@@ -333,5 +357,6 @@ agr tool delete "$SESSION_TOOL_ID" --region "$AGR_REGION" --yes --wait
 
 - `InvalidParameter.Metadata`：检查空 Name、重复 Name、容量限制，或是否存在只有 Hands affinity、没有 Hands Deployment ID 的组合。
 - `ResourceNotFound`：确认 SessionSpace、两个 Session、Tool 和两个 Deployment 属于当前配置的地域与账号。
+- `ResourceInUse.SessionSpaceNotEmpty`：删除 SessionSpace 前，必须先删除其中的所有 Session。
 - Hands 请求返回了新的 affinity 或 hostname：`BEST_EFFORT` 在原目标不可用时允许迁移，请保存最新 affinity。
 - `ModifySession` 删除了无关 Metadata：该接口会替换完整 Metadata 数组，必须先读取、合并，再写回所有需要保留的项。

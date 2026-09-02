@@ -7,9 +7,8 @@ Session Metadata stores opaque IDs. Sessions and Deployments have independent li
 ## Prerequisites
 
 - Install `agr` v0.6.6 or later. Run `agr version` and `agr status` first.
-- Prepare a SessionSpace and copy its ID from the console or API response.
 - Prepare a CAM role ARN that allows AGR to pull the example CCR image.
-- Use an account that can manage Sandbox Tools, Deployments, and Sessions and acquire Deployment tokens.
+- Use an account that can manage SessionSpaces, Sessions, Sandbox Tools, and Deployments and acquire Deployment tokens.
 
 Run `make run` in this directory for navigation. The command does not create cloud resources.
 
@@ -21,7 +20,7 @@ Replace every placeholder. Keep both Sessions and Deployments in the same region
 export AGR_REGION=ap-shanghai
 export AGR_DOMAIN=tencentags.com
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export SESSION_SPACE_ID='space-replace-me'
+export SESSION_SPACE_NAME='deployment-session-your-name'
 export SESSION_USER_ID='user-demo'
 export BRAIN_SESSION_ID='brain-session-your-name'
 export HANDS_SESSION_ID='hands-session-your-name'
@@ -32,7 +31,27 @@ export HANDS_DEPLOYMENT_NAME='httpbin-hands-your-name'
 agr status
 ```
 
-## 2. Create a shared Tool
+## 2. Create a SessionSpace
+
+Create a dedicated SessionSpace for the tutorial:
+
+```bash
+agr api call CreateSessionSpace \
+  --region "$AGR_REGION" \
+  --request '{
+    "Name":"'$SESSION_SPACE_NAME'",
+    "Description":"Session and Deployment integration cookbook"
+  }' \
+  --output json
+```
+
+Copy the SessionSpace ID from the response:
+
+```bash
+export SESSION_SPACE_ID='space-replace-me'
+```
+
+## 3. Create a shared Tool
 
 Both Deployments use one persistent httpbin Tool. `USE_REAL_HOSTNAME` makes `/hostname` return the backend hostname so the Hands routing reuse is visible.
 
@@ -66,7 +85,7 @@ Copy the Tool ID:
 export SESSION_TOOL_ID='sdt-replace-me'
 ```
 
-## 3. Create Brain and Hands Deployments
+## 4. Create Brain and Hands Deployments
 
 Create the Brain Deployment:
 
@@ -98,7 +117,7 @@ export BRAIN_DEPLOYMENT_ID='dpl-replace-me'
 export HANDS_DEPLOYMENT_ID='dpl-replace-me'
 ```
 
-## 4. Create separate Brain and Hands Sessions
+## 5. Create separate Brain and Hands Sessions
 
 Create the Brain Session with its Brain Deployment ID:
 
@@ -136,7 +155,7 @@ agr api call CreateSession \
 
 Creating either Session does not check that the referenced Deployment exists.
 
-## 5. Access the Brain Deployment
+## 6. Access the Brain Deployment
 
 Acquire and copy the Brain Deployment token:
 
@@ -163,7 +182,7 @@ The response identifies the Brain backend, for example:
 {"hostname":"brain-backend-a"}
 ```
 
-## 6. Access Hands and persist its affinity
+## 7. Access Hands and persist its affinity
 
 Acquire and copy the Hands Deployment token:
 
@@ -216,7 +235,7 @@ agr api call ModifySession \
 
 Hands affinity may exist only when the Hands Deployment ID also exists. Omitting `Metadata` keeps it unchanged; an empty array clears all Metadata; an empty string is a stored value, not a deletion instruction.
 
-## 7. Restore both Sessions and demonstrate Hands reuse
+## 8. Restore both Sessions and demonstrate Hands reuse
 
 Read the Brain Session and restore `BRAIN_DEPLOYMENT_ID`:
 
@@ -255,7 +274,7 @@ hostname               hands-backend-a     hands-backend-a
 
 Matching affinity and hostname show that the restored routing context reached the same Hands backend. With `BEST_EFFORT`, the platform may select a new target if the old one becomes unavailable; persist the newly returned affinity whenever it changes.
 
-## 8. Find Sessions linked to each Deployment
+## 9. Find Sessions linked to each Deployment
 
 Find the Brain Session:
 
@@ -287,7 +306,7 @@ agr api call DescribeSessions \
 
 Values within one Filter are OR conditions; multiple Filters are AND conditions. Matching is exact.
 
-## 9. Remove the current Hands affinity
+## 10. Remove the current Hands affinity
 
 To retain the Hands Deployment association while removing the affinity, replace the full Metadata array:
 
@@ -307,9 +326,9 @@ agr api call ModifySession \
 
 When switching to another Hands Deployment, remove the old affinity or replace it with a different affinity obtained from the new request flow.
 
-## 10. Clean up
+## 11. Clean up
 
-Delete both Sessions, both Deployments, and the shared Tool explicitly:
+Delete both Sessions before deleting their SessionSpace, then delete both Deployments and the shared Tool:
 
 ```bash
 agr api call DeleteSession \
@@ -320,6 +339,11 @@ agr api call DeleteSession \
 agr api call DeleteSession \
   --region "$AGR_REGION" \
   --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$HANDS_SESSION_ID'"}' \
+  --output json
+
+agr api call DeleteSessionSpace \
+  --region "$AGR_REGION" \
+  --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
   --output json
 
 agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
@@ -333,5 +357,6 @@ Do not put Deployment tokens or affinity IDs in application logs, traces, screen
 
 - `InvalidParameter.Metadata`: check for duplicate/empty names, size limits, or a Hands affinity without a Hands Deployment ID.
 - `ResourceNotFound`: verify that SessionSpace, Sessions, Tool, and Deployments belong to the configured region and account.
+- `ResourceInUse.SessionSpaceNotEmpty`: delete every Session in the SessionSpace before deleting the SessionSpace.
 - The Hands request returns a new affinity or hostname: `BEST_EFFORT` allows migration when the previous target is unavailable; persist the latest affinity.
 - `ModifySession` removes an unrelated Metadata item: the API replaces the whole Metadata array, so read, merge, and write every item that must remain.
