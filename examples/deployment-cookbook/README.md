@@ -22,7 +22,7 @@ Run `make run` in this directory to list the available scenarios, then follow th
 | [httpbin/scaling](./httpbin/scaling/README.md) | Move from on-demand startup to warm capacity and understand full-replacement scaling updates. |
 | [httpbin/lifecycle](./httpbin/lifecycle/README.md) | Observe the `STOP` and `PAUSE` idle actions in sequence. |
 | [httpbin/affinity](./httpbin/affinity/README.md) | Compare `BEST_EFFORT`, `STRICT`, and `EXCLUSIVE` session affinity. |
-| [session](./session/README.md) | Persist Deployment and affinity IDs in Session Metadata, restore routing context, and find Sessions associated with a Deployment. |
+| [session](./session/README.md) | Associate separate Brain and Hands Sessions with their Deployments, restore Hands routing context, and demonstrate backend reuse. |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README.md) | Deploy all-in-one DeepSeek Harness, complete a coding task through TokenHub, and verify exclusive-session pause and resume. |
 
 Each scenario directory uses `README.md` for English and `README_zh.md` for Chinese. See [httpbin/dockerfiles](./httpbin/dockerfiles/README.md) for the source, build, and publication process of the httpbin image.
