@@ -2,18 +2,16 @@
 
 本教程把 DeepSeek Harness 的 Web UI、Agent Host 和命令执行环境放在同一个 Sandbox Instance 中，并通过一个 Deployment 对外提供服务。读者将完成以下链路：
 
-1. 使用固定版本镜像创建 Sandbox Tool。
+1. 使用已发布镜像创建 Sandbox Tool。
 2. 创建一个可缩至零、空闲后暂停、使用独占会话亲和的 Deployment。
 3. 通过 `agr deployment proxy` 打开 Web UI。
 4. 在 Web UI 中接入腾讯云 TokenHub，使用 Standard Agent 完成一个真实编码任务。
 5. 停止访问并观察实例进入 `PAUSED`，再用同一个 affinity ID 恢复工作区与会话。
 
-命令输出示例来自实际命令的结构，并对账号、资源 ID、时间和请求 ID 做了脱敏。不要直接复制示例输出中的占位值。
-
 ## 前置条件
 
 - 已安装 `agr`，当前账号可以创建和删除 Sandbox Tool、Deployment 与 Instance。
-- 已准备允许 AGR 拉取 CCR 镜像的 CAM 角色 ARN。
+- 已准备 Agent Runtime CAM 角色 ARN。下方已发布镜像是公共镜像；只有改用自己私有 CCR 或 TCR 仓库中的镜像时，才需要额外授予仓库拉取权限。
 - 本机端口 `18080` 可用。
 - 已开通腾讯云 TokenHub 并准备 API Key。TokenHub API 使用说明见[官方文档](https://cloud.tencent.com/document/product/1823/130078)。
 - 可以访问公共镜像 `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4`。
@@ -50,7 +48,7 @@ Auth:
 
 ## 2. 创建 DeepSeek Harness Tool
 
-Tool 使用固定版本镜像、`2 vCPU / 4 GiB` 资源和 `3080` HTTP 端口。启动参数允许容器监听 `0.0.0.0`，同时信任 `ap-shanghai` 的 Deployment 外部域名和网关转发到容器时使用的实例内部域名。`--allow-remote-management` 让这些受信任、且已经过 AGS Deployment Token 网关保护的请求可以完成 Provider、凭据和其他 Web UI 管理操作；它不会放行未命中 `trustedHosts` 的请求。镜像如何从官方源码构建见 [dockerfiles](./dockerfiles/README_zh.md)。
+Tool 使用已发布镜像、`2 vCPU / 4 GiB` 资源和 `3080` HTTP 端口，启动参数通过 AGS Deployment 网关开放 Web UI。可选的源码构建步骤见 [dockerfiles](./dockerfiles/README_zh.md)。
 
 ```bash
 agr tool create \
@@ -134,7 +132,7 @@ export DSH_TOOL_ID='sdt-replace-me'
 
 - `MinInstanceCount=0`：没有活跃会话时可以缩至零。
 - `IdleTimeoutSeconds=60` 与 `PAUSE`：最后一个 Deployment 连接结束 60 秒后，暂停实例但保留工作区状态。
-- `EXCLUSIVE`：每个 affinity ID 独占一个不可迁移的实例；`MaxInstanceCount=3` 因而也是同时存在的独占会话上限。
+- `EXCLUSIVE`：每个 affinity ID 独占一个实例；`MaxInstanceCount=3` 因而也是同时存在的独占会话上限。
 
 ```bash
 agr deployment create \
@@ -207,9 +205,9 @@ Press Ctrl+C to stop.
 Affinity ID: <masked-affinity-id>
 ```
 
-proxy 只适合本地调试。生产客户端应通过 `AcquireDeploymentToken` 接口获取短期 Token，再直接访问 Deployment 数据面域名。HTTP 端口的域名规则为 `https://{port}-{deployment-id}.{region}.agents.{data-plane-domain}`；默认数据面域名是 `tencentags.com`，因此本例为 `https://3080-{deployment-id}.ap-shanghai.agents.tencentags.com`。
+proxy 提供本地访问入口。生产客户端通过 `AcquireDeploymentToken` 获取短期 Token，并直接访问 `https://3080-{deployment-id}.ap-shanghai.agents.tencentags.com`。
 
-保持 proxy 运行，在浏览器打开 <http://127.0.0.1:18080>。如果首次启动需要创建实例，页面出现前会有一段冷启动等待；若首次请求因超过 proxy 的响应等待时间而显示 `Bad Gateway`，待实例启动后刷新页面即可。
+保持 proxy 运行，在浏览器打开 <http://127.0.0.1:18080>。如果首次启动需要创建实例，页面出现前会有一段冷启动等待。
 
 看到 affinity ID 后立即复制它，并在另一个终端设置环境变量；这个值将在恢复步骤使用：
 
@@ -232,7 +230,7 @@ export DSH_AFFINITY_ID='replace-with-proxy-output'
 
 创建提供方后，新建 Agent，选择 `Standard` preset，并选择 `tokenhub/deepseek-v4-flash` 模型。这里不安装额外插件，也不修改 DeepSeek Harness 的预设。
 
-发送任务前，把输入框旁的文件访问模式切换为 `Full access`。当前 all-in-one 镜像没有安装可供 DeepSeek Harness 使用的 OS 沙箱后端；如果保持 `workspace-write`，Agent 的 Bash 调用会失败并进入提权审批，页面将停在 `Waiting for approval`。本教程的独占实例只服务一个 affinity 会话，并且前面已经接受使用 root 运行，因此直接使用 `Full access`。
+发送任务前，把输入框旁的文件访问模式切换为 `Full access`。这与本教程每个 affinity session 使用专属实例的方式一致，也让 Agent 可以在整个 `/workspace` 中工作。
 
 ## 6. 完成第一个真实任务
 
@@ -260,7 +258,7 @@ export DSH_AFFINITY_ID='replace-with-proxy-output'
 
 ## 7. 观察空闲暂停
 
-回到 proxy 所在终端，按 `Ctrl+C` 结束连接。不要再访问本地页面，手工等待至少 60 秒；实例状态异步收敛，实际时间可能略长。
+回到 proxy 所在终端，按 `Ctrl+C` 结束连接，并让 Deployment 保持空闲至少 60 秒。
 
 在另一个终端查询该 Tool 的实例：
 
@@ -275,7 +273,7 @@ ID                    TOOL                                STATUS  TIMEOUT  EXPIR
 <masked-instance-id>  deepseek-harness-all-in-one-****    PAUSED  0s       -        -       <masked-time>
 ```
 
-如果仍是 `RUNNING`，继续保持无连接并稍后重新执行同一条查询命令；本教程不使用轮询脚本。
+重复查询，直到实例进入 `PAUSED`。
 
 ## 8. 恢复同一个独占会话
 
@@ -289,7 +287,7 @@ agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
   --affinity-id "$DSH_AFFINITY_ID"
 ```
 
-proxy 会恢复 affinity ID 对应的已暂停实例，而不是把会话迁移到另一个实例。重新打开 <http://127.0.0.1:18080>，确认之前的 Agent 会话和 `/workspace/todo-cli` 都仍然存在。
+proxy 会恢复 affinity ID 对应的已暂停实例。重新打开 <http://127.0.0.1:18080>，确认之前的 Agent 会话和 `/workspace/todo-cli` 都仍然存在。
 
 然后发送一个增量任务：
 
@@ -297,26 +295,21 @@ proxy 会恢复 affinity ID 对应的已暂停实例，而不是把会话迁移�
 继续修改同一个 /workspace/todo-cli 项目：增加 clear-completed 命令，删除所有已完成事项；补充测试和 README，并再次运行 node --test。不要重写已有实现。
 ```
 
-验收 `clear-completed` 后，本例同时证明了独占 affinity 路由、`PAUSE` 恢复和工作区连续性。
+验收 `clear-completed` 后，本例完成了独占 affinity 路由、`PAUSE` 恢复和工作区连续性验证。
 
 ## 9. 清理资源
 
-完成验收后先按 `Ctrl+C` 停止 proxy，再删除 Deployment：
+完成验收后先按 `Ctrl+C` 停止 proxy。列出实例，并复制本教程创建的当前 `RUNNING` 或 `PAUSED` 实例 ID：
 
 ```bash
-agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$DSH_TOOL_ID" --region "$AGR_REGION"
-```
-
-如果仍有非 `STOPPED` 实例，逐个复制实例 ID，先设置环境变量再删除：
-
-```bash
 export DSH_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$DSH_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-最后删除 Tool：
+删除实例、Deployment 和 Tool：
 
 ```bash
+agr instance delete "$DSH_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr tool delete "$DSH_TOOL_ID" --region "$AGR_REGION" --yes --wait
 ```

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="500" viewBox="0 0 1040 500" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeek Harness Brain and Hands architecture</title>
+  <desc id="desc">DSH Web reaches interchangeable Brain replicas. MySQL stores shared state. Brain selects either an Ubuntu or Alpine Hands Deployment. Each Hands instance includes envd and its complete persistent filesystem.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#e2e8f0" stroke-width=".6"/></pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>
+    <style>.bg{fill:#f8fafc}.frame{fill:#eff6ff;stroke:#93c5fd;stroke-width:1.5}.node{fill:#fff;stroke:#2563eb;stroke-width:1.8}.hands{fill:#f0fdf4;stroke:#16a34a;stroke-width:1.8}.db{fill:#faf5ff;stroke:#7c3aed;stroke-width:1.8}.title{font:700 19px ui-sans-serif,system-ui,sans-serif;fill:#0f172a}.frameTitle{font:600 13px ui-sans-serif,system-ui,sans-serif;fill:#1d4ed8}.label{font:600 15px ui-sans-serif,system-ui,sans-serif;fill:#0f172a}.sub{font:13px ui-sans-serif,system-ui,sans-serif;fill:#475569}.edge{fill:none;stroke:#2563eb;stroke-width:2;marker-end:url(#arrow)}.edgeLabel{font:600 12px ui-sans-serif,system-ui,sans-serif;fill:#1d4ed8}</style>
+  </defs>
+  <rect width="1040" height="500" class="bg"/><rect width="1040" height="500" fill="url(#grid)"/>
+  <text x="42" y="44" class="title">Stateless Brain · OS-specific persistent Hands</text>
+
+  <rect x="40" y="190" width="160" height="90" rx="14" class="node"/>
+  <text x="120" y="226" text-anchor="middle" class="label">DSH Web</text>
+  <text x="120" y="252" text-anchor="middle" class="sub">Workspace · Chat · Settings</text>
+
+  <rect x="250" y="80" width="330" height="290" rx="18" class="frame"/>
+  <text x="272" y="108" class="frameTitle">Brain Deployment · ap-shanghai</text>
+  <rect x="280" y="142" width="125" height="92" rx="12" class="node"/>
+  <text x="342.5" y="179" text-anchor="middle" class="label">Brain replica</text>
+  <text x="342.5" y="204" text-anchor="middle" class="sub">DSH 0.1.1-rc.2</text>
+  <rect x="425" y="142" width="125" height="92" rx="12" class="node"/>
+  <text x="487.5" y="179" text-anchor="middle" class="label">Brain replica</text>
+  <text x="487.5" y="204" text-anchor="middle" class="sub">DSH 0.1.1-rc.2</text>
+  <text x="415" y="282" text-anchor="middle" class="label">Interchangeable replicas</text>
+  <text x="415" y="308" text-anchor="middle" class="sub">DSH Web :3080 · concurrency 200</text>
+  <text x="415" y="332" text-anchor="middle" class="sub">Workspace orchestration · E2B client</text>
+
+  <rect x="330" y="400" width="170" height="70" rx="12" class="db"/>
+  <text x="415" y="429" text-anchor="middle" class="label">MySQL 8</text>
+  <text x="415" y="452" text-anchor="middle" class="sub">Workspace + session state</text>
+
+  <rect x="650" y="88" width="330" height="154" rx="18" class="frame"/>
+  <text x="672" y="116" class="frameTitle">Ubuntu Hands Deployment</text>
+  <rect x="682" y="136" width="266" height="82" rx="12" class="hands"/>
+  <text x="815" y="169" text-anchor="middle" class="label">Hands instance · Ubuntu</text>
+  <text x="815" y="194" text-anchor="middle" class="sub">envd :49983 · complete filesystem retained</text>
+
+  <rect x="650" y="286" width="330" height="154" rx="18" class="frame"/>
+  <text x="672" y="314" class="frameTitle">Alpine Hands Deployment</text>
+  <rect x="682" y="334" width="266" height="82" rx="12" class="hands"/>
+  <text x="815" y="367" text-anchor="middle" class="label">Hands instance · Alpine</text>
+  <text x="815" y="392" text-anchor="middle" class="sub">envd :49983 · complete filesystem retained</text>
+
+  <path d="M200 235H250" class="edge"/>
+  <path d="M415 370V400" class="edge"/>
+  <path d="M580 188H615V165H682" class="edge"/>
+  <path d="M580 262H615V375H682" class="edge"/>
+  <text x="222" y="224" class="edgeLabel">Web</text>
+  <text x="425" y="390" class="edgeLabel">SQL</text>
+  <text x="603" y="154" class="edgeLabel">E2B</text>
+  <text x="603" y="364" class="edgeLabel">E2B</text>
+</svg>

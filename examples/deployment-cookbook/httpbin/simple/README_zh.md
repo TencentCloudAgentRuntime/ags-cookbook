@@ -2,7 +2,9 @@
 
 本教程创建一个自定义 Sandbox Tool 和一个 Deployment，分别通过本地调试代理与生产数据面域名访问 httpbin，最后删除资源。弹性、生命周期和会话亲和由相邻教程独立讲解。
 
-所有命令都直接在终端执行。资源 ID 不会自动提取；请从输出中复制真实值，并在下一步设置环境变量。示例输出中的账号、资源 ID、时间和请求 ID均已脱敏。
+开始前，请完成 [httpbin 公共前置条件](../README_zh.md#前置条件)。
+
+所有命令都直接在终端执行。请从输出中复制资源 ID，并在下一步设置环境变量。示例输出中的账号、资源 ID、时间和请求 ID 均已脱敏。
 
 ## 1. 检查 AGR 配置
 
@@ -35,7 +37,7 @@ Auth:
 
 ## 2. 创建 httpbin Sandbox Tool
 
-Tool 使用固定版本镜像，并向 Deployment 暴露容器的 `8080` 端口。镜像来源与构建方法见 [dockerfiles](../dockerfiles/README_zh.md)。
+Tool 使用已发布镜像，并向 Deployment 暴露容器的 `8080` 端口。构建方法见 [dockerfiles](../dockerfiles/README_zh.md)。
 
 ```bash
 agr tool create \
@@ -138,9 +140,9 @@ agr deployment get "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION"
 agr deployment list --region "$AGR_REGION"
 ```
 
-## 4. 通过本地 proxy 调试
+## 4. 通过本地 proxy 访问
 
-`proxy` 只适合本地调试。它会占用当前终端并监听 `127.0.0.1:18080`：
+`proxy` 在 `127.0.0.1:18080` 提供本地访问入口，并会占用当前终端：
 
 ```bash
 agr deployment proxy "$HTTPBIN_DEPLOYMENT_ID" 18080:8080 --region "$AGR_REGION"
@@ -234,14 +236,14 @@ agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 
-若仍有非 `STOPPED` 实例，逐个复制实例 ID 并删除：
+复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
 
 ```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-最后删除 Tool：
+删除 Tool：
 
 ```bash
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

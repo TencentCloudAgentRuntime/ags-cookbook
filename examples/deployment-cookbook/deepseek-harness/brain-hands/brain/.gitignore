@@ -1,0 +1,7 @@
+.env
+.local/
+dist/
+node_modules/
+coverage/
+!tsconfig.json
+!tsconfig.build.json

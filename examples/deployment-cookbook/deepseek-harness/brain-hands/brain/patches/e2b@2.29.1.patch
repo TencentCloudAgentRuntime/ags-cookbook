@@ -1,0 +1,42 @@
+diff --git a/dist/index.js b/dist/index.js
+index d36b338680a1768966816d0e53a14b2d99b9296d..7c84b97fd11405ac31f35a2f202951961e90f80e 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -4466,7 +4466,7 @@ var Sandbox = class extends SandboxApi {
+         }
+         options = __spreadProps(__spreadValues({}, options != null ? options : {}), {
+           headers,
+-          redirect: "follow"
++          redirect: "error"
+         });
+         return envdRpcFetch(url, options);
+       }
+@@ -4480,6 +4480,6 @@ var Sandbox = class extends SandboxApi {
+           "User-Agent": (_c = (_b = this.connectionConfig.headers) == null ? void 0 : _b["User-Agent"]) != null ? _c : ""
+         }, sandboxHeaders), this.envdAccessToken ? { "X-Access-Token": this.envdAccessToken } : {}),
+-        fetch: (request) => envdFetch(request)
++        fetch: (request) => envdFetch(new Request(request, { redirect: "error" }))
+       },
+       {
+         version: opts.envdVersion
+diff --git a/dist/index.mjs b/dist/index.mjs
+index c9fbed93252296cc951ef2e14584cf6982ec1378..8989e74db16bf607fefc3a0211a8201544cf9907 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -4423,7 +4423,7 @@ var Sandbox = class extends SandboxApi {
+         }
+         options = __spreadProps(__spreadValues({}, options != null ? options : {}), {
+           headers,
+-          redirect: "follow"
++          redirect: "error"
+         });
+         return envdRpcFetch(url, options);
+       }
+@@ -4437,6 +4437,6 @@ var Sandbox = class extends SandboxApi {
+           "User-Agent": (_c = (_b = this.connectionConfig.headers) == null ? void 0 : _b["User-Agent"]) != null ? _c : ""
+         }, sandboxHeaders), this.envdAccessToken ? { "X-Access-Token": this.envdAccessToken } : {}),
+-        fetch: (request) => envdFetch(request)
++        fetch: (request) => envdFetch(new Request(request, { redirect: "error" }))
+       },
+       {
+         version: opts.envdVersion

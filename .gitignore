@@ -45,7 +45,6 @@ enhanced_demo_output/
 *.jpg
 *.jpeg
 *.csv
-*.json
 !package.json
 !package-lock.json
 # pnpm-lock.yaml is not matched by *.json, but kept here to guard against

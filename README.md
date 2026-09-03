@@ -40,6 +40,10 @@ go install github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@latest
 agr version -o json
 ```
 
+For first-time credential setup, follow the
+[official AGR CLI configuration guide](https://github.com/TencentCloudAgentRuntime/ags-cli#initialize-cli-credentials),
+then run `agr status` and `agr doctor` before starting an example.
+
 ## Common environment variables
 
 ### AGS / E2B-compatible runtime
@@ -86,7 +90,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
-| `deployment-cookbook` | agr CLI + Markdown | Deployment, scaling, lifecycle, affinity, and persistent agent workspace scenarios |
+| [`deployment-cookbook`](./examples/deployment-cookbook/README.md) | agr CLI + Markdown + Python | Deployment, scaling, lifecycle, affinity, native MCP server, and persistent agent workspace scenarios |
 | `envd-oci-env` | Bash + Docker + agr | Preserve OCI image environment variables when envd is PID 1 |
 | `harness-nix-volume` | Nix + custom image + image volume | Self-contained Harness dependency mount |
 | `html-processing` | Python + browser/code sandboxes | Dual-sandbox HTML pipeline |
@@ -99,7 +103,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |
 | `waa-ags` | Python + Windows sandbox + LLM | Run Windows Agent Arena on AGS via a small overlay |
 
-See `examples/README.md` for per-example details and a starter/advanced/heavy picker.
+See [examples/README.md](./examples/README.md) for per-example details and a starter/advanced/heavy picker.
 
 ## Skills overview
 

@@ -1,8 +1,10 @@
 # httpbin Deployment 空闲生命周期
 
-本教程独立创建一个 httpbin Deployment，先观察空闲后的 `STOP`，再通过完整配置更新切换到 `PAUSE`。`STOP` 释放 Sandbox Instance；`PAUSE` 保留实例状态以供恢复。httpbin 是无状态服务，因此本例验证实例状态与请求恢复，不把响应内容当作状态持久性的证明。
+本教程独立创建一个 httpbin Deployment，先观察空闲后的 `STOP`，再通过完整配置更新切换到 `PAUSE`。`STOP` 释放 Sandbox Instance；`PAUSE` 保留实例状态供下一次请求继续使用。
 
-所有命令都直接在终端执行。请手工复制资源 ID 和 Token，并自行计时等待；文档不使用提取、轮询或等待脚本。示例输出中的真实信息均已脱敏。
+开始前，请完成 [httpbin 公共前置条件](../README_zh.md#前置条件)。
+
+所有命令都直接在终端执行，请从输出中复制资源 ID 和 Token，并按各步骤给出的时间等待。示例输出中的真实信息均已脱敏。
 
 ## 1. 设置环境变量并创建 Tool
 
@@ -213,7 +215,7 @@ ID                    TOOL                         STATUS  TIMEOUT  EXPIRES  MOU
 <masked-instance-id>  httpbin-lifecycle-****       PAUSED  0s       -        -       <masked-time>
 ```
 
-再次发送同一请求，Deployment 会恢复可用容量。`PAUSE` 保证保留实例状态，但不承诺固定恢复延迟。
+再次发送同一请求，Deployment 会恢复该实例与可用容量。
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -223,20 +225,17 @@ curl --fail-with-body --silent --show-error \
 
 ## 5. 清理资源
 
+列出实例，并复制本教程创建的当前 `RUNNING` 或 `PAUSED` 实例 ID：
+
 ```bash
-agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
-```
-
-`PAUSE` 实验后可能仍能看到暂停实例。逐个复制非 `STOPPED` 实例 ID 并删除：
-
-```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-最后删除 Tool：
+删除实例、Deployment 和 Tool：
 
 ```bash
+agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait
 ```

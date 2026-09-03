@@ -1,0 +1,20 @@
+diff --git a/lib/client.js b/lib/client.js
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -1391,15 +1391,6 @@
+ 										},
+ 										drag: workspaceDragProps,
+-										actions: group.workspaceId === void 0 ? void 0 : {
+-											rename: () => {
+-												/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+-												if (group.workspaceId !== void 0) onRenameRequest(group.workspaceId, group.label);
+-											},
+-											delete: () => {
+-												/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+-												if (group.workspaceId !== void 0) onDeleteRequest(group.workspaceId, group.label);
+-											}
+-										}
++										actions: void 0
+ 									}),
+ 									(expandedSessionGroups.includes(group.key) ? group.sessions : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)).map((node) => {
+ 										const sameGroupDrag = drag !== null && drag.accountKey === group.key;

@@ -1,36 +1,29 @@
-# go-httpbin Image
+# Build a go-httpbin image in your registry (optional)
 
-The Deployment examples use this pinned public image:
+The deployment tutorials use this published image, so you can skip this page:
 
 ```text
 ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0
 ```
 
-The Dockerfile uses the upstream image `ghcr.io/mccutchen/go-httpbin:2.25.0`, which corresponds to go-httpbin release `v2.25.0`. It does not override the entrypoint, preserving the upstream non-root runtime, default port `8080`, and httpbin behavior. The CCR image consistently uses the version tag `v2.25.0`.
+The Dockerfile uses the upstream `ghcr.io/mccutchen/go-httpbin:2.25.0` image.
 
-## Build and publish
+## Build and push a private copy
 
-Log in to CCR first:
-
-```bash
-docker login ccr.ccs.tencentyun.com
-```
-
-Run a multi-platform build from this directory and push it directly:
+Install Docker with Buildx, prepare a registry namespace you can push to, and run these commands from this directory:
 
 ```bash
+export HTTPBIN_REGISTRY='<your-registry-host>'
+export HTTPBIN_IMAGE="${HTTPBIN_REGISTRY}/<your-namespace>/go-httpbin:v2.25.0"
+
+docker login "$HTTPBIN_REGISTRY"
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --tag ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0 \
+  --tag "$HTTPBIN_IMAGE" \
   --push \
   .
+
+docker buildx imagetools inspect "$HTTPBIN_IMAGE"
 ```
 
-Verify the remote manifest:
-
-```bash
-docker buildx imagetools inspect \
-  ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0
-```
-
-When upgrading the image, update the upstream version in the Dockerfile, the CCR tag, and every Markdown tutorial image reference together, then rerun all four examples.
+Replace `Image` in the tutorial's Tool definition with the printed image reference. Keep `ImageRegistryType` as `personal` for CCR, or use `enterprise` for TCR Enterprise. The Agent Runtime CAM role must be able to pull from your repository.

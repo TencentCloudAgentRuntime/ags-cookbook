@@ -1,0 +1,81 @@
+- id: web-startup
+  disabled: true
+
+- id: session-persistence-jsonl
+  disabled: true
+
+- id: settings
+  disabled: true
+
+- id: credentials
+  disabled: true
+
+- id: directory-picker
+  disabled: true
+
+- id: llm-deepseek
+  disabled: true
+
+- id: llm-pi-ai
+  config:
+    providers:
+      tokenhub:
+        displayName: Tencent Cloud TokenHub
+        apiKeyEnv: TOKENHUB_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.TOKENHUB_BASE_URL ?? 'https://tokenhub.tencentmaas.com/v1'
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: !!js process.env.TOKENHUB_MODEL ?? 'deepseek-v4-flash'
+            contextWindow: 128000
+            maxTokens: !!js Number(process.env.TOKENHUB_MAX_TOKENS ?? '16384')
+
+- id: agent-default-model
+  config:
+    provider: tokenhub
+    model: !!js process.env.TOKENHUB_MODEL ?? 'deepseek-v4-flash'
+
+- id: agent-loop
+  config:
+    agents: []
+    maxParallelToolCalls: 1
+
+- id: system-prompt
+  config:
+    persona: You are the Brain. Use the provided Hands tools for all workspace operations.
+
+- id: agent-presets
+  disabled: true
+
+- insert:
+    - id: ags-web-startup
+      name: file:///app/dist/web/startup.js
+
+    - id: ags-settings-mysql
+      name: file:///app/dist/web/mysql-settings.js
+
+    - id: ags-credentials-environment
+      name: file:///app/dist/web/environment-credentials.js
+
+    - id: ags-directory-picker
+      name: file:///app/dist/web/directory-picker.js
+
+    - id: ags-web-runtime
+      name: file:///app/dist/web/runtime.js
+
+    - id: ags-workspace-api
+      name: file:///app/dist/web/workspace-api.js
+
+    - id: ags-workspace-flow
+      name: '@ags-cookbook/dsh-workspace-flow'
+
+    - id: ags-session-persistence-mysql
+      name: file:///app/dist/web/mysql-session-persistence.js
+      config:
+        connection:
+          host: !!js process.env.MYSQL_HOST
+          port: !!js Number(process.env.MYSQL_PORT ?? '3306')
+          user: !!js process.env.MYSQL_USER
+          password: !!js process.env.MYSQL_PASSWORD
+          database: !!js process.env.MYSQL_DATABASE

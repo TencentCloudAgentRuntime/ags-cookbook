@@ -8,5 +8,7 @@ run:
 	@echo "  httpbin/scaling"
 	@echo "  httpbin/lifecycle"
 	@echo "  httpbin/affinity"
-	@echo "  session"
+	@echo "  mcp-server/simple"
 	@echo "  deepseek-harness/all-in-one"
+	@echo "  deepseek-harness/brain-hands"
+	@echo "  session"
