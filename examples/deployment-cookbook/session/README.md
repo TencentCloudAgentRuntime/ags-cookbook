@@ -1,362 +1,339 @@
-# Deployment and Session Integration
+# Persist multi-turn agent conversations from a Brain Deployment with Session
 
-This tutorial demonstrates how Brain and Hands Deployments work with their own Sessions. The Brain Session records the Brain Deployment ID. The Hands Session records the Hands Deployment ID and current affinity ID so a later request can restore the same Hands routing context.
+This tutorial shows how to connect a DeepSeek Harness (DSH) Agent Loop running in a Brain Deployment to Tencent Cloud Agent Runtime Session. After running the example, three conversation turns share the same context, with the conversation and execution events continuously persisted to Session. You can then use the Brain Deployment ID to find the associated Sessions and Events.
 
-Session Metadata stores opaque IDs. Sessions and Deployments have independent lifecycles, so deleting one does not delete the other.
+The included [`SessionPersistence` plugin](./plugin/index.js) creates and restores Sessions, writes Events, and lets DSH restore context from Session. It is both a runnable DSH implementation and a reference for integrating other Agents with Session. To use another Agent framework, adapt the plugin to its conversation lifecycle interfaces.
 
 ## Prerequisites
 
-- Install `agr` v0.6.6 or later. Run `agr version` and `agr status` first.
-- Prepare a CAM role ARN that allows AGR to pull the example CCR image.
-- Use an account that can manage SessionSpaces, Sessions, Sandbox Tools, and Deployments and acquire Deployment tokens.
+- Install `agr` v0.6.6 or later and configure Tencent Cloud credentials.
+- Prepare the CAM role ARN required to create a custom Sandbox Tool.
+- Use an account that can manage SessionSpaces, Sessions, Sandbox Tools, and Deployments, and append and read Events.
+- Prepare a TokenHub API key. The example image includes provider settings for TokenHub and the `deepseek-v4-flash` model.
+- Use Python 3.10 or later and install `jq`.
 
-Run `make run` in this directory for navigation. The command does not create cloud resources.
+## 1. Configure the environment
 
-## 1. Set environment variables
-
-Replace every placeholder. Keep both Sessions and Deployments in the same region.
+The following example uses the Shanghai region:
 
 ```bash
 export AGR_REGION=ap-shanghai
 export AGR_DOMAIN=tencentags.com
+export SESSION_API_ENDPOINT=ags.tencentcloudapi.com
+```
+
+These variables specify the deployment region, Deployment data-plane domain, and Session Cloud API endpoint. Change `AGR_REGION` when deploying elsewhere.
+
+Set resource names, image, and credentials:
+
+```bash
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export SESSION_SPACE_NAME='deployment-session-your-name'
-export SESSION_USER_ID='user-demo'
-export BRAIN_SESSION_ID='brain-session-your-name'
-export HANDS_SESSION_ID='hands-session-your-name'
-export SESSION_TOOL_NAME='httpbin-session-your-name'
-export BRAIN_DEPLOYMENT_NAME='httpbin-brain-your-name'
-export HANDS_DEPLOYMENT_NAME='httpbin-hands-your-name'
+export SESSION_SPACE_NAME='dsh-brain-session-your-name'
+export SESSION_USER_ID='dsh-demo-user'
+export DSH_TOOL_NAME='dsh-brain-session-your-name'
+export DSH_DEPLOYMENT_NAME='dsh-brain-session-your-name'
+export DSH_SESSION_IMAGE='ccr.ccs.tencentyun.com/ags.dev/dsh-session:v0.1.1'
+
+export TENCENTCLOUD_SECRET_ID='replace-me'
+export TENCENTCLOUD_SECRET_KEY='replace-me'
+# Set this only for temporary credentials:
+# export TENCENTCLOUD_SESSION_TOKEN='replace-me'
 
 agr status
 ```
 
-## 2. Create a SessionSpace
+| Variable | Required | Description |
+| --- | --- | --- |
+| `AGR_ROLE_ARN` | Yes | CAM role ARN used to create the custom Sandbox Tool. |
+| `SESSION_SPACE_NAME` | When creating a SessionSpace | Name of the new SessionSpace. It is not used when you reuse an existing SessionSpace. |
+| `SESSION_USER_ID` | Yes | User identifier that owns the example conversation. Keep it consistent when creating, querying, and deleting the Session. |
+| `DSH_TOOL_NAME` | Yes | Name of the Sandbox Tool that runs the DSH image. Use a unique name. |
+| `DSH_DEPLOYMENT_NAME` | Yes | Name of the Brain Deployment. Use a unique name. |
+| `DSH_SESSION_IMAGE` | Yes | DSH image containing the `SessionPersistence` plugin. The default is the public image published for this tutorial. |
+| `TENCENTCLOUD_SECRET_ID` | Yes | Tencent Cloud SecretId used by the in-container plugin to call the Session Cloud API. It is separate from credentials configured for the local `agr` client. |
+| `TENCENTCLOUD_SECRET_KEY` | Yes | SecretKey paired with the SecretId. |
+| `TENCENTCLOUD_SESSION_TOKEN` | For temporary credentials | Session Token paired with temporary credentials. Leave it unset when using a long-term key. |
 
-Create a dedicated SessionSpace for the tutorial:
+For a compact end-to-end example, this tutorial passes Cloud API credentials to the plugin through Tool environment variables. Use a dedicated sub-account or temporary credentials with only the Session permissions required by this tutorial. Never use root-account credentials or store secrets in the image or repository.
+
+## 2. Create or reuse a SessionSpace
+
+A SessionSpace is the isolation boundary for Sessions. To reuse an existing SessionSpace:
+
+```bash
+export SESSION_SPACE_ID='space-replace-me'
+```
+
+Otherwise create a dedicated SessionSpace:
 
 ```bash
 agr api call CreateSessionSpace \
   --region "$AGR_REGION" \
   --request '{
     "Name":"'$SESSION_SPACE_NAME'",
-    "Description":"Session and Deployment integration cookbook"
+    "Description":"DSH Brain conversations"
   }' \
   --output json
+
+export SESSION_SPACE_ID='space-copy-from-response'
+export SESSION_SPACE_CREATED_BY_TUTORIAL=1
 ```
 
-Copy the SessionSpace ID from the response:
+## 3. Use the DSH Session image
+
+The main workflow uses the example image published under `ags.dev`. It extends the standard DSH image with this tutorial's `SessionPersistence` plugin, so DSH stores conversations and execution events in Agent Runtime Session instead of local container files. The image also includes non-secret TokenHub provider and model settings.
+
+You do not need to build an image to run this tutorial.
+
+### Custom image (optional)
+
+To modify the plugin or integrate it into your own Agent image, install Docker, prepare a CCR repository, and run:
 
 ```bash
-export SESSION_SPACE_ID='space-replace-me'
+export DSH_SESSION_IMAGE='ccr.ccs.tencentyun.com/your-namespace/dsh-session:latest'
+
+docker build \
+  --platform linux/amd64 \
+  --file dockerfiles/Dockerfile \
+  --tag "$DSH_SESSION_IMAGE" \
+  .
+
+docker push "$DSH_SESSION_IMAGE"
 ```
 
-## 3. Create a shared Tool
+The remaining steps use the customized `DSH_SESSION_IMAGE` directly and require no other changes.
 
-Both Deployments use one persistent httpbin Tool. `USE_REAL_HOSTNAME` makes `/hostname` return the backend hostname so the Hands routing reuse is visible. Enable it only for this tutorial; production services should not expose backend hostnames.
+## 4. Create the Brain Tool and Deployment
+
+Create the Sandbox Tool that runs DSH:
 
 ```bash
+export DSH_CUSTOM_CONFIGURATION="$(
+  jq -n \
+    --arg image "$DSH_SESSION_IMAGE" \
+    --arg region "$AGR_REGION" \
+    --arg domain "$AGR_DOMAIN" \
+    --arg endpoint "$SESSION_API_ENDPOINT" \
+    --arg space "$SESSION_SPACE_ID" \
+    --arg user "$SESSION_USER_ID" \
+    --arg sid "$TENCENTCLOUD_SECRET_ID" \
+    --arg skey "$TENCENTCLOUD_SECRET_KEY" \
+    --arg token "${TENCENTCLOUD_SESSION_TOKEN:-}" \
+    '{
+      Image:$image,
+      ImageRegistryType:"personal",
+      Command:["/opt/dsh/entrypoint.sh"],
+      Args:[],
+      Env:[
+        {Name:"AGR_REGION",Value:$region},
+        {Name:"AGR_DOMAIN",Value:$domain},
+        {Name:"SESSION_API_ENDPOINT",Value:$endpoint},
+        {Name:"SESSION_SPACE_ID",Value:$space},
+        {Name:"SESSION_USER_ID",Value:$user},
+        {Name:"TENCENTCLOUD_SECRET_ID",Value:$sid},
+        {Name:"TENCENTCLOUD_SECRET_KEY",Value:$skey},
+        {Name:"TENCENTCLOUD_SESSION_TOKEN",Value:$token}
+      ],
+      Ports:[{Name:"web",Port:3080,Protocol:"TCP"}],
+      Resources:{CPU:"2",Memory:"4Gi"},
+      Probe:{HttpGet:{Path:"/",Port:3080,Scheme:"HTTP"},ReadyTimeoutMs:30000,ProbeTimeoutMs:3000,ProbePeriodMs:3000,SuccessThreshold:1,FailureThreshold:10}
+    }'
+)"
+
 agr tool create \
   --region "$AGR_REGION" \
-  --tool-name "$SESSION_TOOL_NAME" \
+  --tool-name "$DSH_TOOL_NAME" \
   --tool-type custom \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{
-    "Image":"ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0",
-    "ImageRegistryType":"personal",
-    "Command":["/bin/go-httpbin"],
-    "Args":["-host","0.0.0.0","-port","8080"],
-    "Env":[
-      {"Name":"EXCLUDE_HEADERS","Value":"X-Access-Token"},
-      {"Name":"USE_REAL_HOSTNAME","Value":"true"}
-    ],
-    "Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],
-    "Resources":{"CPU":"200m","Memory":"500Mi"},
-    "Probe":{"HttpGet":{"Path":"/status/200","Port":8080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":1000,"ProbePeriodMs":3000,"SuccessThreshold":1,"FailureThreshold":10}
-  }' \
+  --custom-configuration "$DSH_CUSTOM_CONFIGURATION" \
   --wait
+
+export DSH_TOOL_ID='sdt-copy-from-response'
 ```
 
-Copy the Tool ID:
-
-```bash
-export SESSION_TOOL_ID='sdt-replace-me'
-```
-
-## 4. Create Brain and Hands Deployments
-
-Create the Brain Deployment:
+Create a Brain Deployment with exclusive affinity so the DSH Web UI and conversation requests continue to reach the same stateful instance. The affinity ID is used only for Deployment routing and is not stored in Session Metadata:
 
 ```bash
 agr deployment create \
   --region "$AGR_REGION" \
-  --deployment-name "$BRAIN_DEPLOYMENT_NAME" \
-  --tool-id "$SESSION_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":10}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}'
+  --deployment-name "$DSH_DEPLOYMENT_NAME" \
+  --tool-id "$DSH_TOOL_ID" \
+  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":1,"MaxInstanceRequestConcurrency":100}' \
+  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"PAUSE"}' \
+  --affinity-configuration '{"Mode":"EXCLUSIVE","HeaderName":"X-Tencent-Agr-Affinity-Id"}'
+
+export DSH_DEPLOYMENT_ID='dpl-copy-from-response'
 ```
 
-Create the affinity-enabled Hands Deployment:
+Add the new Brain Deployment ID to the Tool configuration. The plugin uses it to associate every Session created afterward:
 
 ```bash
-agr deployment create \
+export DSH_CUSTOM_CONFIGURATION="$(
+  jq --arg deployment "$DSH_DEPLOYMENT_ID" \
+    '.Env += [{Name:"BRAIN_DEPLOYMENT_ID",Value:$deployment}]' \
+    <<<"$DSH_CUSTOM_CONFIGURATION"
+)"
+
+agr tool update "$DSH_TOOL_ID" \
   --region "$AGR_REGION" \
-  --deployment-name "$HANDS_DEPLOYMENT_NAME" \
-  --tool-id "$SESSION_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":10}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}' \
-  --affinity-configuration '{"Mode":"BEST_EFFORT","HeaderName":"X-Session-Affinity"}'
+  --custom-configuration "$DSH_CUSTOM_CONFIGURATION" \
+  --wait
+
+unset DSH_CUSTOM_CONFIGURATION
 ```
 
-Copy both Deployment IDs:
+## 5. Configure the DSH Agent
+
+Start a local proxy:
 
 ```bash
-export BRAIN_DEPLOYMENT_ID='dpl-replace-me'
-export HANDS_DEPLOYMENT_ID='dpl-replace-me'
+agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
+  --region "$AGR_REGION"
 ```
 
-## 5. Create separate Brain and Hands Sessions
-
-Create the Brain Session with its Brain Deployment ID:
+Copy the affinity ID from the proxy output so the example client reaches the same DSH instance:
 
 ```bash
-agr api call CreateSession \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$BRAIN_SESSION_ID'",
-    "Title":"Brain session demo",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/brain-deployment-id","Value":"'$BRAIN_DEPLOYMENT_ID'"}
-    ]
-  }' \
-  --output json
+export DSH_AFFINITY_ID='copy-from-proxy-output'
 ```
 
-Create the Hands Session with its Hands Deployment ID:
+Open <http://127.0.0.1:18080>. If the first-run API key dialog appears, close it; that dialog configures DSH's built-in DeepSeek provider rather than the TokenHub provider used by this tutorial.
 
-```bash
-agr api call CreateSession \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$HANDS_SESSION_ID'",
-    "Title":"Hands session demo",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/hands-deployment-id","Value":"'$HANDS_DEPLOYMENT_ID'"}
-    ]
-  }' \
-  --output json
-```
+Go to **Settings → Models**, find **Tencent Cloud TokenHub**, and select **Edit**. Enter the TokenHub API key and save it. Confirm that the provider shows **API key configured**, then start a new conversation and confirm that the selected model is `tokenhub/deepseek-v4-flash`. From this point on, the plugin persists Sessions and Events created through either the Web UI or the example script and records the Brain Deployment ID automatically.
 
-Creating either Session does not check that the referenced Deployment exists.
+## 6. Validate a multi-turn conversation
 
-## 6. Access the Brain Deployment
+You can validate manually through the Web UI or run the example script for automatic validation. Both paths use the same plugin to create an Agent Runtime Session, persist Events, and record the Brain Deployment ID.
 
-Acquire and copy the Brain Deployment token:
+### Validate through the Web UI
 
-```bash
-agr api call AcquireDeploymentToken \
-  --region "$AGR_REGION" \
-  --request '{"DeploymentId":"'$BRAIN_DEPLOYMENT_ID'"}' \
-  --output json
-
-export BRAIN_DEPLOYMENT_TOKEN='replace-with-token'
-```
-
-Call the Brain Deployment:
-
-```bash
-curl --silent --show-error \
-  --header "X-Access-Token: $BRAIN_DEPLOYMENT_TOKEN" \
-  "https://8080-$BRAIN_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/hostname"
-```
-
-The response identifies the Brain backend, for example:
-
-```json
-{"hostname":"brain-backend-a"}
-```
-
-## 7. Access Hands and persist its affinity
-
-Acquire and copy the Hands Deployment token:
-
-```bash
-agr api call AcquireDeploymentToken \
-  --region "$AGR_REGION" \
-  --request '{"DeploymentId":"'$HANDS_DEPLOYMENT_ID'"}' \
-  --output json
-
-export HANDS_DEPLOYMENT_TOKEN='replace-with-token'
-```
-
-Make the first Hands request without an affinity header:
-
-```bash
-curl --include --silent --show-error \
-  --header "X-Access-Token: $HANDS_DEPLOYMENT_TOKEN" \
-  "https://8080-$HANDS_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/hostname"
-```
-
-Record both values from the response:
+Send these messages in a new conversation, in order:
 
 ```text
-X-Session-Affinity: <first-affinity-id>
-{"hostname":"hands-backend-a"}
+What is 37 + 58? Answer with only the number.
+Multiply the previous answer by 3. Answer with only the number.
+What arithmetic question was contained in my first message? Exclude any answer-format instructions. Return only this JSON object: {"first_question":"<exact first question>","answer":<number>}
 ```
 
-Copy the affinity ID:
+Expect `95`, `285`, and a JSON object containing the first question and its answer. This confirms that all three messages used the same conversation context. Next, run the query in section 7, find the Session whose title matches the first question, and set its ID:
 
 ```bash
-export HANDS_AFFINITY_ID='replace-with-response-header'
+export DSH_SESSION_ID='copy-from-DescribeSessions-response'
 ```
 
-`ModifySession.Metadata` is a full replacement. Include the Hands Deployment ID again when adding the affinity ID:
+### Validate with the example script
+
+Export the same variables in another terminal, then run:
 
 ```bash
-agr api call ModifySession \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$HANDS_SESSION_ID'",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/hands-deployment-id","Value":"'$HANDS_DEPLOYMENT_ID'"},
-      {"Name":"ae.tencentcloud.com/hands-affinity-id","Value":"'$HANDS_AFFINITY_ID'"}
-    ]
-  }' \
-  --output json
+python3 session_demo.py
 ```
 
-Hands affinity may exist only when the Hands Deployment ID also exists. Omitting `Metadata` keeps it unchanged; an empty array clears all Metadata; an empty string is a stored value, not a deletion instruction.
+The example performs the following operations:
 
-## 8. Restore both Sessions and demonstrate Hands reuse
+1. Create a DSH conversation and its corresponding Agent Runtime Session through the plugin.
+2. Let the plugin store the Brain Deployment ID in Session Metadata to associate the Deployment with the Session.
+3. Run three turns that validate a direct answer, use of the previous result, and recall of the first prompt.
+4. Confirm that Events were persisted and find the Session by Brain Deployment ID.
 
-Read the Brain Session and restore `BRAIN_DEPLOYMENT_ID`:
-
-```bash
-agr api call DescribeSession \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$BRAIN_SESSION_ID'"}' \
-  --output json
-```
-
-Read the Hands Session and restore `HANDS_DEPLOYMENT_ID` and `HANDS_AFFINITY_ID`:
-
-```bash
-agr api call DescribeSession \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$HANDS_SESSION_ID'"}' \
-  --output json
-```
-
-Send the restored affinity back to Hands:
-
-```bash
-curl --include --silent --show-error \
-  --header "X-Access-Token: $HANDS_DEPLOYMENT_TOKEN" \
-  --header "X-Session-Affinity: $HANDS_AFFINITY_ID" \
-  "https://8080-$HANDS_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/hostname"
-```
-
-Compare the two Hands responses:
+Expected output:
 
 ```text
-                       First request       Restored request
-X-Session-Affinity     <affinity-a>        <affinity-a>
-hostname               hands-backend-a     hands-backend-a
+Session: <session-id>
+  user: What is 37 + 58? Answer with only the number.
+  assistant: 95
+  user: Multiply the previous answer by 3. Answer with only the number.
+  assistant: 285
+  user: What arithmetic question was contained in my first message? Exclude any answer-format instructions. Return only this JSON object: ...
+  assistant: {"first_question":"What is 37 + 58?","answer":95}
+Agent Runtime persisted <count> DSH events
+Three-turn recall, Brain Deployment lookup, and Event inspection passed
 ```
 
-Matching affinity and hostname show that the restored routing context reached the same Hands backend. With `BEST_EFFORT`, the platform may select a new target if the old one becomes unavailable; persist the newly returned affinity whenever it changes.
+Copy the Session ID printed by the script:
 
-## 9. Find Sessions linked to each Deployment
+```bash
+export DSH_SESSION_ID='copy-from-output'
+```
 
-Find the Brain Session:
+## 7. Inspect the associated Session and Events
+
+Find Sessions associated with the Brain Deployment:
 
 ```bash
 agr api call DescribeSessions \
   --region "$AGR_REGION" \
   --request '{
     "SpaceId":"'$SESSION_SPACE_ID'",
-    "Filters":[{"Name":"metadata:ae.tencentcloud.com/brain-deployment-id","Values":["'$BRAIN_DEPLOYMENT_ID'"]}],
+    "Filters":[{
+      "Name":"metadata:ae.tencentcloud.com/brain-deployment-id",
+      "Values":["'$DSH_DEPLOYMENT_ID'"]
+    }],
     "Offset":0,
     "Limit":20
   }' \
   --output json
 ```
 
-Find the Hands Session:
+Inspect the DSH Events:
 
 ```bash
-agr api call DescribeSessions \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "Filters":[{"Name":"metadata:ae.tencentcloud.com/hands-deployment-id","Values":["'$HANDS_DEPLOYMENT_ID'"]}],
-    "Offset":0,
-    "Limit":20
-  }' \
-  --output json
-```
-
-Values within one Filter are OR conditions; multiple Filters are AND conditions. Matching is exact.
-
-## 10. Remove the current Hands affinity
-
-To retain the Hands Deployment association while removing the affinity, replace the full Metadata array:
-
-```bash
-agr api call ModifySession \
+agr api call DescribeEvents \
   --region "$AGR_REGION" \
   --request '{
     "SpaceId":"'$SESSION_SPACE_ID'",
     "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$HANDS_SESSION_ID'",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/hands-deployment-id","Value":"'$HANDS_DEPLOYMENT_ID'"}
-    ]
+    "SessionId":"'$DSH_SESSION_ID'",
+    "Offset":0,
+    "Limit":100
   }' \
   --output json
 ```
 
-When switching to another Hands Deployment, remove the old affinity or replace it with a different affinity obtained from the new request flow.
+`DescribeEvents` supports pagination through `Offset` and `Limit`. `session_demo.py` automatically reads all Events produced by this validation run.
 
-## 11. Clean up
+The plugin populates standard fields according to Event semantics:
 
-Delete both Sessions before deleting their SessionSpace, then delete both Deployments and the shared Tool:
+| DSH Event | Standard Session fields |
+| --- | --- |
+| User and assistant messages | `Author`, `Content` |
+| Streaming text and reasoning chunks | `Content`, `Partial` |
+| Tool calls and results | `FunctionCall`, `FunctionResponse` |
+| Configuration state changes | `Actions.StateDelta` |
+| Turn completion, interruption, and errors | `TurnComplete`, `Interrupted`, `ErrorCode`, `ErrorMessage` |
+
+The original DSH data for every Event is retained in `Extensions.dshEvent` for lossless restoration.
+
+## 8. Clean up
 
 ```bash
 agr api call DeleteSession \
   --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$BRAIN_SESSION_ID'"}' \
+  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$DSH_SESSION_ID'"}' \
   --output json
 
-agr api call DeleteSession \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$HANDS_SESSION_ID'"}' \
-  --output json
-
-agr api call DeleteSessionSpace \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
-  --output json
-
-agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr deployment delete "$HANDS_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr tool delete "$SESSION_TOOL_ID" --region "$AGR_REGION" --yes --wait
+agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
+agr tool delete "$DSH_TOOL_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-Do not put Deployment tokens or affinity IDs in application logs, traces, screenshots, or committed files.
+Delete the SessionSpace only if this tutorial created it:
 
-## Common failures
+```bash
+if [ "${SESSION_SPACE_CREATED_BY_TUTORIAL:-0}" = 1 ]; then
+  agr api call DeleteSessionSpace \
+    --region "$AGR_REGION" \
+    --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
+    --output json
+fi
+```
 
-- `InvalidParameter.Metadata`: check for duplicate/empty names, size limits, or a Hands affinity without a Hands Deployment ID.
-- `ResourceNotFound`: verify that SessionSpace, Sessions, Tool, and Deployments belong to the configured region and account.
-- `ResourceInUse.SessionSpaceNotEmpty`: delete every Session in the SessionSpace before deleting the SessionSpace.
-- The Hands request returns a new affinity or hostname: `BEST_EFFORT` allows migration when the previous target is unavailable; persist the latest affinity.
-- `ModifySession` removes an unrelated Metadata item: the API replaces the whole Metadata array, so read, merge, and write every item that must remain.
+## Troubleshooting
+
+- Session writes fail with an authentication error: verify the `TENCENTCLOUD_*` variables in the Tool. Temporary credentials also require the Session Token.
+- The SessionSpace does not exist: make sure `SESSION_SPACE_ID` and `AGR_REGION` belong to the same account and region.
+- The Deployment or Session API is unreachable: check `AGR_REGION`, `AGR_DOMAIN`, and `SESSION_API_ENDPOINT`, and confirm that the Tool uses `PUBLIC` network mode.
+- Model authentication fails: confirm that the TokenHub API key is valid and can access the selected model.
+- The Deployment filter returns no Session: confirm that `session_demo.py` completed successfully and that Session Metadata contains the Brain Deployment ID.
+- The three-turn conversation times out: check the model configuration in the DSH Web UI and the Deployment status.

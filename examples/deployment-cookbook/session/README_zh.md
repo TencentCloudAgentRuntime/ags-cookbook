@@ -1,362 +1,339 @@
-# Deployment 与 Session 联动
+# 在 Brain Deployment 中使用 Session 持久化 Agent 多轮会话
 
-本教程演示 Brain 和 Hands Deployment 如何分别与各自的 Session 联动。Brain Session 记录 Brain Deployment ID；Hands Session 记录 Hands Deployment ID 和当前 affinity ID，使后续请求可以恢复相同的 Hands 路由上下文。
+本教程演示如何将运行在 Brain Deployment 中的 DeepSeek Harness（DSH）Agent Loop 接入腾讯云 Agent Runtime Session。运行示例后，三轮对话将共享同一份上下文，会话和执行事件会持续写入 Session，并可通过 Brain Deployment ID 查询关联的 Session 和 Events。
 
-Session Metadata 只保存不透明 ID。Session 与 Deployment 的生命周期相互独立，删除任意一方都不会级联删除另一方。
+随教程提供的 [`SessionPersistence` 插件](./plugin/index.js)负责创建和恢复 Session、写入 Events，并支持 DSH 从 Session 恢复上下文。该插件既是面向 DSH 的可运行实现，也可作为其他 Agent 接入 Session 的参考；接入其他 Agent 框架时，需要适配相应的会话生命周期接口。
 
 ## 前置条件
 
-- 已安装 `agr` v0.6.6 或更高版本，并先运行 `agr version` 和 `agr status`。
-- 已准备允许 AGR 拉取示例 CCR 镜像的 CAM 角色 ARN。
-- 账号具有管理 SessionSpace、Session、Sandbox Tool、Deployment 以及获取 Deployment Token 的权限。
+- 已安装 `agr` v0.6.6 或更高版本，并配置腾讯云凭证。
+- 已准备创建自定义 Sandbox Tool 所需的 CAM 角色 ARN。
+- 当前账号能够管理 SessionSpace、Session、Sandbox Tool 和 Deployment，并能追加和查询 Events。
+- 已准备 TokenHub API Key。本示例镜像已预置 TokenHub provider 和 `deepseek-v4-flash` 模型配置。
+- 使用 Python 3.10 或更高版本，并安装 `jq`。
 
-在本目录运行 `make run` 只会输出导航信息，不会创建云资源。
+## 1. 配置环境
 
-## 1. 设置环境变量
-
-替换全部占位符，并让两个 Session 与两个 Deployment 位于同一地域。
+以下以上海地域为例：
 
 ```bash
 export AGR_REGION=ap-shanghai
 export AGR_DOMAIN=tencentags.com
+export SESSION_API_ENDPOINT=ags.tencentcloudapi.com
+```
+
+这三个参数分别指定部署地域、Deployment 数据面域名和 Session 云 API 域名。切换地域时修改 `AGR_REGION`。
+
+继续设置资源名、镜像和凭证：
+
+```bash
 export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export SESSION_SPACE_NAME='deployment-session-your-name'
-export SESSION_USER_ID='user-demo'
-export BRAIN_SESSION_ID='brain-session-your-name'
-export HANDS_SESSION_ID='hands-session-your-name'
-export SESSION_TOOL_NAME='httpbin-session-your-name'
-export BRAIN_DEPLOYMENT_NAME='httpbin-brain-your-name'
-export HANDS_DEPLOYMENT_NAME='httpbin-hands-your-name'
+export SESSION_SPACE_NAME='dsh-brain-session-your-name'
+export SESSION_USER_ID='dsh-demo-user'
+export DSH_TOOL_NAME='dsh-brain-session-your-name'
+export DSH_DEPLOYMENT_NAME='dsh-brain-session-your-name'
+export DSH_SESSION_IMAGE='ccr.ccs.tencentyun.com/ags.dev/dsh-session:v0.1.1'
+
+export TENCENTCLOUD_SECRET_ID='replace-me'
+export TENCENTCLOUD_SECRET_KEY='replace-me'
+# 使用临时凭证时设置：
+# export TENCENTCLOUD_SESSION_TOKEN='replace-me'
 
 agr status
 ```
 
-## 2. 创建 SessionSpace
+| 参数 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `AGR_ROLE_ARN` | 是 | 创建自定义 Sandbox Tool 使用的 CAM 角色 ARN。 |
+| `SESSION_SPACE_NAME` | 创建 SessionSpace 时必填 | 新建 SessionSpace 的名称；复用已有 SessionSpace 时不使用。 |
+| `SESSION_USER_ID` | 是 | 示例会话所属的用户标识。创建、查询和删除 Session 时必须保持一致。 |
+| `DSH_TOOL_NAME` | 是 | 承载 DSH 镜像的 Sandbox Tool 名称，建议使用唯一名称。 |
+| `DSH_DEPLOYMENT_NAME` | 是 | Brain Deployment 名称，建议使用唯一名称。 |
+| `DSH_SESSION_IMAGE` | 是 | 已集成 `SessionPersistence` 插件的 DSH 镜像地址。默认使用本教程发布的公开镜像。 |
+| `TENCENTCLOUD_SECRET_ID` | 是 | 容器内插件调用 Session 云 API 使用的腾讯云 SecretId。它独立于本地 `agr` 已配置的凭证。 |
+| `TENCENTCLOUD_SECRET_KEY` | 是 | 与 SecretId 配套的 SecretKey。 |
+| `TENCENTCLOUD_SESSION_TOKEN` | 使用临时凭证时必填 | 临时凭证对应的 Session Token；使用长期密钥时无需设置。 |
 
-为本教程创建一个独立的 SessionSpace：
+本教程为便于展示完整接入链路，通过 Tool 环境变量向插件提供云 API 凭证。请使用专用子账号或临时凭证，并仅授予本教程所需的 Session 最小权限；不要使用主账号密钥，也不要把密钥写入镜像或版本库。
+
+## 2. 创建或复用 SessionSpace
+
+SessionSpace 是 Session 的隔离边界。已有可用的 SessionSpace 时直接设置：
+
+```bash
+export SESSION_SPACE_ID='space-replace-me'
+```
+
+否则创建一个专用 SessionSpace：
 
 ```bash
 agr api call CreateSessionSpace \
   --region "$AGR_REGION" \
   --request '{
     "Name":"'$SESSION_SPACE_NAME'",
-    "Description":"Session and Deployment integration cookbook"
+    "Description":"DSH Brain conversations"
   }' \
   --output json
+
+export SESSION_SPACE_ID='space-copy-from-response'
+export SESSION_SPACE_CREATED_BY_TUTORIAL=1
 ```
 
-从响应中复制 SessionSpace ID：
+## 3. 使用 DSH Session 镜像
+
+主流程直接使用 `ags.dev` 发布的示例镜像。该镜像在标准 DSH 镜像的基础上集成了本教程的 `SessionPersistence` 插件，使 DSH 将会话和执行事件保存到 Agent Runtime Session，而不是容器本地文件；镜像还预置了不含密钥的 TokenHub provider 与模型配置。
+
+如果只运行本教程，无需在本地构建镜像。
+
+### 自定义镜像（可选）
+
+需要修改插件或将其集成到自己的 Agent 镜像时，安装 Docker、准备可推送镜像的 CCR 仓库，并执行：
 
 ```bash
-export SESSION_SPACE_ID='space-replace-me'
+export DSH_SESSION_IMAGE='ccr.ccs.tencentyun.com/your-namespace/dsh-session:latest'
+
+docker build \
+  --platform linux/amd64 \
+  --file dockerfiles/Dockerfile \
+  --tag "$DSH_SESSION_IMAGE" \
+  .
+
+docker push "$DSH_SESSION_IMAGE"
 ```
 
-## 3. 创建共享 Tool
+后续步骤会直接使用自定义后的 `DSH_SESSION_IMAGE`，无需进行其他调整。
 
-两个 Deployment 共用一个持久化 httpbin Tool。`USE_REAL_HOSTNAME` 使 `/hostname` 返回后端 hostname，从而直观展示 Hands 路由复用。该配置仅用于本教程，生产服务不应暴露后端 hostname。
+## 4. 创建 Brain Tool 和 Deployment
+
+创建用于运行 DSH 的 Sandbox Tool：
 
 ```bash
+export DSH_CUSTOM_CONFIGURATION="$(
+  jq -n \
+    --arg image "$DSH_SESSION_IMAGE" \
+    --arg region "$AGR_REGION" \
+    --arg domain "$AGR_DOMAIN" \
+    --arg endpoint "$SESSION_API_ENDPOINT" \
+    --arg space "$SESSION_SPACE_ID" \
+    --arg user "$SESSION_USER_ID" \
+    --arg sid "$TENCENTCLOUD_SECRET_ID" \
+    --arg skey "$TENCENTCLOUD_SECRET_KEY" \
+    --arg token "${TENCENTCLOUD_SESSION_TOKEN:-}" \
+    '{
+      Image:$image,
+      ImageRegistryType:"personal",
+      Command:["/opt/dsh/entrypoint.sh"],
+      Args:[],
+      Env:[
+        {Name:"AGR_REGION",Value:$region},
+        {Name:"AGR_DOMAIN",Value:$domain},
+        {Name:"SESSION_API_ENDPOINT",Value:$endpoint},
+        {Name:"SESSION_SPACE_ID",Value:$space},
+        {Name:"SESSION_USER_ID",Value:$user},
+        {Name:"TENCENTCLOUD_SECRET_ID",Value:$sid},
+        {Name:"TENCENTCLOUD_SECRET_KEY",Value:$skey},
+        {Name:"TENCENTCLOUD_SESSION_TOKEN",Value:$token}
+      ],
+      Ports:[{Name:"web",Port:3080,Protocol:"TCP"}],
+      Resources:{CPU:"2",Memory:"4Gi"},
+      Probe:{HttpGet:{Path:"/",Port:3080,Scheme:"HTTP"},ReadyTimeoutMs:30000,ProbeTimeoutMs:3000,ProbePeriodMs:3000,SuccessThreshold:1,FailureThreshold:10}
+    }'
+)"
+
 agr tool create \
   --region "$AGR_REGION" \
-  --tool-name "$SESSION_TOOL_NAME" \
+  --tool-name "$DSH_TOOL_NAME" \
   --tool-type custom \
   --persistent \
   --role-arn "$AGR_ROLE_ARN" \
   --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{
-    "Image":"ccr.ccs.tencentyun.com/ags.dev/go-httpbin:v2.25.0",
-    "ImageRegistryType":"personal",
-    "Command":["/bin/go-httpbin"],
-    "Args":["-host","0.0.0.0","-port","8080"],
-    "Env":[
-      {"Name":"EXCLUDE_HEADERS","Value":"X-Access-Token"},
-      {"Name":"USE_REAL_HOSTNAME","Value":"true"}
-    ],
-    "Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],
-    "Resources":{"CPU":"200m","Memory":"500Mi"},
-    "Probe":{"HttpGet":{"Path":"/status/200","Port":8080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":1000,"ProbePeriodMs":3000,"SuccessThreshold":1,"FailureThreshold":10}
-  }' \
+  --custom-configuration "$DSH_CUSTOM_CONFIGURATION" \
   --wait
+
+export DSH_TOOL_ID='sdt-copy-from-response'
 ```
 
-复制 Tool ID：
-
-```bash
-export SESSION_TOOL_ID='sdt-replace-me'
-```
-
-## 4. 创建 Brain 和 Hands Deployment
-
-创建 Brain Deployment：
+创建使用独占 affinity 的 Brain Deployment，使 DSH Web UI 和对话请求持续访问同一个有状态实例。affinity ID 仅用于 Deployment 路由，不写入 Session Metadata：
 
 ```bash
 agr deployment create \
   --region "$AGR_REGION" \
-  --deployment-name "$BRAIN_DEPLOYMENT_NAME" \
-  --tool-id "$SESSION_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":10}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}'
+  --deployment-name "$DSH_DEPLOYMENT_NAME" \
+  --tool-id "$DSH_TOOL_ID" \
+  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":1,"MaxInstanceRequestConcurrency":100}' \
+  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"PAUSE"}' \
+  --affinity-configuration '{"Mode":"EXCLUSIVE","HeaderName":"X-Tencent-Agr-Affinity-Id"}'
+
+export DSH_DEPLOYMENT_ID='dpl-copy-from-response'
 ```
 
-创建支持 affinity 的 Hands Deployment：
+将新创建的 Brain Deployment ID 写入 Tool 配置。插件会使用该值自动关联之后创建的每个 Session：
 
 ```bash
-agr deployment create \
+export DSH_CUSTOM_CONFIGURATION="$(
+  jq --arg deployment "$DSH_DEPLOYMENT_ID" \
+    '.Env += [{Name:"BRAIN_DEPLOYMENT_ID",Value:$deployment}]' \
+    <<<"$DSH_CUSTOM_CONFIGURATION"
+)"
+
+agr tool update "$DSH_TOOL_ID" \
   --region "$AGR_REGION" \
-  --deployment-name "$HANDS_DEPLOYMENT_NAME" \
-  --tool-id "$SESSION_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":10}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}' \
-  --affinity-configuration '{"Mode":"BEST_EFFORT","HeaderName":"X-Session-Affinity"}'
+  --custom-configuration "$DSH_CUSTOM_CONFIGURATION" \
+  --wait
+
+unset DSH_CUSTOM_CONFIGURATION
 ```
 
-分别复制两个 Deployment ID：
+## 5. 配置 DSH Agent
+
+启动本地代理：
 
 ```bash
-export BRAIN_DEPLOYMENT_ID='dpl-replace-me'
-export HANDS_DEPLOYMENT_ID='dpl-replace-me'
+agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
+  --region "$AGR_REGION"
 ```
 
-## 5. 分别创建 Brain 和 Hands Session
-
-创建 Brain Session，并记录 Brain Deployment ID：
+复制代理输出中的 affinity ID，供示例客户端访问同一个 DSH 实例：
 
 ```bash
-agr api call CreateSession \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$BRAIN_SESSION_ID'",
-    "Title":"Brain session demo",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/brain-deployment-id","Value":"'$BRAIN_DEPLOYMENT_ID'"}
-    ]
-  }' \
-  --output json
+export DSH_AFFINITY_ID='copy-from-proxy-output'
 ```
 
-创建 Hands Session，并记录 Hands Deployment ID：
+打开 <http://127.0.0.1:18080>。如果首次打开时出现填写 API Key 的欢迎弹窗，请关闭该弹窗；它配置的是 DSH 内置的 DeepSeek provider，不是本教程使用的 TokenHub provider。
 
-```bash
-agr api call CreateSession \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$HANDS_SESSION_ID'",
-    "Title":"Hands session demo",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/hands-deployment-id","Value":"'$HANDS_DEPLOYMENT_ID'"}
-    ]
-  }' \
-  --output json
-```
+进入左下角的「设置 → 模型」，找到「Tencent Cloud TokenHub」并点击「编辑」，填入 TokenHub API Key 后保存。确认该 provider 显示“API 密钥已配置”，然后新建会话，并确认当前模型为 `tokenhub/deepseek-v4-flash`。此后无论通过 Web UI 还是示例脚本发起会话，插件都会将 Session 和 Events 持久化，并自动记录 Brain Deployment ID。
 
-创建 Session 时不会检查被引用的 Deployment 是否真实存在。
+## 6. 验证多轮会话
 
-## 6. 访问 Brain Deployment
+可以通过 Web UI 手动验证，也可以运行示例脚本自动验证。两种方式都会通过同一个插件创建 Agent Runtime Session、写入 Events，并记录 Brain Deployment ID。
 
-获取并复制 Brain Deployment Token：
+### 通过 Web UI 验证
 
-```bash
-agr api call AcquireDeploymentToken \
-  --region "$AGR_REGION" \
-  --request '{"DeploymentId":"'$BRAIN_DEPLOYMENT_ID'"}' \
-  --output json
-
-export BRAIN_DEPLOYMENT_TOKEN='replace-with-token'
-```
-
-调用 Brain Deployment：
-
-```bash
-curl --silent --show-error \
-  --header "X-Access-Token: $BRAIN_DEPLOYMENT_TOKEN" \
-  "https://8080-$BRAIN_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/hostname"
-```
-
-响应会标识 Brain 后端，例如：
-
-```json
-{"hostname":"brain-backend-a"}
-```
-
-## 7. 访问 Hands 并保存 affinity
-
-获取并复制 Hands Deployment Token：
-
-```bash
-agr api call AcquireDeploymentToken \
-  --region "$AGR_REGION" \
-  --request '{"DeploymentId":"'$HANDS_DEPLOYMENT_ID'"}' \
-  --output json
-
-export HANDS_DEPLOYMENT_TOKEN='replace-with-token'
-```
-
-第一次请求 Hands 时不携带 affinity header：
-
-```bash
-curl --include --silent --show-error \
-  --header "X-Access-Token: $HANDS_DEPLOYMENT_TOKEN" \
-  "https://8080-$HANDS_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/hostname"
-```
-
-记录响应中的两个值：
+在新会话中依次发送：
 
 ```text
-X-Session-Affinity: <first-affinity-id>
-{"hostname":"hands-backend-a"}
+What is 37 + 58? Answer with only the number.
+Multiply the previous answer by 3. Answer with only the number.
+What arithmetic question was contained in my first message? Exclude any answer-format instructions. Return only this JSON object: {"first_question":"<exact first question>","answer":<number>}
 ```
 
-复制 affinity ID：
+预期依次得到 `95`、`285`，以及包含第一轮问题和答案的 JSON。这表明三轮消息使用了同一段会话上下文。然后执行第 7 节的查询，找到标题与第一轮问题对应的 Session，并将其 ID 设置为：
 
 ```bash
-export HANDS_AFFINITY_ID='replace-with-response-header'
+export DSH_SESSION_ID='copy-from-DescribeSessions-response'
 ```
 
-`ModifySession.Metadata` 是全量替换；添加 affinity ID 时必须再次包含 Hands Deployment ID：
+### 通过示例脚本验证
+
+在另一个终端中导出前述变量，然后运行：
 
 ```bash
-agr api call ModifySession \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$HANDS_SESSION_ID'",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/hands-deployment-id","Value":"'$HANDS_DEPLOYMENT_ID'"},
-      {"Name":"ae.tencentcloud.com/hands-affinity-id","Value":"'$HANDS_AFFINITY_ID'"}
-    ]
-  }' \
-  --output json
+python3 session_demo.py
 ```
 
-Hands affinity 存在时必须同时存在 Hands Deployment。不传 `Metadata` 表示保持不变，传空数组表示清空全部 Metadata；空字符串是保存的值，不表示删除。
+示例将完成以下操作：
 
-## 8. 恢复两个 Session，并展示 Hands 复用
+1. 创建一段 DSH 会话，并通过插件创建对应的 Agent Runtime Session。
+2. 插件自动将 Brain Deployment ID 写入 Session Metadata，建立 Deployment 与 Session 的关联。
+3. 连续发起三轮对话，分别验证基础回答、引用上一轮结果和回忆第一轮问题。
+4. 确认 Events 已写入 Session，并通过 Brain Deployment ID 查询关联的 Session。
 
-读取 Brain Session，恢复 `BRAIN_DEPLOYMENT_ID`：
-
-```bash
-agr api call DescribeSession \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$BRAIN_SESSION_ID'"}' \
-  --output json
-```
-
-读取 Hands Session，恢复 `HANDS_DEPLOYMENT_ID` 和 `HANDS_AFFINITY_ID`：
-
-```bash
-agr api call DescribeSession \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$HANDS_SESSION_ID'"}' \
-  --output json
-```
-
-将恢复出的 affinity 带回 Hands：
-
-```bash
-curl --include --silent --show-error \
-  --header "X-Access-Token: $HANDS_DEPLOYMENT_TOKEN" \
-  --header "X-Session-Affinity: $HANDS_AFFINITY_ID" \
-  "https://8080-$HANDS_DEPLOYMENT_ID.$AGR_REGION.agents.$AGR_DOMAIN/hostname"
-```
-
-对比两次 Hands 响应：
+预期输出形态：
 
 ```text
-                       首次请求           恢复后请求
-X-Session-Affinity     <affinity-a>       <affinity-a>
-hostname               hands-backend-a    hands-backend-a
+Session: <session-id>
+  user: What is 37 + 58? Answer with only the number.
+  assistant: 95
+  user: Multiply the previous answer by 3. Answer with only the number.
+  assistant: 285
+  user: What arithmetic question was contained in my first message? Exclude any answer-format instructions. Return only this JSON object: ...
+  assistant: {"first_question":"What is 37 + 58?","answer":95}
+Agent Runtime persisted <count> DSH events
+Three-turn recall, Brain Deployment lookup, and Event inspection passed
 ```
 
-affinity 与 hostname 同时一致，表示恢复出的路由上下文到达了相同的 Hands 后端。`BEST_EFFORT` 在原目标不可用时可以选择新目标；返回值发生变化时，应持久化最新 affinity。
+复制脚本输出的 Session ID：
 
-## 9. 通过 Deployment 反查各自的 Session
+```bash
+export DSH_SESSION_ID='copy-from-output'
+```
 
-反查 Brain Session：
+## 7. 查看关联 Session 和 Events
+
+通过 Brain Deployment ID 反查：
 
 ```bash
 agr api call DescribeSessions \
   --region "$AGR_REGION" \
   --request '{
     "SpaceId":"'$SESSION_SPACE_ID'",
-    "Filters":[{"Name":"metadata:ae.tencentcloud.com/brain-deployment-id","Values":["'$BRAIN_DEPLOYMENT_ID'"]}],
+    "Filters":[{
+      "Name":"metadata:ae.tencentcloud.com/brain-deployment-id",
+      "Values":["'$DSH_DEPLOYMENT_ID'"]
+    }],
     "Offset":0,
     "Limit":20
   }' \
   --output json
 ```
 
-反查 Hands Session：
+查看 DSH Events：
 
 ```bash
-agr api call DescribeSessions \
-  --region "$AGR_REGION" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "Filters":[{"Name":"metadata:ae.tencentcloud.com/hands-deployment-id","Values":["'$HANDS_DEPLOYMENT_ID'"]}],
-    "Offset":0,
-    "Limit":20
-  }' \
-  --output json
-```
-
-同一 Filter 中多个 Value 是 OR；多个 Filter 之间是 AND；匹配方式为精确匹配。
-
-## 10. 删除当前 Hands affinity
-
-如果需要保留 Hands Deployment 关联并删除 affinity，应替换完整 Metadata 数组：
-
-```bash
-agr api call ModifySession \
+agr api call DescribeEvents \
   --region "$AGR_REGION" \
   --request '{
     "SpaceId":"'$SESSION_SPACE_ID'",
     "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$HANDS_SESSION_ID'",
-    "Metadata":[
-      {"Name":"ae.tencentcloud.com/hands-deployment-id","Value":"'$HANDS_DEPLOYMENT_ID'"}
-    ]
+    "SessionId":"'$DSH_SESSION_ID'",
+    "Offset":0,
+    "Limit":100
   }' \
   --output json
 ```
 
-切换 Hands Deployment 时，必须删除旧 affinity，或在新请求流程中使用新获得的不同 affinity。
+`DescribeEvents` 支持通过 `Offset` 和 `Limit` 分页查询；`session_demo.py` 会自动读取本次验证产生的全部 Events。
 
-## 11. 清理
+插件按 Event 语义填充标准字段：
 
-先删除两个 Session，再删除其 SessionSpace，最后删除两个 Deployment 和共享 Tool：
+| DSH Event | Session 标准字段 |
+| --- | --- |
+| 用户和助手消息 | `Author`、`Content` |
+| 文本和推理流式片段 | `Content`、`Partial` |
+| 工具调用与结果 | `FunctionCall`、`FunctionResponse` |
+| 配置状态变更 | `Actions.StateDelta` |
+| 回合结束、中断与错误 | `TurnComplete`、`Interrupted`、`ErrorCode`、`ErrorMessage` |
+
+所有 Events 的原始 DSH 数据均保存在 `Extensions.dshEvent` 中，用于无损恢复。
+
+## 8. 清理
 
 ```bash
 agr api call DeleteSession \
   --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$BRAIN_SESSION_ID'"}' \
+  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$DSH_SESSION_ID'"}' \
   --output json
 
-agr api call DeleteSession \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'$HANDS_SESSION_ID'"}' \
-  --output json
-
-agr api call DeleteSessionSpace \
-  --region "$AGR_REGION" \
-  --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
-  --output json
-
-agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr deployment delete "$HANDS_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
-agr tool delete "$SESSION_TOOL_ID" --region "$AGR_REGION" --yes --wait
+agr deployment delete "$DSH_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
+agr tool delete "$DSH_TOOL_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-不要把 Deployment Token 或 affinity ID 写入应用日志、Trace、截图或版本库。
+只有 SessionSpace 是本教程创建的，才删除它：
+
+```bash
+if [ "${SESSION_SPACE_CREATED_BY_TUTORIAL:-0}" = 1 ]; then
+  agr api call DeleteSessionSpace \
+    --region "$AGR_REGION" \
+    --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
+    --output json
+fi
+```
 
 ## 常见问题
 
-- `InvalidParameter.Metadata`：检查空 Name、重复 Name、容量限制，或是否存在只有 Hands affinity、没有 Hands Deployment ID 的组合。
-- `ResourceNotFound`：确认 SessionSpace、两个 Session、Tool 和两个 Deployment 属于当前配置的地域与账号。
-- `ResourceInUse.SessionSpaceNotEmpty`：删除 SessionSpace 前，必须先删除其中的所有 Session。
-- Hands 请求返回了新的 affinity 或 hostname：`BEST_EFFORT` 在原目标不可用时允许迁移，请保存最新 affinity。
-- `ModifySession` 删除了无关 Metadata：该接口会替换完整 Metadata 数组，必须先读取、合并，再写回所有需要保留的项。
+- Session 写入时报凭证错误：确认 Tool 中的 `TENCENTCLOUD_*` 环境变量正确；使用临时凭证时必须同时提供 Session Token。
+- SessionSpace 不存在：确认 `SESSION_SPACE_ID` 与 `AGR_REGION` 属于同一账号和地域。
+- Deployment 或 Session API 无法访问：检查 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT`；同时确认 Tool 使用 `PUBLIC` 网络模式。
+- 模型调用鉴权失败：确认 TokenHub API Key 有效，并具有所选模型的访问权限。
+- 找不到关联 Session：确认 `session_demo.py` 已成功执行，并检查 Session Metadata 中记录的 Brain Deployment ID。
+- 三轮对话执行超时：检查 DSH Web UI 中的模型配置和 Deployment 运行状态。
