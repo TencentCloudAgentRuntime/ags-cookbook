@@ -16,7 +16,7 @@ This cookbook uses DSH `0.1.1-rc.2` and envd `0.6.13`. All resources run in `ap-
 
 - A configured `agr` CLI.
 - An Agent Runtime CAM role ARN.
-- A MySQL 8 database reachable from Brain.
+- A temporary MySQL 8 database reachable from Brain. Remove it after completing the cookbook.
 - Tencent Cloud credentials that can obtain access tokens for the Hands Deployments.
 - An API key for an OpenAI-compatible model endpoint.
 
@@ -38,7 +38,7 @@ CREATE DATABASE `dsh-cookbook`
   COLLATE utf8mb4_0900_ai_ci;
 ```
 
-Brain applies the single migration file in this directory at startup. Every Brain replica must connect to this same database.
+Brain applies the single migration file in this directory at startup. Every Brain replica must connect to this same temporary database.
 
 ## 2. Create Ubuntu Hands
 
@@ -190,13 +190,29 @@ General, Models, Plugins, Agent presets, and the other Settings pages use this s
 
 ## 6. Clean up
 
-Delete the Brain Deployment and both Hands Deployments first. After their instances are gone, delete the three Tools:
+Delete the Brain Deployment and both Hands Deployments first:
 
 ```bash
 agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr deployment delete "$HANDS_UBUNTU_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr deployment delete "$HANDS_ALPINE_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 ```
+
+List the instances for both Hands Tools:
+
+```bash
+agr instance list --tool-id "$HANDS_UBUNTU_TOOL_ID" --region "$AGR_REGION"
+agr instance list --tool-id "$HANDS_ALPINE_TOOL_ID" --region "$AGR_REGION"
+```
+
+Copy each current `RUNNING` or `PAUSED` Hands instance ID and run the delete command for each one:
+
+```bash
+export HANDS_INSTANCE_ID='replace-with-instance-id'
+agr instance delete "$HANDS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+```
+
+After all Hands instances are gone, delete the three Tools and remove the temporary MySQL database:
 
 ```bash
 agr tool delete "$BRAIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

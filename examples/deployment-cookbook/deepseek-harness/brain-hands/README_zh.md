@@ -16,7 +16,7 @@ Workspace 的创建过程只要求名称和 OS，页面不会暴露底层 Deploy
 
 - 已安装并配置 `agr`。
 - 一个 Agent Runtime CAM 角色 ARN。
-- Brain 能连接的 MySQL 8 数据库。
+- 一个 Brain 可以访问的临时 MySQL 8 数据库；完成 cookbook 后删除该数据库。
 - 可为 Hands Deployment 获取访问 Token 的腾讯云凭证。
 - 可调用 OpenAI 兼容模型接口的 API Key。
 
@@ -38,7 +38,7 @@ CREATE DATABASE `dsh-cookbook`
   COLLATE utf8mb4_0900_ai_ci;
 ```
 
-Brain 启动时会自动执行目录中的单个 migration 文件并初始化表结构。所有 Brain 副本必须连接同一个数据库。
+Brain 启动时会自动执行目录中的单个 migration 文件并初始化表结构。所有 Brain 副本必须连接同一个临时数据库。
 
 ## 2. 创建 Ubuntu Hands
 
@@ -190,13 +190,29 @@ General、Models、Plugins 和 Agent presets 等 Settings 页面也通过同一�
 
 ## 6. 清理资源
 
-先删除 Brain Deployment，再删除两个 Hands Deployment；确认关联实例已删除后，最后删除三个 Tool：
+先删除 Brain Deployment，再删除两个 Hands Deployment：
 
 ```bash
 agr deployment delete "$BRAIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr deployment delete "$HANDS_UBUNTU_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr deployment delete "$HANDS_ALPINE_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 ```
+
+列出两个 Hands Tool 的实例：
+
+```bash
+agr instance list --tool-id "$HANDS_UBUNTU_TOOL_ID" --region "$AGR_REGION"
+agr instance list --tool-id "$HANDS_ALPINE_TOOL_ID" --region "$AGR_REGION"
+```
+
+复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的 Hands 实例 ID，并逐个执行删除命令：
+
+```bash
+export HANDS_INSTANCE_ID='replace-with-instance-id'
+agr instance delete "$HANDS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
+```
+
+确认所有 Hands 实例已删除后，删除三个 Tool，并删除临时 MySQL 数据库：
 
 ```bash
 agr tool delete "$BRAIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

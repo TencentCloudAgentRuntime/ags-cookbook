@@ -23,6 +23,8 @@ make test
 make build
 ```
 
+With `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_DATABASE` set for a disposable MySQL 8 database, run `make test-mysql`. Repository CI runs this target against an ephemeral MySQL service.
+
 The local image tags are:
 
 ```text

@@ -23,6 +23,8 @@ make test
 make build
 ```
 
+为一次性 MySQL 8 数据库设置 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD` 和 `MYSQL_DATABASE` 后，运行 `make test-mysql`。仓库 CI 会使用临时 MySQL 服务执行该目标。
+
 三个镜像的本地 tag 为：
 
 ```text

@@ -12,8 +12,7 @@ import {
   type RowDataPacket,
 } from "mysql2/promise";
 
-import { brainConfigFromEnv } from "../brain/config.js";
-import { mysqlPoolOptions } from "../mysql/config.js";
+import { mysqlConfigFromEnv, mysqlPoolOptions } from "../mysql/config.js";
 
 interface SettingsRow extends RowDataPacket {
   readonly namespace: string;
@@ -31,7 +30,7 @@ export class MysqlSettingsProvider extends SettingsProvider {
 
   public constructor(ctx: Context) {
     super(ctx);
-    this.pool = createPool(mysqlPoolOptions(brainConfigFromEnv().mysql));
+    this.pool = createPool(mysqlPoolOptions(mysqlConfigFromEnv()));
   }
 
   protected async load(): Promise<Record<string, unknown>> {

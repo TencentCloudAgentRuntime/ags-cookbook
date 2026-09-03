@@ -1,6 +1,6 @@
 {
   "contractVersion": 1,
-  "contractRevision": "brain-hands-ubuntu-24.04-envd0.6.13-v1",
+  "contractRevision": "brain-hands-envd0.6.13-v1",
   "envdVersion": "0.6.13",
   "workspaceRoot": "/workspace",
   "port": 49983,
