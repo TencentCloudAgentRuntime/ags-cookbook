@@ -2,7 +2,9 @@
 
 This tutorial creates a custom Sandbox Tool and one Deployment, accesses httpbin through both a local debugging proxy and the production data-plane domain, and then removes the resources. The adjacent tutorials cover scaling, lifecycle, and session affinity separately.
 
-Run every command directly in a terminal. Resource IDs are not extracted automatically: copy each real value from the output and set it as an environment variable before the next command. Account numbers, resource IDs, timestamps, and request IDs in sample output are masked.
+Complete the shared [httpbin prerequisites](../README.md#prerequisites) before starting.
+
+Run every command directly in a terminal and copy each resource ID from the output into the environment variable shown in the next step. Sample output masks account numbers, resource IDs, timestamps, and request IDs.
 
 ## 1. Check the AGR configuration
 
@@ -35,7 +37,7 @@ Auth:
 
 ## 2. Create the httpbin Sandbox Tool
 
-The Tool uses a pinned image and exposes container port `8080` to Deployments. See [dockerfiles](../dockerfiles/README.md) for the image source and build instructions.
+The Tool uses the published image and exposes container port `8080` to Deployments. See [dockerfiles](../dockerfiles/README.md) for build instructions.
 
 ```bash
 agr tool create \
@@ -138,9 +140,9 @@ agr deployment get "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION"
 agr deployment list --region "$AGR_REGION"
 ```
 
-## 4. Debug through a local proxy
+## 4. Access through a local proxy
 
-`proxy` is only for local debugging. It occupies the current terminal and listens on `127.0.0.1:18080`:
+`proxy` provides a local access path on `127.0.0.1:18080` and occupies the current terminal:
 
 ```bash
 agr deployment proxy "$HTTPBIN_DEPLOYMENT_ID" 18080:8080 --region "$AGR_REGION"
@@ -234,14 +236,14 @@ agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 
-If any instance is not `STOPPED`, copy and delete each instance ID:
+Copy each current `RUNNING` or `PAUSED` instance ID and run the delete command for each one:
 
 ```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-Finally, delete the Tool:
+Delete the Tool:
 
 ```bash
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

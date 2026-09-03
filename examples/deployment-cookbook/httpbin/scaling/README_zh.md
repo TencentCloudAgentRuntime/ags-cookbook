@@ -1,8 +1,10 @@
 # httpbin Deployment 弹性伸缩
 
-本教程独立创建 httpbin Tool 和 Deployment，先用 `MinInstanceCount=0` 观察按需启动，再更新为两个常驻实例，并同时调整实例上限与单实例请求并发租约。它用于观察配置与实例状态，不是压力测试。
+本教程独立创建 httpbin Tool 和 Deployment，先用 `MinInstanceCount=0` 观察按需启动，再更新为两个常驻实例，并同时调整实例上限与单实例请求并发。
 
-所有命令都直接在终端执行。请手工复制资源 ID 和 Token；文档不使用提取或轮询脚本。示例输出中的真实信息均已脱敏。
+开始前，请完成 [httpbin 公共前置条件](../README_zh.md#前置条件)。
+
+所有命令都直接在终端执行，请从命令输出中复制资源 ID 和 Token。示例输出中的真实信息均已脱敏。
 
 ## 1. 设置环境变量并创建 Tool
 
@@ -86,7 +88,7 @@ export HTTPBIN_TOOL_ID='sdt-replace-me'
 
 ## 2. 从零实例开始
 
-初始配置允许没有活跃实例，最多扩到三个实例，每个实例一次只持有一个 Deployment 请求或连接 Lease。首次请求会触发按需启动。
+初始配置允许没有活跃实例，最多扩到三个实例，并把每个实例的请求并发设为一。首次请求会触发按需启动。
 
 ```bash
 agr deployment create \
@@ -164,7 +166,7 @@ agr deployment get "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION"
 
 ## 4. 切换为常驻容量
 
-`deployment update` 会完整替换伸缩对象，因此必须同时提供三个字段。下面把实例下限改为 `2`、上限改为 `4`，并允许每个实例同时持有 `10` 个请求或连接 Lease。
+`deployment update` 会完整替换伸缩对象，因此必须同时提供三个字段。下面把实例下限改为 `2`、上限改为 `4`，并把每个实例的请求并发设为 `10`。
 
 ```bash
 agr deployment update "$HTTPBIN_DEPLOYMENT_ID" \
@@ -191,7 +193,7 @@ Scaling:
 
 - `MinInstanceCount`：活跃实例下限；`0` 表示允许按需缩至零。
 - `MaxInstanceCount`：活跃实例上限，不能小于下限。
-- `MaxInstanceRequestConcurrency`：单个活跃实例同时持有的 Deployment 请求或连接 Lease 上限，不是整个 Deployment 的全局并发上限。
+- `MaxInstanceRequestConcurrency`：单个活跃实例可同时处理的 Deployment 请求或连接数。
 
 ## 5. 清理资源
 
@@ -200,14 +202,14 @@ agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 
-若仍有非 `STOPPED` 实例，逐个复制 ID 并删除：
+复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
 
 ```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-最后删除 Tool：
+删除 Tool：
 
 ```bash
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

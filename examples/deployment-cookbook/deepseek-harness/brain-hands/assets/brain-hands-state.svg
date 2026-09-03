@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="360" viewBox="0 0 1040 360" role="img" aria-labelledby="title desc">
+  <title id="title">Workspace lazy Hands allocation</title>
+  <desc id="desc">Add Workspace records only its name and OS. The first Chat creates one Hands instance for that OS. Later Chats reuse the same instance and its complete persistent filesystem.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>
+    <style>.bg{fill:#f8fafc}.card{fill:#fff;stroke:#2563eb;stroke-width:1.7}.wait{fill:#fffbeb;stroke:#d97706;stroke-width:1.7}.hands{fill:#f0fdf4;stroke:#16a34a;stroke-width:1.8}.title{font:700 19px ui-sans-serif,system-ui,sans-serif;fill:#0f172a}.step{font:700 12px ui-sans-serif,system-ui,sans-serif;fill:#2563eb}.label{font:600 15px ui-sans-serif,system-ui,sans-serif;fill:#0f172a}.sub{font:13px ui-sans-serif,system-ui,sans-serif;fill:#475569}.edge{fill:none;stroke:#2563eb;stroke-width:2;marker-end:url(#arrow)}</style>
+  </defs>
+  <rect width="1040" height="360" class="bg"/>
+  <text x="42" y="48" class="title">One Workspace, one lazily allocated Hands instance</text>
+
+  <rect x="42" y="112" width="170" height="118" rx="14" class="card"/>
+  <text x="60" y="138" class="step">01</text><text x="127" y="168" text-anchor="middle" class="label">Add Workspace</text><text x="127" y="196" text-anchor="middle" class="sub">name + OS</text>
+
+  <rect x="260" y="112" width="170" height="118" rx="14" class="wait"/>
+  <text x="278" y="138" class="step">02</text><text x="345" y="168" text-anchor="middle" class="label">Pending</text><text x="345" y="196" text-anchor="middle" class="sub">no Hands allocated</text>
+
+  <rect x="478" y="112" width="170" height="118" rx="14" class="card"/>
+  <text x="496" y="138" class="step">03</text><text x="563" y="168" text-anchor="middle" class="label">First Chat</text><text x="563" y="196" text-anchor="middle" class="sub">allocate selected OS</text>
+
+  <rect x="696" y="92" width="302" height="158" rx="16" class="hands"/>
+  <text x="714" y="118" class="step">04</text><text x="847" y="152" text-anchor="middle" class="label">Hands instance · selected OS</text><text x="847" y="180" text-anchor="middle" class="sub">envd :49983</text><text x="847" y="206" text-anchor="middle" class="sub">complete filesystem retained by AGS</text><text x="847" y="232" text-anchor="middle" class="sub">later Chats reuse this instance</text>
+
+  <path d="M212 171H260" class="edge"/><path d="M430 171H478" class="edge"/><path d="M648 171H696" class="edge"/>
+  <text x="42" y="305" class="sub">The UI shows OS choices; Deployment IDs remain an implementation detail of Brain.</text>
+</svg>

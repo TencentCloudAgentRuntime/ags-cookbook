@@ -1,0 +1,49 @@
+{
+  "name": "@ags-cookbook/deepseek-harness-brain-hands",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "brain": "tsx src/brain/server.ts",
+    "start": "node dist/brain/launcher.js",
+    "build": "tsc --project tsconfig.build.json",
+    "migrate": "tsx src/mysql/migrate.ts",
+    "test": "vitest run",
+    "test:mysql": "RUN_MYSQL_INTEGRATION=1 vitest run tests/mysql.integration.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ags-cookbook/dsh-workspace-flow": "file:plugins/dsh-workspace-flow",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-agent-spine-demo": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-host-directory-picker": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-session-persistence": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-settings": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-workspace": "0.1.1-rc.2",
+    "dotenv": "17.2.1",
+    "e2b": "2.29.1",
+    "mysql2": "3.14.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tencentcloud-sdk-nodejs-common": "4.0.825",
+    "uuid": "11.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.17.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

@@ -1,8 +1,10 @@
 # Scaling an httpbin Deployment
 
-This tutorial creates an independent httpbin Tool and Deployment, starts with `MinInstanceCount=0` to observe on-demand startup, and then updates the Deployment to keep two instances warm while changing the instance ceiling and per-instance request-concurrency lease. It demonstrates configuration and instance state; it is not a load test.
+This tutorial creates an independent httpbin Tool and Deployment, starts with `MinInstanceCount=0` to observe on-demand startup, and then updates the Deployment to keep two instances warm while changing the instance ceiling and per-instance request concurrency.
 
-Run every command directly in a terminal. Copy resource IDs and tokens manually; the document contains no extraction or polling scripts. Real values in sample output are masked.
+Complete the shared [httpbin prerequisites](../README.md#prerequisites) before starting.
+
+Run every command directly in a terminal and copy resource IDs and tokens from the command output. Real values in sample output are masked.
 
 ## 1. Set variables and create the Tool
 
@@ -86,7 +88,7 @@ export HTTPBIN_TOOL_ID='sdt-replace-me'
 
 ## 2. Start with zero instances
 
-The initial configuration permits zero active instances, scales to at most three, and lets each instance hold one Deployment request or connection lease at a time. The first request triggers on-demand startup.
+The initial configuration permits zero active instances, scales to at most three, and gives each instance a request concurrency of one. The first request triggers on-demand startup.
 
 ```bash
 agr deployment create \
@@ -164,7 +166,7 @@ The first request may include instance startup latency. A successful response ha
 
 ## 4. Switch to warm capacity
 
-`deployment update` replaces the scaling object in full, so all three fields must be supplied. The following update raises the instance floor to `2`, the ceiling to `4`, and the per-instance request or connection lease to `10`.
+`deployment update` replaces the scaling object in full, so all three fields must be supplied. The following update raises the instance floor to `2`, the ceiling to `4`, and the per-instance request concurrency to `10`.
 
 ```bash
 agr deployment update "$HTTPBIN_DEPLOYMENT_ID" \
@@ -191,7 +193,7 @@ The fields mean:
 
 - `MinInstanceCount`: active-instance floor; `0` permits scale-to-zero.
 - `MaxInstanceCount`: active-instance ceiling, which cannot be lower than the floor.
-- `MaxInstanceRequestConcurrency`: simultaneous Deployment request or connection leases per active instance, not a global concurrency limit for the Deployment.
+- `MaxInstanceRequestConcurrency`: simultaneous Deployment requests or connections per active instance.
 
 ## 5. Clean up
 
@@ -200,14 +202,14 @@ agr deployment delete "$HTTPBIN_DEPLOYMENT_ID" --region "$AGR_REGION" --wait
 agr instance list --tool-id "$HTTPBIN_TOOL_ID" --region "$AGR_REGION"
 ```
 
-If any instance is not `STOPPED`, copy and delete each instance ID:
+Copy each current `RUNNING` or `PAUSED` instance ID and run the delete command for each one:
 
 ```bash
 export HTTPBIN_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HTTPBIN_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-Finally, delete the Tool:
+Delete the Tool:
 
 ```bash
 agr tool delete "$HTTPBIN_TOOL_ID" --region "$AGR_REGION" --yes --wait

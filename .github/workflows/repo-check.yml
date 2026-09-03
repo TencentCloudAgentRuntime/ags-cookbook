@@ -27,3 +27,44 @@ jobs:
               (cd "$dir" && go build ./...)
             fi
           done
+
+  brain-hands:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: dsh-cookbook
+          MYSQL_USER: dsh_brain
+          MYSQL_PASSWORD: cookbook
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: examples/deployment-cookbook/deepseek-harness/brain-hands/brain/pnpm-lock.yaml
+      - name: Test DeepSeek Harness Brain
+        working-directory: examples/deployment-cookbook/deepseek-harness/brain-hands
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_PORT: '3306'
+          MYSQL_USER: dsh_brain
+          MYSQL_PASSWORD: cookbook
+          MYSQL_DATABASE: dsh-cookbook
+        run: |
+          make install
+          make typecheck
+          make test
+          make test-mysql
