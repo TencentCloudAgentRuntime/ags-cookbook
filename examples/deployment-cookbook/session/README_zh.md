@@ -1,6 +1,6 @@
 # 将 DSH Brain 与 Hands 接入 Agent Runtime 云端 Session 服务
 
-本教程演示如何将运行在 Brain Deployment 中的 DeepSeek Harness（DSH）Agent Loop 及其调用的 Hands Deployment 接入腾讯云 Agent Runtime Session。一次用户会话只对应一个 Session：其中既保存 DSH 的多轮对话，也记录 Brain、Hands Deployment、Hands affinity 和工具执行 Events。同一 Session 会回到原 workspace，新 Session 则获得隔离的 workspace。
+本教程演示如何将运行在 Brain Deployment 中的 DeepSeek Harness（DSH）及其调用的 Hands Deployment 接入腾讯云 Agent Runtime Session。接入后，同一次用户会话可以持续恢复对话上下文和 Hands workspace，不同会话之间相互隔离。
 
 随教程提供的 [`SessionPersistence` 插件](./brain/plugin/index.js)负责创建和恢复 Session、写入 Brain 与 Hands Events、恢复 DSH 对话上下文，并将 DSH 工具调用路由到该 Session 对应的 Hands workspace。除了直接使用示例镜像，使用自有 DSH 镜像时也可以集成该插件。
 

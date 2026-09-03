@@ -1,6 +1,6 @@
 # Integrate DSH Brain and Hands with the Agent Runtime cloud Session service
 
-This tutorial shows how to connect a DeepSeek Harness (DSH) Agent Loop running in a Brain Deployment, together with the Hands Deployment it invokes, to Tencent Cloud Agent Runtime Session. One user conversation maps to one Session, which stores the DSH conversation, both Deployment IDs, the Hands affinity, and tool execution Events. The same Session returns to its original workspace, while a new Session receives an isolated workspace.
+This tutorial shows how to connect DeepSeek Harness (DSH) running in a Brain Deployment, together with the Hands Deployment it invokes, to Tencent Cloud Agent Runtime Session. After integration, the same user conversation can restore its conversation context and Hands workspace, while different conversations remain isolated from one another.
 
 The included [`SessionPersistence` plugin](./brain/plugin/index.js) creates and restores Sessions, writes Brain and Hands Events, restores DSH conversation context, and routes DSH tool calls to the Hands workspace associated with that Session. You can use the example image directly or integrate the plugin into your own DSH image.
 
