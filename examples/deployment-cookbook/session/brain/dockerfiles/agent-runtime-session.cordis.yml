@@ -10,6 +10,8 @@
         spaceId: !!js process.env.SESSION_SPACE_ID
         userId: !!js process.env.SESSION_USER_ID
         brainDeploymentId: !!js process.env.BRAIN_DEPLOYMENT_ID
+        handsDeploymentId: !!js process.env.HANDS_DEPLOYMENT_ID
+        domain: !!js process.env.AGR_DOMAIN
         secretId: !!js process.env.TENCENTCLOUD_SECRET_ID
         secretKey: !!js process.env.TENCENTCLOUD_SECRET_KEY
         sessionToken: !!js process.env.TENCENTCLOUD_SESSION_TOKEN

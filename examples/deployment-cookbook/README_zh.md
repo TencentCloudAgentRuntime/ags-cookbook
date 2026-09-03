@@ -22,8 +22,7 @@
 | [httpbin/scaling](./httpbin/scaling/README_zh.md) | 从按需启动切换到常驻容量，理解三个伸缩参数及完整替换更新。 |
 | [httpbin/lifecycle](./httpbin/lifecycle/README_zh.md) | 依次观察空闲实例的 `STOP` 与 `PAUSE` 行为。 |
 | [httpbin/affinity](./httpbin/affinity/README_zh.md) | 比较 `BEST_EFFORT`、`STRICT` 和 `EXCLUSIVE` 三种会话亲和模式。 |
-| [session/brain](./session/brain/README_zh.md) | 将 Brain Deployment 中的 DSH Agent Loop 接入 Agent Runtime 云端 Session 服务，持久化多轮会话并查看 Events。 |
-| [session/hands](./session/hands/README_zh.md) | 通过 Agent Runtime 云端 Session 服务恢复 Hands Deployment workspace，并验证不同 Session 之间的 workspace 隔离。 |
+| [session](./session/README_zh.md) | 将 DSH Brain 与 Hands 接入同一个 Agent Runtime 云端 Session，验证多轮对话、工具调用、workspace 延续与隔离。 |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README_zh.md) | 部署 all-in-one DeepSeek Harness，通过 TokenHub 完成编码任务，并验证独占会话的暂停与恢复。 |
 
 每个场景目录中的 `README.md` 是英文版，`README_zh.md` 是中文版。httpbin 镜像的来源、构建和发布方式见 [httpbin/dockerfiles](./httpbin/dockerfiles/README_zh.md)。

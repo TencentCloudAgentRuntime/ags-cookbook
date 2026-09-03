@@ -2,13 +2,12 @@
 
 .PHONY: run check build
 
-DSH_SESSION_IMAGE ?= ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session.1
+DSH_SESSION_IMAGE ?= ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session.8
 
 run:
-	@echo "Follow README.md (English) or README_zh.md (Chinese) to connect a deployed DSH agent loop to Agent Runtime Session."
+	@echo "Use the tutorial in the parent session directory."
 
 check:
-	python3 -m py_compile session_demo.py
 	sh -n dockerfiles/entrypoint.sh
 	node --check plugin/index.js
 	node --check plugin/index.test.js

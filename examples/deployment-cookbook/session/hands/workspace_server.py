@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal stateful workspace service used by the Hands Session cookbook."""
+"""Minimal stateful workspace service used by the integrated Session cookbook."""
 
 from __future__ import annotations
 

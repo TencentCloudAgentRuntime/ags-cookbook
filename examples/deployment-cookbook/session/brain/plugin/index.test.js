@@ -189,3 +189,127 @@ test('loadStored rejects a non-contiguous DSH sequence', async () => {
 
   await assert.rejects(persistence.loadStored('session-test'), /non-contiguous/)
 })
+
+test('executeHands reuses the shared Session affinity and returns the Hands result', async () => {
+  const calls = []
+  const persistence = backend(async (action, payload) => {
+    calls.push({ action, payload })
+    return {}
+  })
+  persistence.handsDeploymentId = 'dpl-hands'
+  persistence.describeSession = async brainSessionId => {
+    assert.equal(brainSessionId, 'brain-session')
+    return {
+      SessionId: 'brain-session',
+      Metadata: [
+        { Name: 'ae.tencentcloud.com/brain-deployment-id', Value: 'dpl-brain' },
+        { Name: 'ae.tencentcloud.com/hands-deployment-id', Value: 'dpl-hands' },
+        { Name: 'ae.tencentcloud.com/hands-affinity-id', Value: 'affinity-a' },
+      ],
+    }
+  }
+  persistence.invokeHands = async (operation, args, affinityId) => {
+    assert.equal(operation, 'workspace.read_file')
+    assert.deepEqual(args, { path: 'result.txt' })
+    assert.equal(affinityId, 'affinity-a')
+    return { result: { path: 'result.txt', exists: true, content: '95' }, affinityId }
+  }
+
+  const result = await persistence.executeHands(
+    'workspace.read_file',
+    { path: 'result.txt' },
+    {
+      agent: { session: { header: { id: 'brain-session' } } },
+      callId: 'call-1',
+      signal: new AbortController().signal,
+    },
+  )
+
+  assert.deepEqual(result, {
+    sessionId: 'brain-session',
+    path: 'result.txt',
+    exists: true,
+    content: '95',
+  })
+  assert.deepEqual(calls, [])
+})
+
+test('executeHands adds Hands metadata without replacing Brain metadata', async () => {
+  const calls = []
+  const persistence = backend(async (action, payload) => {
+    calls.push({ action, payload })
+    return {}
+  })
+  persistence.handsDeploymentId = 'dpl-hands'
+  persistence.describeSession = async () => ({
+    SessionId: 'brain-session',
+    Metadata: [{ Name: 'ae.tencentcloud.com/brain-deployment-id', Value: 'dpl-brain' }],
+  })
+  persistence.invokeHands = async () => ({
+    result: { path: 'result.txt', content: '95' },
+    affinityId: 'affinity-a',
+  })
+
+  await persistence.executeHands(
+    'workspace.write_file',
+    { path: 'result.txt', content: '95' },
+    {
+      agent: { session: { header: { id: 'brain-session' } } },
+      callId: 'call-1',
+      signal: new AbortController().signal,
+    },
+  )
+
+  const modify = calls.find(call => call.action === 'ModifySession')
+  assert.deepEqual(modify.payload.Metadata, [
+    { Name: 'ae.tencentcloud.com/brain-deployment-id', Value: 'dpl-brain' },
+    { Name: 'ae.tencentcloud.com/hands-deployment-id', Value: 'dpl-hands' },
+    { Name: 'ae.tencentcloud.com/hands-affinity-id', Value: 'affinity-a' },
+  ])
+})
+
+test('executeHands omits null content when a workspace file does not exist', async () => {
+  const persistence = backend(async () => ({}))
+  persistence.handsDeploymentId = 'dpl-hands'
+  persistence.describeSession = async () => ({
+    SessionId: 'brain-session',
+    Metadata: [
+      { Name: 'ae.tencentcloud.com/hands-deployment-id', Value: 'dpl-hands' },
+      { Name: 'ae.tencentcloud.com/hands-affinity-id', Value: 'affinity-a' },
+    ],
+  })
+  persistence.invokeHands = async () => ({
+    result: { path: 'missing.txt', exists: false, content: null },
+    affinityId: 'affinity-a',
+  })
+
+  const result = await persistence.executeHands(
+    'workspace.read_file',
+    { path: 'missing.txt' },
+    {
+      agent: { session: { header: { id: 'brain-session' } } },
+      callId: 'call-missing',
+      signal: new AbortController().signal,
+    },
+  )
+
+  assert.deepEqual(result, {
+    sessionId: 'brain-session',
+    path: 'missing.txt',
+    exists: false,
+  })
+})
+
+test('describeEvents ignores Hands events when restoring DSH history', async () => {
+  const persistence = backend(async () => ({
+    Events: [
+      { EventId: 'hands-call', Extensions: '' },
+      { EventId: 'dsh-0', Extensions: JSON.stringify({ dshEvent: { type: 'turn/start', seq: 0 } }) },
+    ],
+    TotalCount: 2,
+  }))
+
+  assert.deepEqual(await persistence.describeEvents('brain-session'), [
+    { type: 'turn/start', seq: 0 },
+  ])
+})

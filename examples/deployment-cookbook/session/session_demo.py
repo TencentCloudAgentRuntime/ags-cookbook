@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one multi-turn DSH conversation persisted by Agent Runtime Session."""
+"""Validate one Brain and Hands conversation persisted by Agent Runtime Session."""
 
 from __future__ import annotations
 
@@ -22,8 +22,14 @@ DEPLOYMENT_ID = os.environ["DSH_DEPLOYMENT_ID"]
 AFFINITY_ID = os.environ["DSH_AFFINITY_ID"]
 
 FIRST_QUESTION = "What is 37 + 58?"
-FIRST_PROMPT = f"{FIRST_QUESTION} Answer with only the number."
-SECOND_QUESTION = "Multiply the previous answer by 3. Answer with only the number."
+FIRST_PROMPT = (
+    f"{FIRST_QUESTION} Use hands_write_file to store the numerical answer in "
+    "session-value.txt, then answer with only the number."
+)
+SECOND_QUESTION = (
+    "Use hands_read_file to read session-value.txt. Multiply the stored number by 3, "
+    "then answer with only the result."
+)
 THIRD_QUESTION = (
     "What arithmetic question was contained in my first message? Exclude any answer-format "
     "instructions. Return only this JSON object: "
@@ -52,6 +58,22 @@ def agr_call(action: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def acquire_deployment_token() -> str:
     return agr_call("AcquireDeploymentToken", {"DeploymentId": DEPLOYMENT_ID})["Token"]
+
+
+def describe_session(session_id: str) -> dict[str, Any]:
+    response = agr_call("DescribeSession", {
+        "SpaceId": SPACE_ID,
+        "UserId": USER_ID,
+        "SessionId": session_id,
+    })
+    session = response.get("Session")
+    if not session:
+        raise RuntimeError(f"Session {session_id} was not returned")
+    return session
+
+
+def metadata_map(session: dict[str, Any]) -> dict[str, str]:
+    return {item["Name"]: item["Value"] for item in session.get("Metadata", [])}
 
 
 class DSHClient:
@@ -207,7 +229,32 @@ def main() -> None:
 
     events = wait_for_persisted_events(session_id, last_seq + 1)
     print(f"Agent Runtime persisted {len(events)} DSH events")
-    print("Three-turn recall, Brain Deployment lookup, and Event inspection passed")
+
+    primary_metadata = metadata_map(describe_session(session_id))
+    if primary_metadata.get("ae.tencentcloud.com/hands-deployment-id") is None:
+        raise RuntimeError("Session does not contain Hands Deployment metadata")
+    primary_affinity = primary_metadata.get("ae.tencentcloud.com/hands-affinity-id")
+    if not primary_affinity:
+        raise RuntimeError("Session does not contain Hands affinity metadata")
+    event_content = json.dumps(events, ensure_ascii=False)
+    if "hands_write_file" not in event_content or "hands_read_file" not in event_content:
+        raise RuntimeError("Session Events do not contain Hands write and read operations")
+
+    isolated_brain_session_id = client.create_session()
+    client.prompt(
+        isolated_brain_session_id,
+        "Use hands_read_file to read session-value.txt. If it does not exist, answer only MISSING.",
+    )
+    _, isolated_answer = client.wait_for_assistant(isolated_brain_session_id, -1)
+    if isolated_answer.strip().rstrip(".") != "MISSING":
+        raise RuntimeError(f"new conversation unexpectedly found the original workspace: {isolated_answer!r}")
+    isolated_metadata = metadata_map(describe_session(isolated_brain_session_id))
+    isolated_affinity = isolated_metadata.get("ae.tencentcloud.com/hands-affinity-id")
+    if not isolated_affinity or isolated_affinity == primary_affinity:
+        raise RuntimeError("new conversation did not receive an isolated Hands affinity")
+
+    print(f"Isolated Session: {isolated_brain_session_id}")
+    print("Brain conversation persistence, Hands workspace continuity, and isolation passed")
 
 
 if __name__ == "__main__":

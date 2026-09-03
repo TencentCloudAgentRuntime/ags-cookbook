@@ -4,6 +4,7 @@ import {
   SessionPersistence,
   SessionPersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import TencentCloudSdk from 'tencentcloud-sdk-nodejs-ags'
 
 const { Client } = TencentCloudSdk.ags.v20250920
@@ -27,7 +28,6 @@ function headerFromSession(session) {
 
 function eventFromSummary(summary) {
   const extensions = parseJson(summary.Extensions)
-  if (!extensions.dshEvent) throw new Error(`Event ${summary.EventId} has no DSH event payload`)
   return extensions.dshEvent
 }
 
@@ -215,15 +215,25 @@ function isSessionNotFound(error) {
   return error?.code === 'ResourceNotFound.SessionNotExist'
 }
 
+const HANDS_DEPLOYMENT_METADATA = 'ae.tencentcloud.com/hands-deployment-id'
+const HANDS_AFFINITY_METADATA = 'ae.tencentcloud.com/hands-affinity-id'
+const AFFINITY_HEADER = 'X-Tencent-Agr-Affinity-Id'
+
+function metadataMap(session) {
+  return Object.fromEntries((session?.Metadata ?? []).map(item => [item.Name, item.Value]))
+}
+
 export class AgentRuntimeSessionPersistence extends SessionPersistence {
-  static inject = ['sessions']
+  static inject = ['sessions', 'tools']
 
   static Config = z.object({
     region: z.string().required(),
+    domain: z.string().required(),
     endpoint: z.string(),
     spaceId: z.string().required(),
     userId: z.string().required(),
     brainDeploymentId: z.string().required(),
+    handsDeploymentId: z.string(),
     secretId: z.string().required(),
     secretKey: z.string().required(),
     sessionToken: z.string(),
@@ -250,7 +260,9 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     this.spaceId = required(config.spaceId, 'SESSION_SPACE_ID')
     this.userId = required(config.userId, 'SESSION_USER_ID')
     this.brainDeploymentId = required(config.brainDeploymentId, 'BRAIN_DEPLOYMENT_ID')
+    this.handsDeploymentId = config.handsDeploymentId?.trim()
     this.coordinator = new PersistenceCoordinator(this.ctx, this)
+    if (this.handsDeploymentId) this.registerHandsTools()
   }
 
   locate() {
@@ -270,6 +282,97 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       SessionId: sessionId,
       ...extra,
     }
+  }
+
+  registerHandsTools() {
+    const output = {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          sessionId: { type: 'string', required: true },
+          path: { type: 'string' },
+          content: { type: 'string' },
+          exists: { type: 'boolean' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    }
+    this.ctx.tools.register(defineTool({
+      name: 'hands_write_file',
+      description: 'Write a UTF-8 text file in the Hands workspace associated with this conversation.',
+      parameters: {
+        path: { type: 'string', required: true, description: 'Workspace-relative file path.' },
+        content: { type: 'string', required: true, description: 'Complete text to write.' },
+      },
+      output,
+      isConcurrencySafe: () => false,
+      execute: (args, exec) => this.executeHands('workspace.write_file', args, exec),
+    }))
+    this.ctx.tools.register(defineTool({
+      name: 'hands_read_file',
+      description: 'Read a UTF-8 text file from the Hands workspace associated with this conversation.',
+      parameters: {
+        path: { type: 'string', required: true, description: 'Workspace-relative file path.' },
+      },
+      output,
+      isConcurrencySafe: () => false,
+      execute: (args, exec) => this.executeHands('workspace.read_file', args, exec),
+    }))
+  }
+
+  async acquireHandsToken() {
+    const response = await this.request('AcquireDeploymentToken', {
+      DeploymentId: this.handsDeploymentId,
+    })
+    if (!response.Token) throw new Error('AcquireDeploymentToken did not return a Token')
+    return response.Token
+  }
+
+  async invokeHands(operation, args, affinityId, signal) {
+    const isWrite = operation === 'workspace.write_file'
+    const query = new URLSearchParams({ path: args.path })
+    const url = `https://8080-${this.handsDeploymentId}.${this.config.region}.agents.${this.config.domain}`
+    const headers = { 'X-Access-Token': await this.acquireHandsToken() }
+    if (affinityId) headers[AFFINITY_HEADER] = affinityId
+    if (isWrite) headers['Content-Type'] = 'application/json'
+    const response = await fetch(`${url}${isWrite ? '/files/write' : `/files/read?${query}`}`, {
+      method: isWrite ? 'POST' : 'GET',
+      headers,
+      body: isWrite ? JSON.stringify({ path: args.path, content: args.content }) : undefined,
+      signal,
+    })
+    if (!response.ok) throw new Error(`Hands returned HTTP ${response.status}: ${await response.text()}`)
+    const returnedAffinity = response.headers.get(AFFINITY_HEADER)
+    if (!returnedAffinity) throw new Error(`Hands response did not include ${AFFINITY_HEADER}`)
+    return { result: await response.json(), affinityId: returnedAffinity }
+  }
+
+  async executeHands(operation, args, exec) {
+    const brainSessionId = exec.agent?.session?.header?.id
+    if (!brainSessionId) throw new Error('Hands tools require a DSH conversation Session')
+    const session = await this.describeSession(brainSessionId)
+    const metadata = metadataMap(session)
+    const storedAffinity = metadata[HANDS_DEPLOYMENT_METADATA] === this.handsDeploymentId
+      ? metadata[HANDS_AFFINITY_METADATA]
+      : undefined
+    const { result, affinityId } = await this.invokeHands(
+      operation,
+      args,
+      storedAffinity,
+      exec.signal,
+    )
+    const sessionId = brainSessionId
+    if (affinityId !== storedAffinity || metadata[HANDS_DEPLOYMENT_METADATA] !== this.handsDeploymentId) {
+      metadata[HANDS_DEPLOYMENT_METADATA] = this.handsDeploymentId
+      metadata[HANDS_AFFINITY_METADATA] = affinityId
+      await this.request('ModifySession', this.sessionRequest(sessionId, {
+        Metadata: Object.entries(metadata).map(([Name, Value]) => ({ Name, Value })),
+      }))
+    }
+    const output = { sessionId, ...result }
+    if (output.content === null) delete output.content
+    return output
   }
 
   create(meta) {
@@ -339,15 +442,17 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
 
   async describeEvents(id, signal) {
     const events = []
-    for (let offset = 0; ; offset += 100) {
+    let offset = 0
+    for (;;) {
       signal?.throwIfAborted()
       const response = await this.request('DescribeEvents', this.sessionRequest(id, {
         Offset: offset,
         Limit: 100,
       }))
       const page = response.Events ?? []
-      events.push(...page.map(eventFromSummary))
-      if (events.length >= Number(response.TotalCount ?? events.length) || page.length === 0) break
+      events.push(...page.map(eventFromSummary).filter(Boolean))
+      offset += page.length
+      if (offset >= Number(response.TotalCount ?? offset) || page.length === 0) break
     }
     events.sort((left, right) => left.seq - right.seq)
     for (let index = 0; index < events.length; index += 1) {

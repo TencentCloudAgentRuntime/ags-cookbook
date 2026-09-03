@@ -7,6 +7,12 @@ COPY plugin /tmp/ags-dsh-session-persistence
 RUN cd /tmp/ags-dsh-session-persistence \
     && npm pack --pack-destination /tmp \
     && npm install --global --no-audit --no-fund /tmp/tencentcloud-ags-dsh-session-persistence-0.1.0.tgz \
+    && plugin_modules=/usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence/node_modules \
+    && rm -rf "$plugin_modules/@deepseek-ai" \
+    && mkdir -p "$plugin_modules/@deepseek-ai" \
+    && for package in cordis dsh-session dsh-session-persistence dsh-tools schemastery; do \
+         ln -s "/usr/local/lib/node_modules/@deepseek-ai/$package" "$plugin_modules/@deepseek-ai/$package"; \
+       done \
     && rm -rf /tmp/ags-dsh-session-persistence \
       /tmp/tencentcloud-ags-dsh-session-persistence-0.1.0.tgz \
       /root/.npm
