@@ -15,6 +15,7 @@
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
 - `deployment-cookbook` —— 使用 `agr` 管理 Deployment，从 httpbin 基础到长驻 Agent 工作区
+- `dind` —— 自启动 Docker-in-Docker Tool，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务
 - `envd-oci-env` —— envd 作为 PID 1 时保留 OCI 镜像环境变量
 - `harness-nix-volume` —— 用 Nix 打包自包含 Harness 运行时，并挂载到自定义主镜像
 - `mini-swe-agent` —— 基于 AGS SWE Sandbox 和 SWE-ReX runtime 运行 SWE-bench 评测
@@ -46,6 +47,7 @@
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
 | `deployment-cookbook` | 进阶 | agr CLI + Markdown | 按场景 README 操作 | 涵盖部署、伸缩、生命周期、亲和性与长驻 Agent 工作区 |
+| `dind` | 进阶 | Docker + Compose + envd + Harbor + agr | `make run` | 创建 DinD Tool，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务 |
 | `envd-oci-env` | 进阶 | Bash + Docker + agr | `make run` | 复现并验证 envd 的 OCI 环境变量继承 |
 | `harness-nix-volume` | 进阶 | Nix + 自定义镜像 + 镜像卷 | `make build-images` 后 `make run` | 将自包含 Harness 依赖挂载进主镜像 |
 | `html-processing` | 入门 | Python + 浏览器/代码双沙箱 | `make run` | 适合作为双沙箱协作的直观起点 |

@@ -1,0 +1,32 @@
+{
+  "Image": "hkccr.ccs.tencentyun.com/ags-image/dind:v1.0.0",
+  "ImageRegistryType": "custom",
+  "ImageDigest": "sha256:b1332e5cfaeaa335e1c3aae69ffd8a84b42dd78e014247e972d56003338595d3",
+  "Command": [
+    "/usr/local/bin/ags-dind-entrypoint"
+  ],
+  "Ports": [
+    {
+      "Name": "envd",
+      "Port": 49983,
+      "Protocol": "TCP"
+    }
+  ],
+  "Resources": {
+    "CPU": "4",
+    "Memory": "8Gi",
+    "Storage": "20Gi"
+  },
+  "Probe": {
+    "HttpGet": {
+      "Path": "/health",
+      "Port": 49983,
+      "Scheme": "HTTP"
+    },
+    "ReadyTimeoutMs": 30000,
+    "ProbeTimeoutMs": 2000,
+    "ProbePeriodMs": 1000,
+    "SuccessThreshold": 1,
+    "FailureThreshold": 100
+  }
+}

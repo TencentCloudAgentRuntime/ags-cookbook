@@ -15,6 +15,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
+- `dind` — self-starting Docker-in-Docker Tool that runs a real Terminal-Bench Compose task with Harbor Oracle
 - `envd-oci-env` — preserve OCI image environment variables when envd is PID 1
 - `harness-nix-volume` — package a self-contained Harness runtime with Nix and mount it into a custom image
 - `mini-swe-agent` — SWE-bench evaluation with AGS SWE sandbox and SWE-ReX runtime
@@ -46,6 +47,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | [`deployment-cookbook`](./deployment-cookbook/README.md) | advanced | agr CLI + Markdown + Python | Follow a scenario README | Covers deployment, scaling, lifecycle, affinity, a native MCP server, and a persistent agent workspace |
+| `dind` | advanced | Docker + Compose + envd + Harbor + agr | `make run` | Creates a DinD Tool and runs a real Terminal-Bench Compose task with Harbor Oracle |
 | `envd-oci-env` | advanced | Bash + Docker + agr | `make run` | Reproduces and validates envd OCI environment inheritance |
 | `harness-nix-volume` | advanced | Nix + custom image + image volume | `make build-images` then `make run` | Mount self-contained Harness dependencies into a main image |
 | `html-processing` | starter | Python + browser/code sandboxes | `make run` | Good visual intro to dual-sandbox flow |

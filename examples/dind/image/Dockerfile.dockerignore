@@ -1,0 +1,13 @@
+**
+!examples/
+!examples/dind/
+!examples/dind/image/
+!examples/dind/image/entrypoint.sh
+!utils/
+!utils/envd/
+!utils/envd/versions/
+!utils/envd/versions/0.5.14-oci/
+!utils/envd/versions/0.5.14-oci/src/
+!utils/envd/versions/0.5.14-oci/src/**
+!utils/envd/versions/0.5.14-oci/shared/
+!utils/envd/versions/0.5.14-oci/shared/**
