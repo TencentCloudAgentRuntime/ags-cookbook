@@ -47,6 +47,7 @@ enhanced_demo_output/
 *.csv
 !package.json
 !package-lock.json
+!examples/dind/tool-custom-configuration.hk.json
 # pnpm-lock.yaml is not matched by *.json, but kept here to guard against
 # any future *.yaml or catch-all rule that might exclude it.
 !pnpm-lock.yaml

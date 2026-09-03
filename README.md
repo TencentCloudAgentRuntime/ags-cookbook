@@ -91,6 +91,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
 | [`deployment-cookbook`](./examples/deployment-cookbook/README.md) | agr CLI + Markdown + Python | Deployment, scaling, lifecycle, affinity, native MCP server, and persistent agent workspace scenarios |
+| `dind` | Docker + Compose + envd + Harbor + agr | Self-starting DinD Sandbox that runs a real Terminal-Bench Compose task with Harbor Oracle |
 | `envd-oci-env` | Bash + Docker + agr | Preserve OCI image environment variables when envd is PID 1 |
 | `harness-nix-volume` | Nix + custom image + image volume | Self-contained Harness dependency mount |
 | `html-processing` | Python + browser/code sandboxes | Dual-sandbox HTML pipeline |

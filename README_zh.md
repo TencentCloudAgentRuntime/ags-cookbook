@@ -84,6 +84,7 @@ make example-run EXAMPLE=mini-rl
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
 | `deployment-cookbook` | agr CLI + Markdown | Deployment、伸缩、生命周期、亲和性与长驻 Agent 工作区场景 |
+| `dind` | Docker + Compose + envd + Harbor + agr | 自启动 DinD 沙箱，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务 |
 | `envd-oci-env` | Bash + Docker + agr | envd 作为 PID 1 时保留 OCI 镜像环境变量 |
 | `harness-nix-volume` | Nix + 自定义镜像 + 镜像卷 | 自包含 Harness 依赖挂载 |
 | `html-processing` | Python + Browser/Code 双沙箱 | HTML 协作处理 |
