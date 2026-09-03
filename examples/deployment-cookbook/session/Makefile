@@ -1,15 +1,12 @@
 .DEFAULT_GOAL := run
 
-.PHONY: run check build
+.PHONY: run check
 
 run:
-	@echo "Follow README.md (English) or README_zh.md (Chinese) to connect a deployed DSH agent loop to Agent Runtime Session."
+	@echo "Choose a Session integration tutorial and follow its README:"
+	@echo "  brain"
+	@echo "  hands"
 
 check:
-	python3 -m py_compile session_demo.py
-	sh -n dockerfiles/entrypoint.sh
-	node --check plugin/index.js
-	node --check plugin/index.test.js
-
-build:
-	docker build --platform linux/amd64 --file dockerfiles/Dockerfile --tag "$${DSH_SESSION_IMAGE:?DSH_SESSION_IMAGE is required}" .
+	$(MAKE) -C brain check
+	$(MAKE) -C hands check

@@ -15,6 +15,7 @@ from typing import Any
 
 REGION = os.environ.get("AGR_REGION", "ap-shanghai")
 DOMAIN = os.environ.get("AGR_DOMAIN", "tencentags.com")
+API_ENDPOINT = os.environ.get("SESSION_API_ENDPOINT", "ags.tencentcloudapi.com")
 SPACE_ID = os.environ["SESSION_SPACE_ID"]
 USER_ID = os.environ.get("SESSION_USER_ID", "dsh-demo-user")
 DEPLOYMENT_ID = os.environ["DSH_DEPLOYMENT_ID"]
@@ -35,6 +36,7 @@ def agr_call(action: str, payload: dict[str, Any]) -> dict[str, Any]:
         [
             "agr", "api", "call", action,
             "--region", REGION,
+            "--cloud-endpoint", API_ENDPOINT,
             "--request", json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             "--output", "json",
         ],

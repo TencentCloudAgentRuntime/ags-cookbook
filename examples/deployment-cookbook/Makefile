@@ -8,5 +8,6 @@ run:
 	@echo "  httpbin/scaling"
 	@echo "  httpbin/lifecycle"
 	@echo "  httpbin/affinity"
-	@echo "  session"
+	@echo "  session/brain"
+	@echo "  session/hands"
 	@echo "  deepseek-harness/all-in-one"
