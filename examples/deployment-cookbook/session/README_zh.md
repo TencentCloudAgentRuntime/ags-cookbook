@@ -259,7 +259,7 @@ What is 37 + 58? Use hands_write_file to store the numerical answer in session-v
 
 #### 在终端中验证 Session 关联
 
-发送消息后立即在终端中通过 DSH Deployment ID 和示例用户查询最新 Session：
+发送消息后，在终端中使用 `DSH_DEPLOYMENT_ID` 和 `SESSION_USER_ID` 查询本次 DSH 会话对应的最新 Session：
 
 ```bash
 DSH_SESSION_ID="$(
@@ -453,6 +453,7 @@ delete_sessions_for_deployment() {
 
 delete_sessions_for_deployment \
   'example.com/brain-deployment-id' "$DSH_DEPLOYMENT_ID"
+
 agr deployment delete "$DSH_DEPLOYMENT_ID" \
   --region "$AGR_REGION" \
   --cloud-endpoint "$SESSION_API_ENDPOINT" \

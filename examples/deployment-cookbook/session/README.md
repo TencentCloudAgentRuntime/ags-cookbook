@@ -259,7 +259,7 @@ Expect `95` and a `hands_write_file` call in the trace. This call creates `sessi
 
 #### Verify the Session association in a terminal
 
-Immediately after sending the message, use a terminal to find the newest Session for the example user through the DSH Deployment ID:
+After sending the message, use `DSH_DEPLOYMENT_ID` and `SESSION_USER_ID` in a terminal to find the newest Session associated with this DSH conversation:
 
 ```bash
 DSH_SESSION_ID="$(
@@ -453,6 +453,7 @@ delete_sessions_for_deployment() {
 
 delete_sessions_for_deployment \
   'example.com/brain-deployment-id' "$DSH_DEPLOYMENT_ID"
+
 agr deployment delete "$DSH_DEPLOYMENT_ID" \
   --region "$AGR_REGION" \
   --cloud-endpoint "$SESSION_API_ENDPOINT" \
