@@ -2,7 +2,7 @@
 
 .PHONY: run check build
 
-DSH_SESSION_IMAGE ?= ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session.8
+DSH_SESSION_IMAGE ?= ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session.9
 
 run:
 	@echo "Use the tutorial in the parent session directory."

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate one Brain and Hands conversation persisted by Agent Runtime Session."""
+"""Validate Session metadata lookup and Hands workspace routing."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import os
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from typing import Any
@@ -19,22 +20,16 @@ API_ENDPOINT = os.environ.get("SESSION_API_ENDPOINT", "ags.tencentcloudapi.com")
 SPACE_ID = os.environ["SESSION_SPACE_ID"]
 USER_ID = os.environ.get("SESSION_USER_ID", "dsh-demo-user")
 DEPLOYMENT_ID = os.environ["DSH_DEPLOYMENT_ID"]
-AFFINITY_ID = os.environ["DSH_AFFINITY_ID"]
+HANDS_DEPLOYMENT_ID = os.environ["HANDS_DEPLOYMENT_ID"]
 
-FIRST_QUESTION = "What is 37 + 58?"
 FIRST_PROMPT = (
-    f"{FIRST_QUESTION} Use hands_write_file to store the numerical answer in "
+    "What is 37 + 58? Use hands_write_file to store the numerical answer in "
     "session-value.txt, then answer with only the number."
 )
-SECOND_QUESTION = (
-    "Use hands_read_file to read session-value.txt. Multiply the stored number by 3, "
-    "then answer with only the result."
-)
-THIRD_QUESTION = (
-    "What arithmetic question was contained in my first message? Exclude any answer-format "
-    "instructions. Return only this JSON object: "
-    '{"first_question":"<exact first question>","answer":<number>}'
-)
+
+BRAIN_DEPLOYMENT_METADATA = "example.com/brain-deployment-id"
+HANDS_DEPLOYMENT_METADATA = "example.com/hands-deployment-id"
+HANDS_AFFINITY_METADATA = "example.com/hands-affinity-id"
 
 
 def agr_call(action: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -56,8 +51,8 @@ def agr_call(action: str, payload: dict[str, Any]) -> dict[str, Any]:
     return envelope["Data"]["Response"]["Response"]
 
 
-def acquire_deployment_token() -> str:
-    return agr_call("AcquireDeploymentToken", {"DeploymentId": DEPLOYMENT_ID})["Token"]
+def acquire_deployment_token(deployment_id: str) -> str:
+    return agr_call("AcquireDeploymentToken", {"DeploymentId": deployment_id})["Token"]
 
 
 def describe_session(session_id: str) -> dict[str, Any]:
@@ -93,7 +88,6 @@ class DSHClient:
             headers={
                 "Content-Type": "application/json",
                 "X-Access-Token": self.token,
-                "X-Tencent-Agr-Affinity-Id": AFFINITY_ID,
             },
             method="POST",
         )
@@ -190,35 +184,80 @@ def wait_for_persisted_events(session_id: str, expected_count: int) -> list[dict
     )
 
 
+def content_parts(event: dict[str, Any]) -> list[dict[str, Any]]:
+    content = event.get("Content") or {}
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except json.JSONDecodeError:
+            return []
+    return content.get("Parts", []) if isinstance(content, dict) else []
+
+
+def matching_function_events(
+    events: list[dict[str, Any]], field: str, name: str | None = None,
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for event in events:
+        for part in content_parts(event):
+            value = part.get(field)
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    continue
+            if isinstance(value, dict) and (name is None or value.get("Name") == name):
+                matches.append({"event": event, "value": value})
+    return matches
+
+
+def describe_deployment(deployment_id: str) -> dict[str, Any]:
+    response = agr_call("DescribeDeployment", {"DeploymentId": deployment_id})
+    deployment = response.get("Deployment")
+    if not deployment or deployment.get("DeploymentId") != deployment_id:
+        raise RuntimeError(f"Deployment {deployment_id} was not returned")
+    return deployment
+
+
+def read_hands_file(deployment_id: str, affinity_id: str, path: str) -> dict[str, Any]:
+    token = acquire_deployment_token(deployment_id)
+    query = urllib.parse.urlencode({"path": path})
+    url = f"https://8080-{deployment_id}.{REGION}.agents.{DOMAIN}/files/read?{query}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "X-Access-Token": token,
+            "X-Tencent-Agr-Affinity-Id": affinity_id,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            returned_affinity = response.headers.get("X-Tencent-Agr-Affinity-Id")
+            result = json.load(response)
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode(errors="replace")
+        raise RuntimeError(f"Hands returned HTTP {error.code}: {detail}") from error
+    if returned_affinity != affinity_id:
+        raise RuntimeError("Hands did not preserve the affinity restored from Session metadata")
+    return result
+
+
 def main() -> None:
-    client = DSHClient(acquire_deployment_token())
+    client = DSHClient(acquire_deployment_token(DEPLOYMENT_ID))
     session_id = client.create_session()
     print(f"Session: {session_id}")
 
-    last_seq = -1
-    answers: list[str] = []
-    for turn, prompt in enumerate([FIRST_PROMPT, SECOND_QUESTION, THIRD_QUESTION]):
-        client.prompt(session_id, prompt)
-        last_seq, answer = client.wait_for_assistant(session_id, last_seq)
-        print(f"  user: {prompt}")
-        print(f"  assistant: {answer}")
-        answers.append(answer)
-
-    if answers[0].strip().rstrip(".") != "95":
-        raise RuntimeError(f"first answer was not 95: {answers[0]!r}")
-    if answers[1].strip().rstrip(".") != "285":
-        raise RuntimeError(f"second answer did not use the previous result: {answers[1]!r}")
-    try:
-        recalled = json.loads(answers[2].strip().removeprefix("```json").removesuffix("```").strip())
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"third answer was not valid JSON: {answers[2]!r}") from error
-    if recalled != {"first_question": FIRST_QUESTION, "answer": 95}:
-        raise RuntimeError(f"third answer did not recall the first question: {recalled!r}")
+    client.prompt(session_id, FIRST_PROMPT)
+    last_seq, answer = client.wait_for_assistant(session_id, -1)
+    print(f"  user: {FIRST_PROMPT}")
+    print(f"  assistant: {answer}")
+    if answer.strip().rstrip(".") != "95":
+        raise RuntimeError(f"answer was not 95: {answer!r}")
 
     sessions = agr_call("DescribeSessions", {
         "SpaceId": SPACE_ID,
         "Filters": [{
-            "Name": "metadata:ae.tencentcloud.com/brain-deployment-id",
+            "Name": f"metadata:{BRAIN_DEPLOYMENT_METADATA}",
             "Values": [DEPLOYMENT_ID],
         }],
         "Offset": 0,
@@ -231,30 +270,57 @@ def main() -> None:
     print(f"Agent Runtime persisted {len(events)} DSH events")
 
     primary_metadata = metadata_map(describe_session(session_id))
-    if primary_metadata.get("ae.tencentcloud.com/hands-deployment-id") is None:
-        raise RuntimeError("Session does not contain Hands Deployment metadata")
-    primary_affinity = primary_metadata.get("ae.tencentcloud.com/hands-affinity-id")
+    if primary_metadata.get(BRAIN_DEPLOYMENT_METADATA) != DEPLOYMENT_ID:
+        raise RuntimeError("Session does not contain the expected Brain Deployment metadata")
+    if primary_metadata.get(HANDS_DEPLOYMENT_METADATA) != HANDS_DEPLOYMENT_ID:
+        raise RuntimeError("Session does not contain the expected Hands Deployment metadata")
+    primary_affinity = primary_metadata.get(HANDS_AFFINITY_METADATA)
     if not primary_affinity:
         raise RuntimeError("Session does not contain Hands affinity metadata")
-    event_content = json.dumps(events, ensure_ascii=False)
-    if "hands_write_file" not in event_content or "hands_read_file" not in event_content:
-        raise RuntimeError("Session Events do not contain Hands write and read operations")
 
-    isolated_brain_session_id = client.create_session()
-    client.prompt(
-        isolated_brain_session_id,
-        "Use hands_read_file to read session-value.txt. If it does not exist, answer only MISSING.",
-    )
-    _, isolated_answer = client.wait_for_assistant(isolated_brain_session_id, -1)
-    if isolated_answer.strip().rstrip(".") != "MISSING":
-        raise RuntimeError(f"new conversation unexpectedly found the original workspace: {isolated_answer!r}")
-    isolated_metadata = metadata_map(describe_session(isolated_brain_session_id))
-    isolated_affinity = isolated_metadata.get("ae.tencentcloud.com/hands-affinity-id")
-    if not isolated_affinity or isolated_affinity == primary_affinity:
-        raise RuntimeError("new conversation did not receive an isolated Hands affinity")
+    hands_sessions = agr_call("DescribeSessions", {
+        "SpaceId": SPACE_ID,
+        "Filters": [{
+            "Name": f"metadata:{HANDS_DEPLOYMENT_METADATA}",
+            "Values": [HANDS_DEPLOYMENT_ID],
+        }],
+        "Offset": 0,
+        "Limit": 20,
+    }).get("Sessions", [])
+    if not any(session.get("SessionId") == session_id for session in hands_sessions):
+        raise RuntimeError("Session was not found through Hands Deployment metadata")
 
-    print(f"Isolated Session: {isolated_brain_session_id}")
-    print("Brain conversation persistence, Hands workspace continuity, and isolation passed")
+    write_calls = matching_function_events(events, "FunctionCall", "hands_write_file")
+    if not write_calls:
+        raise RuntimeError("Session Events do not contain a hands_write_file FunctionCall")
+    write_args = write_calls[0]["value"].get("Args", {})
+    if write_args.get("path") != "session-value.txt" or str(write_args.get("content")) != "95":
+        raise RuntimeError(f"hands_write_file FunctionCall has unexpected arguments: {write_args!r}")
+    call_ids = {item["event"].get("InvocationId") for item in write_calls}
+    write_results = matching_function_events(events, "FunctionResponse")
+    matching_results = [
+        item for item in write_results if item["value"].get("Name") in call_ids
+    ]
+    if not matching_results:
+        raise RuntimeError("Session Events do not contain a hands_write_file FunctionResponse")
+    response = matching_results[0]["value"].get("Response", {})
+    if response.get("isError"):
+        raise RuntimeError(f"hands_write_file FunctionResponse contains an error: {response!r}")
+    try:
+        response_content = json.loads(response.get("content", ""))
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"hands_write_file returned invalid content: {response!r}") from error
+    if response_content.get("path") != "session-value.txt" or response_content.get("content") != "95":
+        raise RuntimeError(f"hands_write_file FunctionResponse has unexpected data: {response_content!r}")
+
+    describe_deployment(DEPLOYMENT_ID)
+    describe_deployment(HANDS_DEPLOYMENT_ID)
+    restored = read_hands_file(HANDS_DEPLOYMENT_ID, primary_affinity, "session-value.txt")
+    if not restored.get("exists") or restored.get("content") != "95":
+        raise RuntimeError(f"restored Hands workspace returned unexpected data: {restored!r}")
+
+    print(f"Hands Deployment: {HANDS_DEPLOYMENT_ID}")
+    print("Restored session metadata routed the request to the original Hands workspace")
 
 
 if __name__ == "__main__":

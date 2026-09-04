@@ -215,8 +215,9 @@ function isSessionNotFound(error) {
   return error?.code === 'ResourceNotFound.SessionNotExist'
 }
 
-const HANDS_DEPLOYMENT_METADATA = 'ae.tencentcloud.com/hands-deployment-id'
-const HANDS_AFFINITY_METADATA = 'ae.tencentcloud.com/hands-affinity-id'
+const BRAIN_DEPLOYMENT_METADATA = 'example.com/brain-deployment-id'
+const HANDS_DEPLOYMENT_METADATA = 'example.com/hands-deployment-id'
+const HANDS_AFFINITY_METADATA = 'example.com/hands-affinity-id'
 const AFFINITY_HEADER = 'X-Tencent-Agr-Affinity-Id'
 
 function metadataMap(session) {
@@ -232,7 +233,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     endpoint: z.string(),
     spaceId: z.string().required(),
     userId: z.string().required(),
-    brainDeploymentId: z.string().required(),
+    brainDeploymentName: z.string().required(),
     handsDeploymentId: z.string(),
     secretId: z.string().required(),
     secretKey: z.string().required(),
@@ -259,7 +260,8 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     this.client = new Client(clientConfig)
     this.spaceId = required(config.spaceId, 'SESSION_SPACE_ID')
     this.userId = required(config.userId, 'SESSION_USER_ID')
-    this.brainDeploymentId = required(config.brainDeploymentId, 'BRAIN_DEPLOYMENT_ID')
+    this.brainDeploymentName = required(config.brainDeploymentName, 'DSH_DEPLOYMENT_NAME')
+    this.brainDeploymentIdPromise = undefined
     this.handsDeploymentId = config.handsDeploymentId?.trim()
     this.coordinator = new PersistenceCoordinator(this.ctx, this)
     if (this.handsDeploymentId) this.registerHandsTools()
@@ -282,6 +284,28 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       SessionId: sessionId,
       ...extra,
     }
+  }
+
+  async resolveBrainDeploymentId() {
+    if (!this.brainDeploymentIdPromise) {
+      this.brainDeploymentIdPromise = this.request('DescribeDeploymentList', {
+        Filters: [{ Name: 'deployment-name', Values: [this.brainDeploymentName] }],
+        Offset: 0,
+        Limit: 2,
+      }).then(response => {
+        const deployments = response.DeploymentSet ?? []
+        if (deployments.length !== 1 || !deployments[0].DeploymentId) {
+          throw new Error(
+            `Expected exactly one Deployment named ${this.brainDeploymentName}, found ${deployments.length}`,
+          )
+        }
+        return deployments[0].DeploymentId
+      }).catch(error => {
+        this.brainDeploymentIdPromise = undefined
+        throw error
+      })
+    }
+    return this.brainDeploymentIdPromise
   }
 
   registerHandsTools() {
@@ -421,11 +445,12 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
 
   async appendBatch(meta, events, isMaterialized) {
     if (!isMaterialized) {
+      const brainDeploymentId = await this.resolveBrainDeploymentId()
       await this.request('CreateSession', this.sessionRequest(meta.id, {
         State: { CustomState: JSON.stringify({ dshHeader: meta }) },
         Metadata: [{
-          Name: 'ae.tencentcloud.com/brain-deployment-id',
-          Value: this.brainDeploymentId,
+          Name: BRAIN_DEPLOYMENT_METADATA,
+          Value: brainDeploymentId,
         }],
       }))
     }
@@ -538,14 +563,17 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       })
       const page = response.Sessions ?? []
       for (const session of page) {
+        let header
         try {
-          snapshots.push({
-            header: headerFromSession(session),
-            revision: await this.readStoredRevision(session.SessionId, signal),
-          })
+          header = headerFromSession(session)
         } catch {
-          // Ignore Sessions not owned by this DSH persistence backend.
+          // The SessionSpace can also contain Sessions created by other applications.
+          continue
         }
+        snapshots.push({
+          header,
+          revision: await this.readStoredRevision(session.SessionId, signal),
+        })
       }
       if (offset + page.length >= Number(response.TotalCount ?? 0) || page.length === 0) break
     }

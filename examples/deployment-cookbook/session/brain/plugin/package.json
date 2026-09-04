@@ -2,7 +2,7 @@
   "name": "@tencentcloud/ags-dsh-session-persistence",
   "version": "0.1.0",
   "private": true,
-  "description": "DeepSeek Harness session persistence backed by Tencent Cloud Agent Runtime Session",
+  "description": "Example DeepSeek Harness integration with Tencent Cloud Agent Runtime Session",
   "type": "module",
   "main": "index.js",
   "exports": {

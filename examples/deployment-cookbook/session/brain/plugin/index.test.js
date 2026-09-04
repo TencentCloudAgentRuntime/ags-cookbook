@@ -8,12 +8,13 @@ function backend(request) {
   const value = Object.create(AgentRuntimeSessionPersistence.prototype)
   value.spaceId = 'space-test'
   value.userId = 'user-test'
-  value.brainDeploymentId = 'dpl-test'
+  value.brainDeploymentName = 'brain-test'
+  value.brainDeploymentIdPromise = undefined
   value.request = request
   return value
 }
 
-test('appendEvents stores a readable projection and the lossless DSH event', async () => {
+test('appendEvents stores a readable projection and the original DSH event', async () => {
   const calls = []
   const persistence = backend(async (action, payload) => {
     calls.push({ action, payload })
@@ -48,18 +49,34 @@ test('appendBatch associates a new Session with the Brain Deployment', async () 
   const calls = []
   const persistence = backend(async (action, payload) => {
     calls.push({ action, payload })
+    if (action === 'DescribeDeploymentList') {
+      return { DeploymentSet: [{ DeploymentId: 'dpl-test', DeploymentName: 'brain-test' }] }
+    }
     return {}
   })
   const meta = { id: 'session-test', version: 0, createdAt: 1 }
 
   await persistence.appendBatch(meta, [], false)
 
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0].action, 'CreateSession')
-  assert.deepEqual(calls[0].payload.Metadata, [{
-    Name: 'ae.tencentcloud.com/brain-deployment-id',
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].action, 'DescribeDeploymentList')
+  assert.equal(calls[1].action, 'CreateSession')
+  assert.deepEqual(calls[1].payload.Metadata, [{
+    Name: 'example.com/brain-deployment-id',
     Value: 'dpl-test',
   }])
+})
+
+test('appendBatch requires one exact Brain Deployment name match', async () => {
+  const persistence = backend(async action => {
+    if (action === 'DescribeDeploymentList') return { DeploymentSet: [] }
+    throw new Error(`unexpected action ${action}`)
+  })
+
+  await assert.rejects(
+    persistence.appendBatch({ id: 'session-test', version: 0, createdAt: 1 }, [], false),
+    /Expected exactly one Deployment named brain-test, found 0/,
+  )
 })
 
 test('appendEvents projects chunks, tool calls, tool results, and turn completion', async () => {
@@ -202,9 +219,9 @@ test('executeHands reuses the shared Session affinity and returns the Hands resu
     return {
       SessionId: 'brain-session',
       Metadata: [
-        { Name: 'ae.tencentcloud.com/brain-deployment-id', Value: 'dpl-brain' },
-        { Name: 'ae.tencentcloud.com/hands-deployment-id', Value: 'dpl-hands' },
-        { Name: 'ae.tencentcloud.com/hands-affinity-id', Value: 'affinity-a' },
+        { Name: 'example.com/brain-deployment-id', Value: 'dpl-brain' },
+        { Name: 'example.com/hands-deployment-id', Value: 'dpl-hands' },
+        { Name: 'example.com/hands-affinity-id', Value: 'affinity-a' },
       ],
     }
   }
@@ -243,7 +260,7 @@ test('executeHands adds Hands metadata without replacing Brain metadata', async 
   persistence.handsDeploymentId = 'dpl-hands'
   persistence.describeSession = async () => ({
     SessionId: 'brain-session',
-    Metadata: [{ Name: 'ae.tencentcloud.com/brain-deployment-id', Value: 'dpl-brain' }],
+    Metadata: [{ Name: 'example.com/brain-deployment-id', Value: 'dpl-brain' }],
   })
   persistence.invokeHands = async () => ({
     result: { path: 'result.txt', content: '95' },
@@ -262,9 +279,9 @@ test('executeHands adds Hands metadata without replacing Brain metadata', async 
 
   const modify = calls.find(call => call.action === 'ModifySession')
   assert.deepEqual(modify.payload.Metadata, [
-    { Name: 'ae.tencentcloud.com/brain-deployment-id', Value: 'dpl-brain' },
-    { Name: 'ae.tencentcloud.com/hands-deployment-id', Value: 'dpl-hands' },
-    { Name: 'ae.tencentcloud.com/hands-affinity-id', Value: 'affinity-a' },
+    { Name: 'example.com/brain-deployment-id', Value: 'dpl-brain' },
+    { Name: 'example.com/hands-deployment-id', Value: 'dpl-hands' },
+    { Name: 'example.com/hands-affinity-id', Value: 'affinity-a' },
   ])
 })
 
@@ -274,8 +291,8 @@ test('executeHands omits null content when a workspace file does not exist', asy
   persistence.describeSession = async () => ({
     SessionId: 'brain-session',
     Metadata: [
-      { Name: 'ae.tencentcloud.com/hands-deployment-id', Value: 'dpl-hands' },
-      { Name: 'ae.tencentcloud.com/hands-affinity-id', Value: 'affinity-a' },
+      { Name: 'example.com/hands-deployment-id', Value: 'dpl-hands' },
+      { Name: 'example.com/hands-affinity-id', Value: 'affinity-a' },
     ],
   })
   persistence.invokeHands = async () => ({
@@ -312,4 +329,25 @@ test('describeEvents ignores Hands events when restoring DSH history', async () 
   assert.deepEqual(await persistence.describeEvents('brain-session'), [
     { type: 'turn/start', seq: 0 },
   ])
+})
+
+test('listSnapshots does not hide revision lookup failures', async () => {
+  const header = { version: 0, id: 'session-test', createdAt: 1 }
+  const persistence = backend(async action => {
+    if (action === 'DescribeSessions') {
+      return {
+        Sessions: [{
+          SessionId: 'session-test',
+          State: { CustomState: JSON.stringify({ dshHeader: header }) },
+        }],
+        TotalCount: 1,
+      }
+    }
+    throw new Error('Session API unavailable')
+  })
+
+  await assert.rejects(
+    persistence.listSnapshots(new AbortController().signal),
+    /Session API unavailable/,
+  )
 })
