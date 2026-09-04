@@ -4,18 +4,19 @@ FROM ${DSH_IMAGE}
 
 COPY plugin /tmp/ags-dsh-session-persistence
 
-RUN cd /tmp/ags-dsh-session-persistence \
-    && npm pack --pack-destination /tmp \
-    && npm install --global --no-audit --no-fund /tmp/tencentcloud-ags-dsh-session-persistence-0.1.0.tgz \
+RUN npm install --global pnpm@11.19.0 \
+    && cd /tmp/ags-dsh-session-persistence \
+    && pnpm install --prod --frozen-lockfile \
+    && mkdir -p /usr/local/lib/node_modules/@tencentcloud \
+    && mv /tmp/ags-dsh-session-persistence \
+      /usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence \
     && plugin_modules=/usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence/node_modules \
     && rm -rf "$plugin_modules/@deepseek-ai" \
     && mkdir -p "$plugin_modules/@deepseek-ai" \
     && for package in cordis dsh-session dsh-session-persistence dsh-tools schemastery; do \
          ln -s "/usr/local/lib/node_modules/@deepseek-ai/$package" "$plugin_modules/@deepseek-ai/$package"; \
        done \
-    && rm -rf /tmp/ags-dsh-session-persistence \
-      /tmp/tencentcloud-ags-dsh-session-persistence-0.1.0.tgz \
-      /root/.npm
+    && rm -rf /root/.npm /root/.local/share/pnpm/store
 
 COPY dockerfiles/agent-runtime-session.cordis.yml /opt/dsh/agent-runtime-session.cordis.yml
 COPY dockerfiles/settings.yaml /root/.dsh/settings.yaml
