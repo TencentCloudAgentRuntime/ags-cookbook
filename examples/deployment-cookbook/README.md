@@ -25,5 +25,6 @@ Run `make run` in this directory to list the available scenarios, then follow th
 | [mcp-server/simple](./mcp-server/simple/README.md) | Deploy the official Everything MCP Server, use the native Python SDK, and observe `0 → N → 0` plus a fresh session after scale-to-zero. |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README.md) | Deploy all-in-one DeepSeek Harness, complete a coding task through TokenHub, and verify exclusive-session pause and resume. |
 | [deepseek-harness/brain-hands](./deepseek-harness/brain-hands/README.md) | Run multi-replica stateless DSH Brain against MySQL and persistent E2B/envd Hands workspaces. |
+| [session](./session/README.md) | Integrate DSH and Workspace Deployments with one Agent Runtime cloud Session, validating conversation and tool-call Events, Deployment association, and affinity-based workspace routing. |
 
 Each scenario directory uses `README.md` for English and `README_zh.md` for Chinese. Deployment guides use published images by default and link to the matching image-source and build notes when those are needed.

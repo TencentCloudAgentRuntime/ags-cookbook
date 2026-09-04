@@ -25,5 +25,6 @@
 | [mcp-server/simple](./mcp-server/simple/README_zh.md) | 部署官方 Everything MCP Server，使用原生 Python SDK，并观察 `0 → N → 0` 与缩容到零后的新会话。 |
 | [deepseek-harness/all-in-one](./deepseek-harness/all-in-one/README_zh.md) | 部署 all-in-one DeepSeek Harness，通过 TokenHub 完成编码任务，并验证独占会话的暂停与恢复。 |
 | [deepseek-harness/brain-hands](./deepseek-harness/brain-hands/README_zh.md) | 运行多副本无状态 DSH Brain，以 MySQL 保存状态，并访问持久的 E2B/envd Hands workspace。 |
+| [session](./session/README_zh.md) | 将 DSH 与 Workspace Deployment 接入同一个 Agent Runtime 云端 Session，验证对话与工具调用 Events、Deployment 关联和基于 affinity 的 workspace 路由。 |
 
 每个场景目录中的 `README.md` 是英文版，`README_zh.md` 是中文版。部署教程默认使用已发布镜像；需要查看镜像来源或自行构建时，可按教程链接进入对应说明。

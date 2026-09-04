@@ -1,0 +1,13 @@
+llm-pi-ai:
+  providers:
+    tokenhub:
+      displayName: Tencent Cloud TokenHub
+      apiKeyEnv: TOKENHUB_API_KEY
+      api: openai-completions
+      baseURL: https://tokenhub.tencentmaas.com/v1
+      models:
+        - id: deepseek-v4-flash
+
+agent-default-model:
+  provider: tokenhub
+  model: deepseek-v4-flash
