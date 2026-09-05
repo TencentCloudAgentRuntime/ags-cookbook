@@ -8,7 +8,8 @@ Dockerfile 安装 Claude Code、推送到自己的 CCR/TCR，并创建自定义�
 
 - Python 3.11+、uv、具有 AGS 权限的腾讯云凭证。
 - 定制镜像时需要 Docker 和自己的 CCR/TCR 仓库。
-- `.env.example` 暂使用个人 CCR 验证候选；`ags-image` 正式发布尚待批准。
+- `.env.example` 的 `OSWORLD_BASE_IMAGE` 暂留空；正式 `ags-image` 发布后，
+  填入获批版本的镜像地址和 digest 再运行。
 
 ```bash
 cd examples/osworld-custom-image
@@ -16,6 +17,8 @@ make setup
 # 编辑 .env，填写腾讯云凭证与 OSWORLD_BASE_IMAGE
 make quickstart
 ```
+
+`make run` 与 `make quickstart` 等价。
 
 无需构建镜像。脚本创建名称含 `auto-snapshot` 的 custom Tool，等 Tool ACTIVE
 后立即启动实例，不等待快照制作。已有匹配快照就复用，否则允许冷启动并由平台

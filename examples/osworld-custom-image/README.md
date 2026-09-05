@@ -13,8 +13,9 @@ Docker storage requirements; see the [Chinese image guide](docs/image-guide.zh-C
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 - Tencent Cloud credentials with AGS Tool/instance permissions.
 - Docker and your own CCR/TCR repository for the customization steps only.
-- A reachable immutable OSWorld base image. The current `.env.example` points
-  to a personal CCR validation candidate; publication to `ags-image` is pending.
+- A reachable immutable OSWorld base image. `OSWORLD_BASE_IMAGE` is deliberately
+  blank until the approved `ags-image` release is published; fill it with that
+  release's versioned image reference and digest before running.
 
 For personal CCR, the script sends the immutable tag directly to Tool creation
 for snapshot-converter compatibility, then checks the Tool's saved manifest
@@ -29,6 +30,8 @@ make setup
 # Edit .env: Tencent Cloud credentials and OSWORLD_BASE_IMAGE.
 make quickstart
 ```
+
+`make run` is an alias for `make quickstart`.
 
 The Python script creates a custom Tool, waits for the Tool itself to be active,
 and starts an instance without waiting for a new snapshot. It prints the

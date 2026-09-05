@@ -12,18 +12,9 @@ OSWorld1 base 用于现有 OSWorld Benchmark，OSWorld2 base 用于对应 V2 环
 获得发布批准并完成推送前，不应将目标地址当作已可拉取制品。
 发布 tag 不覆盖；生产构建使用明确 tag 和经过验证的 digest。
 
-当前两套 base 候选（私有测试制品，不是尚未发布的公开 `ags-image`）：
-
-| Base | 广州 CCR 镜像与固定版本 |
-| --- | --- |
-| OSWorld1 | `ccr.ccs.tencentyun.com/pengdrumli/osworld1-base:upstream-091f5ef1-server-0919a09-ags.1` |
-| OSWorld2 | `ccr.ccs.tencentyun.com/pengdrumli/osworld2-base:2026.06.24-ags.1-oci.3` |
-
-OSWorld1 manifest digest：`sha256:120782c9f4b928654a950b3d8bb334f20c0ef7422d27a1a84e7b0ff8079c956a`。
-OSWorld2 manifest digest：`sha256:81965719d54852fc367a0ebc9bc37ccfb45bc61c0cf17a4e19cca1cc83d5f9c8`。
-OSWorld1 的压缩层约 7.54 GB，OSWorld2 约 11.49 GB；这不是运行磁盘占用。
-Quickstart 默认用 OSWorld1；改为 OSWorld2 时将 `.env` 中 `OSWORLD_BASE_IMAGE`
-替换为对应的 `tag@sha256`，无需新增 Dockerfile。
+`OSWORLD_BASE_IMAGE` 暂留空，不提供个人测试仓库作为客户默认值。
+正式发布后填写 `ags-image` 中对应 base 的不可变 `tag@sha256` 引用。
+Quickstart 以 OSWorld1 为演示；改为 OSWorld2 时替换该变量，无需新增 Dockerfile。
 
 Docker 构建的 `FROM` 可以使用 `tag@sha256:...`。当前个人 CCR 的 AGS
 创建链路不能直接复用这一写法：个人仓库解析需要 tag，而自动快照转换器不接受
