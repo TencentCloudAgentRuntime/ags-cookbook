@@ -26,6 +26,19 @@ ccr.ccs.tencentyun.com/ags-image/osworld2-base:2026.06.24-ags.1-oci.3@sha256:819
 
 要体验 OSWorld2，将 `.env` 中的 `OSWORLD_BASE_IMAGE` 替换为上面的对应地址即可。
 
+构建自己的镜像时，使用上面的基础镜像地址即可。构建后推送到自己的仓库，
+再将新地址填入 `CUSTOM_IMAGE`，由 AGS 运行你的镜像。
+
+如果使用 Quickstart 直接体验基础镜像，可按运行地域替换基础镜像的仓库域名，
+其余路径、版本号和 digest 保持不变。下表不用于替换你自己的 `CUSTOM_IMAGE`：
+
+| 运行地域 | 镜像仓库域名 |
+| --- | --- |
+| 广州、上海、北京 | `ccr.ccs.tencentyun.com` |
+| 香港 | `hkccr.ccs.tencentyun.com` |
+| 新加坡 | `sgccr.ccs.tencentyun.com` |
+| 美东 | `useccr.ccs.tencentyun.com` |
+
 请固定基础镜像的版本，避免使用 `latest`。更新自己的镜像时也使用新 tag，
 例如从 `v1` 更新为 `v2`，这样方便复现结果和回退。
 
