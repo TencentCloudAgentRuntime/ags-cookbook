@@ -12,6 +12,8 @@
 
 ## 开始前需要准备
 
+如需先创建自己的 OSWorld Tool，参见[自定义镜像示例](../osworld-custom-image/README_zh.md)。
+
 你需要：
 
 - `uv`（用于管理隔离的 Python 3.12.12 环境）

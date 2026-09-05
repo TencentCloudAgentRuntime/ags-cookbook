@@ -94,6 +94,7 @@ make example-run EXAMPLE=mini-rl
 | `mobile-use` | Python + 移动端沙箱 + Appium | Android 自动化 |
 | `openclaw-cookbook` | Node.js + 自定义镜像 + COS | 基于官方镜像在 AGS 中运行 OpenClaw |
 | `osworld-ags` | Python 3.10 + OSWorld overlay | 依赖重，且需要可用的 OSWorld 工具 |
+| `osworld-custom-image` | Python SDK + Docker | OSWorld 桌面预览与自动快照自定义镜像 |
 | `shop-assistant` | Python + 浏览器沙箱 | 搜索 / 加购演示 |
 | `waa-ags` | Python + Windows 沙箱 + LLM | 通过 overlay 在 AGS 上运行 Windows Agent Arena |
 
