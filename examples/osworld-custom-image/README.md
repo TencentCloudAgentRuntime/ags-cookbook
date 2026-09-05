@@ -10,7 +10,7 @@ options and OSWorld2 Docker usage.
 
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 - Tencent Cloud credentials with AGS permissions.
-- An OSWorld base image address (to be added). `OSWORLD_BASE_IMAGE` is currently blank.
+- The OSWorld1 base image is already configured in `.env.example` and can be pulled without registry credentials.
 - Docker and your own CCR/TCR repository if you want to build a custom image.
 
 ## Step 1: Open a desktop

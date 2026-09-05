@@ -9,7 +9,7 @@
 
 - Python 3.11+ 和 uv。
 - 具有 AGS 权限的腾讯云凭证。
-- OSWorld 基础镜像地址（待补充）。`OSWORLD_BASE_IMAGE` 暂留空。
+- `.env.example` 已配置 OSWorld1 基础镜像地址，拉取基础镜像无需仓库凭证。
 - 如果要构建自己的镜像，还需要 Docker 和自己的 CCR/TCR 仓库。
 
 ## 第一步：打开桌面

@@ -10,8 +10,21 @@
 | OSWorld1 | 运行 OSWorld 桌面任务和现有 Benchmark 示例 |
 | OSWorld2 | 运行 OSWorld2 任务，包括需要 Docker 的任务 |
 
-基础镜像地址待补充。发布后，将对应地址填入 `.env` 的 `OSWORLD_BASE_IMAGE`。
-本示例使用 OSWorld1；要体验 OSWorld2，替换这个配置即可，不必重新写 Dockerfile。
+本示例已配置 OSWorld1。两套基础镜像均可公开拉取，无需登录镜像仓库。
+
+OSWorld1：
+
+```text
+ccr.ccs.tencentyun.com/ags-image/osworld1-base:upstream-091f5ef1-server-0919a09-ags.1@sha256:120782c9f4b928654a950b3d8bb334f20c0ef7422d27a1a84e7b0ff8079c956a
+```
+
+OSWorld2：
+
+```text
+ccr.ccs.tencentyun.com/ags-image/osworld2-base:2026.06.24-ags.1-oci.3@sha256:81965719d54852fc367a0ebc9bc37ccfb45bc61c0cf17a4e19cca1cc83d5f9c8
+```
+
+要体验 OSWorld2，将 `.env` 中的 `OSWORLD_BASE_IMAGE` 替换为上面的对应地址即可。
 
 请固定基础镜像的版本，避免使用 `latest`。更新自己的镜像时也使用新 tag，
 例如从 `v1` 更新为 `v2`，这样方便复现结果和回退。
