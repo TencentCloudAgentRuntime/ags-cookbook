@@ -81,6 +81,7 @@ make example-run EXAMPLE=mini-rl
 | 示例 | 技术栈 | 说明 |
 |---|---|---|
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
+| `local-service-tunnel` | Go/Python + custom 沙箱 + 镜像卷 | 让沙箱内 workload 通过用户侧 WebSocket tunnel 访问本地或内网服务 |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
 | `deployment-cookbook` | agr CLI + Markdown | Deployment、伸缩、生命周期、亲和性与长驻 Agent 工作区场景 |

@@ -13,6 +13,7 @@
 ### 进阶
 
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
+- `local-service-tunnel` —— custom 沙箱内 workload 通过用户侧 WebSocket tunnel 访问本地或内网服务
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
 - `deployment-cookbook` —— 使用 `agr` 管理 Deployment，从 httpbin 基础到长驻 Agent 工作区
 - `dind` —— 自启动 Docker-in-Docker Tool，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务
@@ -44,6 +45,7 @@
 | 示例 | 分类 | 主要技术栈 | 主命令 | 说明 |
 |---|---|---|---|---|
 | `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
+| `local-service-tunnel` | 进阶 | Go/Python + custom 沙箱 + 镜像卷 | `make run` | 服务凭据留在本地，沙箱 workload 流量经用户侧 WebSocket tunnel 转发 |
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
 | `deployment-cookbook` | 进阶 | agr CLI + Markdown | 按场景 README 操作 | 涵盖部署、伸缩、生命周期、亲和性与长驻 Agent 工作区 |
