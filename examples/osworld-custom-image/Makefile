@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: setup run quickstart build push custom claude snapshot smoke clean check
+.PHONY: setup run quickstart copy build push custom claude snapshot smoke clean check
 
 setup:
 	uv sync --frozen
@@ -8,6 +8,8 @@ setup:
 run: quickstart
 quickstart:
 	uv run python scripts/demo.py quickstart
+copy:
+	uv run python scripts/demo.py copy
 build:
 	uv run python scripts/demo.py build
 push:

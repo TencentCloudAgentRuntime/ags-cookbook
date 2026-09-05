@@ -1,7 +1,8 @@
 # 使用 OSWorld 基础镜像
 
-你可以直接用基础镜像启动一个 OSWorld 桌面，也可以在上面安装自己的软件，
-构建新镜像后交给 AGS 运行。首次体验和 Claude Code 定制示例见 [README](../README_zh.md)。
+先把基础镜像复制到自己的仓库，就可以用它启动 OSWorld 桌面。也可以在基础镜像
+上安装自己的软件，构建后推送到自己的仓库，再交给 AGS 运行。
+首次体验和 Claude Code 定制示例见 [README](../README_zh.md)。
 
 ## 选择镜像
 
@@ -29,15 +30,8 @@ ccr.ccs.tencentyun.com/ags-image/osworld2-base:2026.06.24-ags.1-oci.3@sha256:819
 构建自己的镜像时，使用上面的基础镜像地址即可。构建后推送到自己的仓库，
 再将新地址填入 `CUSTOM_IMAGE`，由 AGS 运行你的镜像。
 
-如果使用 Quickstart 直接体验基础镜像，可按运行地域替换基础镜像的仓库域名，
-其余路径、版本号和 digest 保持不变。下表不用于替换你自己的 `CUSTOM_IMAGE`：
-
-| 运行地域 | 镜像仓库域名 |
-| --- | --- |
-| 广州、上海、北京 | `ccr.ccs.tencentyun.com` |
-| 香港 | `hkccr.ccs.tencentyun.com` |
-| 新加坡 | `sgccr.ccs.tencentyun.com` |
-| 美东 | `useccr.ccs.tencentyun.com` |
+Quickstart 也是如此：先运行 `make copy`，将基础镜像原样复制到 `CUSTOM_IMAGE`，
+再运行 `make quickstart`。`OSWORLD_BASE_IMAGE` 只用于复制和构建，不用于创建沙箱。
 
 请固定基础镜像的版本，避免使用 `latest`。更新自己的镜像时也使用新 tag，
 例如从 `v1` 更新为 `v2`，这样方便复现结果和回退。

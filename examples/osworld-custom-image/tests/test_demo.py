@@ -155,7 +155,9 @@ def test_interactive_start_does_not_force_optional_checks(monkeypatch, action):
     calls = []
     class Stub:
         def __init__(self, *a, **kw): pass
-        def create(self, *a, **kw): calls.append('create')
+        def create(self, image, **kw):
+            assert image == 'registry.example/custom:v1'
+            calls.append('create')
         def start(self): calls.append('start')
         def preview(self): calls.append('preview')
         def validate(self): pytest.fail('Interactive validation must be optional')
@@ -166,6 +168,47 @@ def test_interactive_start_does_not_force_optional_checks(monkeypatch, action):
     monkeypatch.setattr('sys.argv', ['demo.py', action])
     demo.main()
     assert calls == ['create', 'start', 'preview']
+
+
+@pytest.mark.parametrize('action', ['quickstart', 'custom', 'smoke'])
+def test_runtime_requires_customer_image_even_when_base_is_set(monkeypatch, action):
+    monkeypatch.setattr(demo, 'load_dotenv', lambda *a, **kw: None)
+    monkeypatch.setattr(demo, 'Demo', lambda *a, **kw: SimpleNamespace())
+    monkeypatch.setenv('OSWORLD_BASE_IMAGE', 'ccr.ccs.tencentyun.com/ags-image/base:v1')
+    monkeypatch.delenv('CUSTOM_IMAGE', raising=False)
+    monkeypatch.setattr('sys.argv', ['demo.py', action])
+    with pytest.raises(SystemExit) as error:
+        demo.main()
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize('destination', ['missing', 'matching', 'different'])
+def test_copy_preserves_contents_and_does_not_overwrite_other_image(monkeypatch, destination):
+    base = 'ccr.ccs.tencentyun.com/ags-image/base:v1'
+    target = 'ccr.ccs.tencentyun.com/example/base:v1'
+    source_id = 'sha256:' + 'a' * 64
+    calls = []
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:3] == ['docker', 'manifest', 'inspect']:
+            return SimpleNamespace(returncode=1 if destination == 'missing' else 0,
+                stderr='manifest unknown' if destination == 'missing' else '',
+                stdout=demo.json.dumps({'config': {'digest': source_id if destination == 'matching' else 'other'}}))
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(demo.subprocess, 'run', run)
+    monkeypatch.setattr(demo.subprocess, 'check_output', lambda *a, **kw: source_id.encode())
+    monkeypatch.setattr(demo, 'load_dotenv', lambda *a, **kw: None)
+    monkeypatch.setattr(demo, 'Demo', lambda *a, **kw: pytest.fail('Copy must not create AGS resources'))
+    monkeypatch.setenv('OSWORLD_BASE_IMAGE', base)
+    monkeypatch.setenv('CUSTOM_IMAGE', target)
+    monkeypatch.setattr('sys.argv', ['demo.py', 'copy'])
+    if destination == 'different':
+        with pytest.raises(SystemExit): demo.main()
+    else:
+        demo.main()
+    assert calls[0] == ['docker', 'pull', '--platform=linux/amd64', base]
+    assert (['docker', 'push', target] in calls) == (destination == 'missing')
+    if destination == 'missing': assert ['docker', 'tag', base, target] in calls
 
 
 def test_tool_creation_reuses_idempotency_key_after_timeout(tmp_path):

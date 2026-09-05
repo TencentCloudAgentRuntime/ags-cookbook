@@ -1,7 +1,7 @@
 # 在 AGS 上自定义 OSWorld 镜像
 
-这个示例带你先打开一个 OSWorld 桌面，再安装 Claude Code，构建并运行自己的镜像。
-如果只想体验桌面，完成第一步即可，不需要安装 Docker。
+这个示例带你将 OSWorld 基础镜像复制到自己的仓库，打开桌面，再构建一个
+安装了 Claude Code 的镜像。如果只想体验桌面，完成第一步即可。
 
 更多镜像定制说明见[基础镜像使用指南](docs/image-guide.zh-CN.md)。
 
@@ -10,16 +10,21 @@
 - Python 3.11+ 和 uv。
 - 具有 AGS 权限的腾讯云凭证。
 - `.env.example` 已配置 OSWorld1 基础镜像地址，拉取基础镜像无需仓库凭证。
-- 如果要构建自己的镜像，还需要 Docker 和自己的 CCR/TCR 仓库。
+- Docker 和自己的 CCR/TCR 仓库。
 
 ## 第一步：打开桌面
 
 ```bash
 cd examples/osworld-custom-image
 make setup
-# 编辑 .env，填写腾讯云凭证、AGS_REGION 和 OSWORLD_BASE_IMAGE
+# 编辑 .env，填写腾讯云凭证、AGS_REGION 和自己仓库中的 CUSTOM_IMAGE
+docker login "你的仓库域名"
+make copy
 make quickstart
 ```
+
+`CUSTOM_IMAGE` 可以使用自己仓库中的 `osworld-base:v1`。`make copy` 将基础镜像
+原样复制到这个地址，不安装额外软件。AGS 使用你自己的镜像，不直接使用 `ags-image`。
 
 `make run` 与 `make quickstart` 等价。启动成功后，终端会输出沙箱工具 ID、
 实例 ID 和 noVNC 链接。用浏览器打开链接即可操作桌面。
@@ -32,8 +37,8 @@ make quickstart
 
 ## 第二步：构建包含 Claude Code 的镜像
 
-在 `.env` 中将 `CUSTOM_IMAGE` 填为自己仓库中的新镜像地址，例如使用 `:v1`
-作为版本号。先用 `docker login` 登录仓库，再执行：
+在 `.env` 中将 `CUSTOM_IMAGE` 改为另一个新镜像地址，例如自己仓库中的
+`osworld-claude:v1`，不要覆盖第一步复制的基础镜像。然后执行：
 
 ```bash
 make build

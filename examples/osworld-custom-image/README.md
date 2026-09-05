@@ -1,7 +1,7 @@
 # Customize an OSWorld image on AGS
 
-Open an OSWorld desktop, then build and run your own image with Claude Code installed.
-If you only want to try the desktop, complete the first step. Docker is not required.
+Copy an OSWorld base image to your own registry and open its desktop, then build
+an image with Claude Code installed. Complete just the first step to try the desktop.
 
 See the [Chinese base image guide](docs/image-guide.zh-CN.md) for more customization
 options and OSWorld2 Docker usage.
@@ -11,16 +11,22 @@ options and OSWorld2 Docker usage.
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 - Tencent Cloud credentials with AGS permissions.
 - The OSWorld1 base image is already configured in `.env.example` and can be pulled without registry credentials.
-- Docker and your own CCR/TCR repository if you want to build a custom image.
+- Docker and your own CCR/TCR repository.
 
 ## Step 1: Open a desktop
 
 ```bash
 cd examples/osworld-custom-image
 make setup
-# Edit .env: cloud credentials, AGS_REGION and OSWORLD_BASE_IMAGE.
+# Edit .env: cloud credentials, AGS_REGION and CUSTOM_IMAGE in your own registry.
+docker login "your-registry-host"
+make copy
 make quickstart
 ```
+
+Set `CUSTOM_IMAGE` to an address such as `osworld-base:v1` in your own repository.
+`make copy` copies the base there without installing additional software. AGS runs
+your image, not the image in `ags-image` directly.
 
 `make run` is an alias for `make quickstart`. The command prints a Tool ID,
 an instance ID and a noVNC link. Open the link in your browser to use the desktop.
@@ -35,8 +41,9 @@ Run `make clean` when you are finished.
 
 ## Step 2: Build an image with Claude Code
 
-Set `CUSTOM_IMAGE` in `.env` to a new image address in your own repository,
-using a versioned tag such as `:v1`. Log in with `docker login`, then run:
+Change `CUSTOM_IMAGE` in `.env` to a different new image address, such as
+`osworld-claude:v1` in your repository. Do not overwrite the base copied in step 1.
+Then run:
 
 ```bash
 make build

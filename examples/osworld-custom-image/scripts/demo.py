@@ -303,17 +303,31 @@ class Demo:
 def main():
     load_dotenv(ROOT / '.env', override=False)
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=['quickstart', 'custom', 'build', 'push', 'claude', 'snapshot', 'smoke', 'clean'])
+    p.add_argument('action', choices=['quickstart', 'custom', 'copy', 'build', 'push', 'claude', 'snapshot', 'smoke', 'clean'])
     p.add_argument('--state-dir', type=Path)
     p.add_argument('--cold', action='store_true', help='Release validation only: disable the name trigger')
     args = p.parse_args()
     base = os.getenv('OSWORLD_BASE_IMAGE', '')
     custom = os.getenv('CUSTOM_IMAGE', '')
-    if args.action in {'build', 'push'}:
+    if args.action in {'copy', 'build', 'push'}:
         if not base or not custom:
             p.error('Set OSWORLD_BASE_IMAGE and CUSTOM_IMAGE in .env')
         if '/ags-image/' in custom:
             p.error('CUSTOM_IMAGE must point to your own repository')
+        if args.action == 'copy':
+            subprocess.run(['docker', 'pull', '--platform=linux/amd64', base], check=True)
+            source_id = subprocess.check_output(['docker', 'image', 'inspect', base, '--format', '{{.Id}}']).decode().strip()
+            existing = subprocess.run(['docker', 'manifest', 'inspect', custom], capture_output=True, text=True)
+            if existing.returncode == 0:
+                if json.loads(existing.stdout).get('config', {}).get('digest') != source_id:
+                    p.error('Destination tag already contains a different image; choose a new tag')
+                print('The base image is already present in your repository.')
+                return
+            if not any(s in existing.stderr.lower() for s in ('manifest unknown', 'manifest_unknown', 'no such manifest', 'name_unknown')):
+                p.error('Cannot check the destination tag; verify docker login and repository access')
+            subprocess.run(['docker', 'tag', base, custom], check=True)
+            subprocess.run(['docker', 'push', custom], check=True)
+            return
         cmd = ['docker', 'push', custom] if args.action == 'push' else [
             'docker', 'build', '--platform=linux/amd64', '--build-arg', 'OSWORLD_BASE_IMAGE=' + base,
             '-f', str(ROOT / 'Dockerfile.claude-code'), '-t', custom, str(ROOT)]
@@ -337,9 +351,9 @@ def main():
         d.claude()
         d.preview()
     else:
-        image = custom if args.action == 'custom' else base
+        image = custom
         if not image:
-            p.error('Set OSWORLD_BASE_IMAGE or CUSTOM_IMAGE in .env')
+            p.error('Set CUSTOM_IMAGE to an image in your own CCR/TCR repository')
         try:
             d.create(image, cold=args.cold)
             # Do not wait for snapshot READY. AGS may cold-start while making it.
