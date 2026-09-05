@@ -1,43 +1,39 @@
 # 在 AGS 上自定义 OSWorld 镜像
 
-本示例先直接启动 OSWorld1 base OCI，输出可打开的 noVNC 链接；再演示用
-Dockerfile 安装 Claude Code、推送到自己的 CCR/TCR，并创建自定义沙箱。
-完整的镜像约定与使用说明见[中文指南](docs/image-guide.zh-CN.md)。
+这个示例带你先打开一个 OSWorld 桌面，再安装 Claude Code，构建并运行自己的镜像。
+如果只想体验桌面，完成第一步即可，不需要安装 Docker。
+
+更多镜像定制说明见[基础镜像使用指南](docs/image-guide.zh-CN.md)。
 
 ## 准备
 
-- Python 3.11+、uv、具有 AGS 权限的腾讯云凭证。
-- 定制镜像时需要 Docker 和自己的 CCR/TCR 仓库。
-- `.env.example` 的 `OSWORLD_BASE_IMAGE` 暂留空；正式 `ags-image` 发布后，
-  填入获批版本的镜像地址和 digest 再运行。
+- Python 3.11+ 和 uv。
+- 具有 AGS 权限的腾讯云凭证。
+- OSWorld 基础镜像地址（待补充）。`OSWORLD_BASE_IMAGE` 暂留空。
+- 如果要构建自己的镜像，还需要 Docker 和自己的 CCR/TCR 仓库。
+
+## 第一步：打开桌面
 
 ```bash
 cd examples/osworld-custom-image
 make setup
-# 编辑 .env，填写腾讯云凭证与 OSWORLD_BASE_IMAGE
+# 编辑 .env，填写腾讯云凭证、AGS_REGION 和 OSWORLD_BASE_IMAGE
 make quickstart
 ```
 
-`make run` 与 `make quickstart` 等价。
+`make run` 与 `make quickstart` 等价。启动成功后，终端会输出沙箱工具 ID、
+实例 ID 和 noVNC 链接。用浏览器打开链接即可操作桌面。
 
-无需构建镜像。脚本创建名称含 `auto-snapshot` 的 custom Tool，等 Tool ACTIVE
-后立即启动实例，不等待快照制作。已有匹配快照就复用，否则允许冷启动并由平台
-后台继续制作。首次镜像准备与冷启动可能较慢。
+示例已开启自动快照。有可用快照时会直接复用；首次使用新镜像可能需要更长时间，
+快照尚未就绪也可以冷启动。桌面可能在链接输出后稍晚出现。
 
-启动成功后输出 Tool ID、Instance ID 和 noVNC URL，不强制执行额外校验。交互实例保留
-最多一小时，体验后执行 `make clean`。参数固定为 8 CPU、16 GiB 内存、公开
-custom Tool 支持的 `Storage=20Gi`；镜像保证 shm 至少 4 GiB。它不代表所有
-OSWorld2 heavy task 都能使用该容量。
+默认配置为 8 核 CPU、16 GiB 内存、20 GiB 可写磁盘，`/dev/shm` 至少 4 GiB。
+实例最多保留一小时，不再使用时运行 `make clean`。
 
-启动命令为 `/sbin/init`，探针为 `5000/platform`。可选的 `make smoke` 另行检查真实
-1920×1080 桌面；server 返回 200 不等同于桌面就绪，冷启动时 noVNC 桌面可能
-稍后才出现。也不要求任务启动前
-Chrome/CDP 常驻。对外端口为 `5000/5910/8080/9222`。
+## 第二步：构建包含 Claude Code 的镜像
 
-## 安装 Claude Code 的派生镜像
-
-将 `.env` 中 `CUSTOM_IMAGE` 填成自己仓库的不可变版本地址，并执行
-`docker login <你的仓库>`。私有 TCR 拉取需要时填写授权角色 `ROLE_ARN`。
+在 `.env` 中将 `CUSTOM_IMAGE` 填为自己仓库中的新镜像地址，例如使用 `:v1`
+作为版本号。先用 `docker login` 登录仓库，再执行：
 
 ```bash
 make build
@@ -45,30 +41,31 @@ make push
 make custom
 ```
 
-Dockerfile 继承 base 的 systemd/桌面服务，仅添加固定的 Claude Code 2.1.153
-原生二进制，从官方 npm 包下载并校验 SHA256，无需 Node.js。
-派生镜像与直接启动 base 分别保存本地状态。
-OCI layer 可以复用，但新镜像的加速制品和自动快照可能仍需重新准备。
+[Dockerfile.claude-code](Dockerfile.claude-code) 会在基础镜像上安装
+Claude Code 2.1.153，并保留原有桌面。你也可以修改 Dockerfile，安装其他软件。
+每次发布新内容请使用新的版本号，不要覆盖已有版本。
 
-在本地 `.env` 设置 `ANTHROPIC_API_KEY`，可选 `ANTHROPIC_BASE_URL`，随后：
+启动后，在本地 `.env` 中设置 `ANTHROPIC_API_KEY`；使用自定义服务地址时，
+再填写 `ANTHROPIC_BASE_URL`。然后运行：
 
 ```bash
 make claude
 ```
 
-凭证在实例启动后通过鉴权的 `5000/setup/upload` 写入用户私有临时目录，
-文件权限为 0600；随后在桌面终端启动 Claude Code。不会自动发送模型请求。
-凭证不进入 OCI 或预制快照；注入后另行保存运行时快照可能保留凭证。
+脚本会把凭证传入已启动的沙箱，并在桌面终端打开 Claude Code。
+你可以在终端中输入任务。凭证不会写进容器镜像，请不要把配置过凭证的运行环境
+再保存为供他人使用的快照。
+
+使用私有 TCR 时，可能需要在 `ROLE_ARN` 中填写允许 AGS 拉取镜像的授权角色。
 
 ## noVNC 与鉴权
 
-默认 TOKEN 鉴权，脚本通过 `AcquireSandboxInstanceToken` 获取 token，
-同时在网页 URL 与 WebSocket path 中携带，并正确做 URL 编码。输出链接本身
-就是访问凭证，不要公开分享；token 或实例失效后链接失效。再次执行
-`make quickstart` 可为仍在运行的实例获取新链接。
+默认使用 token 鉴权，脚本输出的 noVNC 链接已经带好 token。
+链接本身就是访问凭证，请勿公开分享。需要新链接时，再运行一次 `make quickstart`；
+查看定制镜像的桌面则运行 `make custom`。
 
-自己拼接链接时，网页使用 `access_token`，WebSocket 使用嵌入 `path` 的
-`token`，需要两层编码。下面使用占位符演示，真实 token 从上述 AGS API 获取：
+如果要自己生成链接，先通过 `AcquireSandboxInstanceToken` 获取实例 token，
+再用下面的方式拼接。网页和 WebSocket 都需要带上 token：
 
 ```python
 from urllib.parse import urlencode
@@ -82,24 +79,24 @@ url = "https://" + host + "/vnc.html?" + urlencode({
 })
 ```
 
-临时受控测试可在创建新实例前设 `AUTH_MODE=none`，此时桌面和命令 API 不再
-受 AGS token 保护。改 `.env` 不会改变现有实例鉴权模式。
+临时测试也可以在创建实例前设置 `AUTH_MODE=none`，关闭 token 鉴权。
+此时任何拿到地址的人都能访问桌面和命令接口，请谨慎使用。
+修改这个配置不会改变已经运行的实例。
 
-## Benchmark、状态与清理
+## 运行 Benchmark
 
-按[现有 OSWorld AGS cookbook](../osworld-ags/README_zh.md) 固定上游 checkout、
-安装依赖。将 `AGS_TEMPLATE` 指向新 Tool ID、`E2B_DOMAIN` 指向对应地域，
-由现有 Benchmark agent 执行任务。OSWorld1 使用 `AGS_SUDO_PASSWORD=password`。
-`OSWORLD_MOCK_LLM_DONE=1` 只验证初始化，不算真实 agent 完成任务。
+按[OSWorld AGS 示例](../osworld-ags/README_zh.md)安装 Benchmark，
+将 `AGS_TEMPLATE` 设置为本示例输出的 Tool ID，`E2B_DOMAIN` 设置为对应地域。
+使用 OSWorld1 时设置 `AGS_SUDO_PASSWORD=password`。
+Benchmark 使用自己的 agent，与本例中安装的 Claude Code 无关。
+
+## 检查状态与清理
 
 ```bash
-make snapshot  # 查看快照状态，不等待制作
-make smoke     # 独立验证实例，验证后自动停止；保留 Tool
-make clean     # 停止交互实例，删除本示例创建的 Tool
-make check     # 可选的脚本检查
+make snapshot  # 查看快照状态
+make smoke     # 可选：另开实例检查桌面截图和 noVNC，检查后自动停止
+make clean     # 停止实例，删除本示例创建的沙箱工具
 ```
 
-`.state/` 保存资源归属、截图和报告，不保存 token 或模型凭证。平台不强制执行
-本示例检查。创建失败时保留归属信息便于重试和清理。本示例直接创建 Tool，
-不依赖独立镜像预热接口；平台仍会执行创建 Tool 所需的镜像准备。
-使用 `tag@sha256` 时，脚本在启动实例前核对 Tool 保存的 manifest digest。
+日常使用不需要运行 `make smoke`。本地 `.state/` 保存工具和实例信息，
+以及检查时生成的截图和报告。创建失败时保留这个目录，便于重试或清理。

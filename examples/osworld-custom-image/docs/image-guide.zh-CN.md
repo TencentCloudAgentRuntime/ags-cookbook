@@ -1,84 +1,97 @@
-# OSWorld 自定义镜像使用指南
+# 使用 OSWorld 基础镜像
 
-## 镜像选择与版本
+你可以直接用基础镜像启动一个 OSWorld 桌面，也可以在上面安装自己的软件，
+构建新镜像后交给 AGS 运行。首次体验和 Claude Code 定制示例见 [README](../README_zh.md)。
 
-OSWorld1 base 用于现有 OSWorld Benchmark，OSWorld2 base 用于对应 V2 环境。
-两者提供原生 linux/amd64 OCI 用户态，由 Cube 的 microVM 内核运行，无需在
-沙箱中启动 QEMU。镜像来源与 server 版本分别记录，不能将内部 `v5.5.x`
-镜像版本当作上游 Benchmark 版本。
+## 选择镜像
 
-当前处于个人 CCR 制品验证阶段。正式目标仓库为
-`ccr.ccs.tencentyun.com/ags-image/osworld1-base` 和 `osworld2-base`；
-获得发布批准并完成推送前，不应将目标地址当作已可拉取制品。
-发布 tag 不覆盖；生产构建使用明确 tag 和经过验证的 digest。
+| 镜像 | 用途 |
+| --- | --- |
+| OSWorld1 | 运行 OSWorld 桌面任务和现有 Benchmark 示例 |
+| OSWorld2 | 运行 OSWorld2 任务，包括需要 Docker 的任务 |
 
-`OSWORLD_BASE_IMAGE` 暂留空，不提供个人测试仓库作为客户默认值。
-正式发布后填写 `ags-image` 中对应 base 的不可变 `tag@sha256` 引用。
-Quickstart 以 OSWorld1 为演示；改为 OSWorld2 时替换该变量，无需新增 Dockerfile。
+基础镜像地址待补充。发布后，将对应地址填入 `.env` 的 `OSWORLD_BASE_IMAGE`。
+本示例使用 OSWorld1；要体验 OSWorld2，替换这个配置即可，不必重新写 Dockerfile。
 
-Docker 构建的 `FROM` 可以使用 `tag@sha256:...`。当前个人 CCR 的 AGS
-创建链路不能直接复用这一写法：个人仓库解析需要 tag，而自动快照转换器不接受
-同时包含 tag 和 digest 的引用。示例接收完整固定引用，以 tag 直接创建 Tool，
-在启动实例前核对 Tool 保存的 `ImageDigest`；缺失或不一致时不启动实例。
-不调用独立预热接口。必须保持 tag 不可变；发布新内容应换新版本，不能覆盖旧 tag。
+请固定基础镜像的版本，避免使用 `latest`。更新自己的镜像时也使用新 tag，
+例如从 `v1` 更新为 `v2`，这样方便复现结果和回退。
 
-## 可以定制什么
+## 安装自己的软件
 
-通过 `FROM` 继承 base，安装软件、复制文件、增加 systemd unit。保留
-`/sbin/init`、桌面 `user`、OSWorld API 和显示/VNC 服务。修改这些约定后需要
-自行验证 Benchmark。平台不强制这些约定，cookbook 校验也是可选的。
+定制方式与普通 Docker 镜像相同。例如，下面的 Dockerfile 安装了 `jq`：
 
-base 保留应用与配置，只清理无用 VM 内核、boot、缓存和日志，不为达到某个
-体积数字删除任务需要的软件。base 在清理后导入为单层 OCI；用户的 Dockerfile
-自然追加增量 layer。不要通过上层 `RUN rm` 期待删除下层已经存在的大文件。
+```dockerfile
+ARG OSWORLD_BASE_IMAGE
+FROM ${OSWORLD_BASE_IMAGE}
 
-## 运行接口
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq \
+    && rm -rf /var/lib/apt/lists/*
+```
 
-| 端口 | 用途 | 启动约定 |
-| --- | --- | --- |
-| 5000 | OSWorld API：截图、执行、上传、下载 | 随桌面环境启动 |
-| 5910 | noVNC | 随桌面环境启动 |
-| 8080 | VLC HTTP | 按任务使用与验证 |
-| 9222 | Chrome/CDP 对外访问 | Benchmark/provider 按需启动 |
+构建时传入基础镜像地址，再推送到自己的 CCR 或 TCR 仓库：
 
-镜像不启用自定义常驻 CDP proxy 或 AGS tunnel。保留原生 `socat`，与现有
-`osworld-ags` provider 的任务级 CDP 适配配合。raw VNC 5900 是 noVNC 内部依赖。
+```bash
+docker build --build-arg OSWORLD_BASE_IMAGE="基础镜像地址" -t "你的镜像地址:v1" .
+docker push "你的镜像地址:v1"
+```
 
-## 自动快照
+将 `.env` 中的 `CUSTOM_IMAGE` 改为新镜像地址，然后运行 `make custom`。
 
-当前名称包含 `auto-snapshot` 的合资格 Tool 会触发自动快照，脚本封装该命名。
-快照复用取决于镜像和有效运行配置，不能只看 Tool 名称或相同 tag。
-Quickstart 等 Tool ACTIVE 后立即启动：命中已有快照就复用，未就绪时允许
-冷启动。更换镜像内容或运行配置可能需要制作新的快照。
-`make snapshot` 会显示快照状态；当前 API 可能将它放在
-`StatusReason` 的 `SnapshotStatus=...` 中，脚本兼容该形式。
+安装软件、复制文件或添加后台服务都可以。为了让桌面和评测任务正常工作，
+请保留 `/sbin/init` 启动命令、`user` 桌面用户，以及 OSWorld API、桌面和 VNC 服务。
+云凭证和模型 API Key 不要写进 Dockerfile，应在沙箱启动后再配置。
 
-制品首次准备可能较久，创建 Tool 时由平台完成；本示例不依赖独立预热接口。
-跳过独立接口并不表示跳过平台内部的镜像准备。镜像准备与应用内存快照是不同阶段。
-云接口失败时应查看其 RequestId 与 Tool 状态，避免盲目重复创建。
+安装过程中产生的下载缓存，尽量在同一条 `RUN` 中清理。这样可以减少新镜像的体积。
 
-## OSWorld2 的 Docker 存储
+## 启动和快照
 
-Docker 的数据目录需要 ext4 backing filesystem，不能直接使用 Cube 根
-overlay。镜像提供先于 Docker/containerd 执行的 systemd 准备：如果目标目录
-已经在 ext4 上就直接使用，否则按当前容器的根 overlay 可写层定位其 backing
-device，将当前容器可写目录下的 Docker/containerd 子目录 bind mount 出来。
-它不格式化设备，也不假定 `/dev/vda` 是业务盘；多容器模式下该设备可能属于
-monitor sidecar。未知挂盘布局会明确失败。Docker 可由任务安装，API 用法不变。
+运行 `make quickstart` 或 `make custom` 后，脚本会创建沙箱工具并启动实例，
+最后输出 noVNC 链接。用浏览器打开链接，就能操作桌面。
 
-创建后确认 `/var/lib/docker` 和 `/var/lib/containerd` 的 backing filesystem，
-再验证 pull、build（包含删除基础层文件）、run、bridge/DNS、端口映射与 volume。
-Docker 29 的大部分镜像数据可能在 containerd 目录，仅扩 Docker 目录不够。
-挂载新的数据目录会遮蔽镜像中原有 Docker 缓存。冷启动时该方案与业务根可写层
-共享容量和配额，并没有凭空增加一块独立大盘；必须核对实际可用容量。
-`Storage=20Gi` 示例不能承诺满足需要 100Gi 的 heavy task。
+示例会在工具名称中加入 `auto-snapshot`，自动制作快照。已有相同镜像和配置的
+快照时可以直接复用；快照还没准备好时，实例也可以冷启动，不必手动等待。
+首次使用新镜像通常比后续启动慢。更换镜像或运行配置后，可能需要重新制作快照。
 
-快照恢复后须再次验证 Docker 服务与存储，不能拿冷启动成功代替恢复验证。
-本节完整支持范围以随制品发布的实测报告为准。
+```bash
+make snapshot  # 查看快照状态
+make smoke     # 可选：检查桌面截图和 noVNC 是否正常
+```
 
-## 凭证与清理
+本示例使用 8 核 CPU、16 GiB 内存和 20 GiB 可写磁盘。`/dev/shm` 至少为 4 GiB，
+避免 Chrome 因共享内存不足而崩溃。可以在沙箱内运行 `df -h /dev/shm` 检查。
 
-模型凭证在恢复/启动实例后经 `5000` API 注入私有临时文件，不通过镜像构建
-或 Tool 默认环境固化。运行实例的 token 通过 AGS API 单独获取。
-交互实例最多保留一小时；`make clean` 提前回收。自动测试实例在 finally 中停止。
-上传凭证后不要直接将实例再次制作成可共享快照。
+## 可用接口
+
+| 端口 | 用途 |
+| --- | --- |
+| 5000 | OSWorld API，用于截图、执行命令、上传和下载文件 |
+| 5910 | noVNC，用浏览器访问桌面 |
+| 8080 | VLC HTTP 接口，由任务按需启用 |
+| 9222 | Chrome 调试接口，由任务按需启用 |
+
+noVNC 链接默认带有访问 token，拿到链接的人可以访问对应桌面，请勿公开分享。
+如何手动拼接链接，以及如何选择 `AUTH_MODE=none`，见 [noVNC 与鉴权](../README_zh.md#novnc-与鉴权)。
+
+## 在 OSWorld2 中使用 Docker
+
+OSWorld2 基础镜像已经配置好 Docker 所需的数据目录。需要 Docker 的任务，
+可以在沙箱启动后安装 Docker，无需自己挂载磁盘。
+
+Docker 镜像、构建缓存和 volume 会占用沙箱的可写磁盘。本示例提供 20 GiB，
+运行较大的构建任务前，请先检查剩余空间：
+
+```bash
+df -h /var/lib/docker /var/lib/containerd
+```
+
+基础镜像不预装 Docker，请按任务要求安装并启动。
+
+## 配置凭证与结束使用
+
+以 Claude Code 为例，在本地 `.env` 填写 `ANTHROPIC_API_KEY`，再运行 `make claude`。
+脚本会通过 OSWorld API 将凭证传入已经启动的沙箱，并在桌面终端打开 Claude Code。
+凭证不会写进基础镜像。配置了凭证的运行环境，不要再保存为供他人使用的快照。
+
+体验结束后运行 `make clean`，停止实例并删除本示例创建的沙箱工具。
