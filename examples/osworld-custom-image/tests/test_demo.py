@@ -42,6 +42,15 @@ def test_tool_does_not_bake_application_secrets(monkeypatch):
     assert cfg['Command'] == ['/sbin/init']
 
 
+@pytest.mark.parametrize('image,kind', [
+    ('ccr.ccs.tencentyun.com/ags-image/base:v1', 'personal'),
+    ('example.tencentcloudcr.com/ags-image/base:v1', 'enterprise'),
+    ('registry.example/ags-image/base:v1', 'custom'),
+])
+def test_registry_kind_is_independent_of_public_namespace(image, kind):
+    assert demo.tool_config(image)['ImageRegistryType'] == kind
+
+
 def test_snapshot_status_supports_public_api_status_reason():
     assert demo.snapshot_status({'Status': 'ACTIVE', 'StatusReason': 'SnapshotStatus=BUILDING'}) == 'BUILDING'
     assert demo.snapshot_status({'SnapshotStatus': 'READY', 'StatusReason': 'old'}) == 'READY'

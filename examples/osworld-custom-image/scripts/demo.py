@@ -27,10 +27,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def tool_config(image: str) -> dict:
-    # Official ags-image bases are public and can be read across accounts.
-    # `custom` is the API's anonymous registry mode, including public CCR/TCR.
-    registry_type = ('custom' if '/ags-image/' in image else
-                     'personal' if '.ccs.tencentyun.com/' in image else 'enterprise')
+    # Registry type describes the service, not repository visibility.
+    registry = image.split('/', 1)[0].lower()
+    registry_type = ('personal' if registry.endswith('.ccs.tencentyun.com') else
+                     'enterprise' if registry.endswith('.tencentcloudcr.com') else 'custom')
     digest = None
     if '@' in image:
         reference, digest = image.rsplit('@', 1)
