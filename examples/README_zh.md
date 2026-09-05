@@ -27,6 +27,7 @@
 ### 重型 / 外部依赖
 
 - `osworld-ags` —— 上游 OSWorld 的 overlay；需要额外 checkout、Python 3.12.12，以及可用的 OSWorld-compatible AGS 工具
+- `osworld-custom-image` —— 直接访问 OSWorld 桌面，构建自定义 OCI 并通过自动快照使用
 - `waa-ags` —— 上游 Windows Agent Arena 的 overlay；需要额外 checkout、WAA 兼容的 AGS sandbox 模板，以及 OpenAI 兼容的模型接入点
 
 ## 共享本地约定
@@ -57,6 +58,7 @@
 | `mobile-use` | 进阶 | Python + 移动端沙箱 + Appium | `make run` | 运行时依赖较重，且流程较长 |
 | `openclaw-cookbook` | 进阶 | Node.js + 自定义镜像 + COS | `make run` | 基于官方镜像在 AGS 中运行 OpenClaw；含本地管理界面 |
 | `osworld-ags` | 重型 | Python 3.12.12 + OSWorld overlay | `make setup` 后 `make run` | 需要外部 checkout 与模板 / 工具准备 |
+| `osworld-custom-image` | 进阶 | Python SDK + Docker | `make quickstart` | base 桌面预览与 Claude Code 派生镜像 |
 | `shop-assistant` | 进阶 | Python + 浏览器沙箱 | `make run` | 已支持无 Cookie 的 guest 模式 |
 | `waa-ags` | 重型 | Python + Windows 沙箱 + LLM | `make setup` 后 `make run` | 需要额外 checkout WAA、WAA 兼容的 AGS sandbox 模板，以及 OpenAI 兼容的模型接入点 |
 

@@ -101,6 +101,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `mobile-use` | Python + mobile sandbox + Appium | Android automation |
 | `openclaw-cookbook` | Node.js + custom image + COS | Run OpenClaw in AGS with official image |
 | `osworld-ags` | Python 3.12.12 + OSWorld overlay | Heavy setup; requires an OSWorld-capable tool |
+| `osworld-custom-image` | Python SDK + Docker | OSWorld desktop preview and custom OCI images with automatic snapshots |
 | `shop-assistant` | Python + browser sandbox | E-commerce search / add-to-cart demo |
 | `waa-ags` | Python + Windows sandbox + LLM | Run Windows Agent Arena on AGS via a small overlay |
 

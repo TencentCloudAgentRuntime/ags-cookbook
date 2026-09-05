@@ -27,6 +27,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 ### Heavy / external-dependent
 
 - `osworld-ags` — overlay for upstream OSWorld; requires a separate checkout, Python 3.12.12, and an OSWorld-capable AGS tool
+- `osworld-custom-image` — open an OSWorld desktop and build a custom OCI image with automatic snapshots
 - `waa-ags` — overlay for upstream Windows Agent Arena; requires a separate checkout, a WAA-compatible AGS sandbox template, and an OpenAI-compatible model endpoint
 
 ## Shared local contract
@@ -57,6 +58,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `mobile-use` | advanced | Python + mobile sandbox + Appium | `make run` | Heavy runtime dependencies and long-running device flow |
 | `openclaw-cookbook` | advanced | Node.js + custom image + COS | `make run` | Run OpenClaw in AGS with official image; includes local management UI |
 | `osworld-ags` | heavy | Python 3.12.12 + OSWorld overlay | `make setup` then `make run` | External checkout and template/tool requirements |
+| `osworld-custom-image` | advanced | Python SDK + Docker | `make quickstart` | Desktop preview and Claude Code derived image |
 | `shop-assistant` | advanced | Python + browser sandbox | `make run` | Cookie-free guest mode now supported |
 | `waa-ags` | heavy | Python + Windows sandbox + LLM | `make setup` then `make run` | External WAA checkout, WAA-compatible AGS sandbox template, and OpenAI-compatible model endpoint required |
 
