@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable
 REMOTE_ARCHIVE = "/tmp/ags-workspace.tar.gz"
 REMOTE_WORKSPACE = "/tmp/ags-workspace"
 REMOTE_ARTIFACT = "/tmp/ags-artifacts.tar.gz"
+REMOTE_EXIT_CODE = "/tmp/ags-workload-exit-code"
 DEFAULT_EXCLUDES = {
     ".git",
     ".venv",
@@ -159,15 +160,25 @@ def run_in_sandbox(
             raise RuntimeError("failed to extract the workspace archive in the sandbox")
 
         print(f"Running workload in {REMOTE_WORKSPACE}...")
+        workload_command = shlex.join(["bash", "-lc", command])
+        wrapper_command = (
+            "set +e\n"
+            f"{workload_command}\n"
+            "ags_workload_exit_code=$?\n"
+            f"printf '%s\\n' \"$ags_workload_exit_code\" > {shlex.quote(REMOTE_EXIT_CODE)}\n"
+            "exit 0"
+        )
         result = _run_allow_failure(
             sandbox.commands,
-            shlex.join(["bash", "-lc", command]),
+            shlex.join(["bash", "-lc", wrapper_command]),
             cwd=REMOTE_WORKSPACE,
             envs=envs,
             timeout=command_timeout,
         )
         _print_command_output(result)
-        exit_code = int(getattr(result, "exit_code", 1))
+        if int(getattr(result, "exit_code", 1)) != 0:
+            raise RuntimeError("workload wrapper did not complete")
+        exit_code = int(str(sandbox.files.read(REMOTE_EXIT_CODE)).strip())
         return_code = exit_code
         report["exit_code"] = exit_code
         report["status"] = "succeeded" if exit_code == 0 else "workload_failed"

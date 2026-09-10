@@ -16,6 +16,7 @@ GitHub 托管 Runner → AGS SDK → 新建沙箱 → 执行命令 → 回传报
   但保留 `.env.example`
 - 一次任务创建一个沙箱并上传 checkout
 - 在沙箱执行一条 Shell 命令，默认不转发宿主环境变量
+- 独立记录并传播业务退出码，不依赖数据面命令以非零状态结束
 - 将 stdout/stderr 返回 GitHub Actions 日志
 - 将指定结果路径下载为 `artifacts.tar.gz`
 - 生成机器可读的 `run-report.json`

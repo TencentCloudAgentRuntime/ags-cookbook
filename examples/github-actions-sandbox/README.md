@@ -17,6 +17,8 @@ provide the future `runs-on: [self-hosted, tencent-agr]` integration.
   caches, `.env`, and `.env.*` files (but retaining `.env.example`)
 - creates one sandbox and uploads the checkout
 - runs one shell command without forwarding the host environment by default
+- captures and propagates the workload exit code without relying on a non-zero
+  data-plane command transport response
 - returns stdout/stderr to the Actions log
 - downloads a selected result path as `artifacts.tar.gz`
 - writes a machine-readable `run-report.json`

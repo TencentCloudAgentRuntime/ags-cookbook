@@ -8,7 +8,12 @@ import tarfile
 import tempfile
 import unittest
 
-from runner import build_workspace_archive, run_in_sandbox, validate_artifact_path
+from runner import (
+    REMOTE_EXIT_CODE,
+    build_workspace_archive,
+    run_in_sandbox,
+    validate_artifact_path,
+)
 
 
 class Result:
@@ -19,14 +24,17 @@ class Result:
 
 
 class FakeFiles:
-    def __init__(self):
+    def __init__(self, workload_exit_code: int = 0):
         self.writes: dict[str, bytes] = {}
+        self.workload_exit_code = workload_exit_code
 
     def write(self, path: str, content: bytes) -> None:
         self.writes[path] = content
 
-    def read(self, path: str, format: str = "text") -> bytes:
-        del path, format
+    def read(self, path: str, format: str = "text") -> bytes | str:
+        if path == REMOTE_EXIT_CODE:
+            return str(self.workload_exit_code)
+        del format
         return b"fake-artifact"
 
 
@@ -38,7 +46,7 @@ class FakeCommands:
     def run(self, command: str, **kwargs: object) -> Result:
         self.calls.append((command, kwargs))
         if command.startswith("bash -lc"):
-            return Result(self.workload_exit_code, stdout="workload output\n")
+            return Result(stdout="workload output\n")
         return Result()
 
 
@@ -46,7 +54,7 @@ class FakeSandbox:
     sandbox_id = "sandbox-test-123"
 
     def __init__(self, workload_exit_code: int = 0):
-        self.files = FakeFiles()
+        self.files = FakeFiles(workload_exit_code)
         self.commands = FakeCommands(workload_exit_code)
         self.killed = False
 
