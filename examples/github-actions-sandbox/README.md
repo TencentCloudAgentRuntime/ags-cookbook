@@ -68,6 +68,26 @@ make run \
 `ARTIFACT_PATH` is relative to the uploaded workspace. A missing artifact path
 is reported as a warning and does not replace the workload's exit code.
 
+Transport or artifact download failures set the overall `exit_code` to 2 and
+`status` to `infrastructure_error`. The separate `workload_exit_code` retains the
+business result (or is null if unavailable). `main.py` returns the overall code;
+GNU Make returns 2 when a recipe fails, so read the report for the original code.
+
+Make passes command and path values through environment variables without
+expanding their contents. Quote arguments for your invoking shell, for example:
+
+```bash
+make run COMMAND='python -c "print(1)" && echo "$PATH" | head -c 100'
+```
+
+Shell variables and command substitutions in this single-quoted argument run
+inside the sandbox. Pass literal values; Make variable references such as
+`$(OTHER_VARIABLE)` are not expanded by this target.
+
+If `OUTPUT_DIR` is inside `WORKSPACE`, its entire subtree is automatically excluded
+from uploads, including on repeated runs. Other directories with the same name
+remain included. The output directory cannot equal the workspace.
+
 ## Run with GitHub Actions
 
 The repository includes

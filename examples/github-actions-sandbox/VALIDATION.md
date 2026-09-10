@@ -29,6 +29,21 @@ the business exit code. Both instances were killed. Commit `d6fcc90` changed the
 protocol so the sandbox command transport exits normally and the business exit code
 is read from a dedicated result file. The real exit-7 probe then passed.
 
+## Review regression coverage
+
+The 12 local tests now include artifact read/transport failures after workload
+success or failure, GitHub output exit-code consistency, literal Make command and
+path forwarding, and consecutive runs with default/custom nested output paths.
+Command forwarding tests run the actual Make recipe and CLI parser with a local
+stand-in for `uv`; they check that quotes, dollar signs, backticks, pipes, newlines,
+and Make `$(shell ...)` syntax are preserved without executing on the host.
+These tests run in the PR repository check without cloud credentials.
+
+Artifact fault injection is local; it does not prove behavior under every possible
+cloud outage. The cancellation evidence above is a local caller-termination probe,
+not a cancellation of a GitHub-hosted workflow. The historical cloud runs cited
+above cover their recorded commits and do not substitute for regression tests.
+
 ## Image and toolchain inventory
 
 | Requirement | Fixture expectation | Observed version | Decision |

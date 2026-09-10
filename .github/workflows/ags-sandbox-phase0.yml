@@ -28,7 +28,7 @@ jobs:
         run: |
           make run \
             WORKSPACE="${GITHUB_WORKSPACE}" \
-            COMMAND="python examples/github-actions-sandbox/workload/ci_task.py" \
+            COMMAND='python -c "print(1)" && python examples/github-actions-sandbox/workload/ci_task.py' \
             ARTIFACT_PATH="examples/github-actions-sandbox/workload/output" \
             OUTPUT_DIR="${RUNNER_TEMP}/ags-results"
 

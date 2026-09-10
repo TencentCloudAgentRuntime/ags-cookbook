@@ -4,12 +4,17 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from runner import (
     REMOTE_EXIT_CODE,
+    REMOTE_ARCHIVE,
+    REMOTE_ARTIFACT,
     build_workspace_archive,
     run_in_sandbox,
     validate_artifact_path,
@@ -68,6 +73,149 @@ class CleanupFailingSandbox(FakeSandbox):
 
 
 class RunnerTests(unittest.TestCase):
+    def invoke(self, root: Path, sandbox: FakeSandbox, output: Path | None = None) -> int:
+        return run_in_sandbox(
+            workspace=root,
+            command="true",
+            artifact_path="output",
+            output_dir=output if output is not None else root / "ags-results",
+            template="test",
+            sandbox_timeout=60,
+            command_timeout=30,
+            sandbox_factory=lambda **kwargs: sandbox,
+        )
+
+    def test_artifact_read_failure_is_not_success(self) -> None:
+        for workload_code in (0, 7):
+            with self.subTest(workload_code=workload_code), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                sandbox = FakeSandbox(workload_code)
+                original_read = sandbox.files.read
+
+                def read(path, **kwargs):
+                    if path == REMOTE_ARTIFACT:
+                        raise ConnectionError("synthetic download failure")
+                    return original_read(path, **kwargs)
+
+                with patch.object(sandbox.files, "read", side_effect=read), patch.dict(
+                    os.environ, {"GITHUB_OUTPUT": str(root / "github-output")}
+                ):
+                    code = self.invoke(root, sandbox)
+                report = json.loads((root / "ags-results/run-report.json").read_text())
+                self.assertEqual(code, 2)
+                self.assertEqual(report["status"], "infrastructure_error")
+                self.assertEqual(report["exit_code"], 2)
+                self.assertEqual(report["workload_exit_code"], workload_code)
+                self.assertEqual(report["error_type"], "ConnectionError")
+                self.assertEqual(report["cleanup"], "killed")
+                self.assertTrue(sandbox.killed)
+                self.assertIn("exit-code=2\n", (root / "github-output").read_text())
+
+    def test_artifact_transport_failure_and_missing_artifact_are_distinct(self) -> None:
+        for failure in (ConnectionError("synthetic command transport failure"), Result(1)):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                sandbox = FakeSandbox()
+                original_run = sandbox.commands.run
+
+                def run(command, **kwargs):
+                    if command.startswith("tar -czf"):
+                        if isinstance(failure, Exception):
+                            raise failure
+                        return failure
+                    return original_run(command, **kwargs)
+
+                with patch.object(sandbox.commands, "run", side_effect=run):
+                    code = self.invoke(root, sandbox)
+                report = json.loads((root / "ags-results/run-report.json").read_text())
+                self.assertTrue(sandbox.killed)
+                if isinstance(failure, Exception):
+                    self.assertEqual(code, 2)
+                    self.assertEqual(report["status"], "infrastructure_error")
+                else:
+                    self.assertEqual(code, 0)
+                    self.assertEqual(report["status"], "succeeded")
+                    self.assertIn("artifact_warning", report)
+
+    def test_repeated_runs_exclude_only_the_actual_output_subtree(self) -> None:
+        for relative in (Path("ags-results"), Path("nested/custom-results")):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                sibling = root / "source" / relative.name
+                sibling.mkdir(parents=True)
+                (sibling / "keep.txt").write_text("keep this source")
+                output = root / relative
+                self.assertEqual(self.invoke(root, FakeSandbox(), output), 0)
+                second = FakeSandbox()
+                self.assertEqual(self.invoke(root, second, output), 0)
+                with tarfile.open(fileobj=io.BytesIO(second.files.writes[REMOTE_ARCHIVE]), mode="r:gz") as archive:
+                    names = archive.getnames()
+                self.assertFalse(any(Path(n).is_relative_to(relative) for n in names))
+                self.assertIn((sibling / "keep.txt").relative_to(root).as_posix(), names)
+
+    def test_output_outside_workspace_does_not_exclude_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "source"
+            workspace.mkdir()
+            (workspace / "keep.txt").write_text("keep")
+            for output in (root / "results", root):
+                with tarfile.open(fileobj=io.BytesIO(build_workspace_archive(workspace, output_dir=output)), mode="r:gz") as archive:
+                    self.assertIn("keep.txt", archive.getnames())
+
+    def test_output_equal_to_workspace_is_rejected_before_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for output in (root, root / "nested/.."):
+                with self.subTest(output=output), self.assertRaisesRegex(ValueError, "must differ"):
+                    self.invoke(root, FakeSandbox(), output)
+
+    def test_make_passes_literal_commands_and_paths_to_python(self) -> None:
+        example = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sentinel = root / "host-executed"
+            # Stand in for uv so the real Make recipe reaches the real CLI parser
+            # without creating a sandbox or executing any workload.
+            uv = root / "uv"
+            uv.write_text(
+                f"#!{sys.executable}\n"
+                "import json, sys\n"
+                f"sys.path.insert(0, {str(example)!r})\n"
+                "from main import parser\n"
+                "args = parser().parse_args(sys.argv[4:])\n"
+                "print('CAPTURE=' + json.dumps(vars(args), default=str))\n"
+            )
+            uv.chmod(0o700)
+            commands = [
+                'python -c "print(1)"',
+                'printf \'%s\\n\' "$VALUE" | tee output.txt',
+                f'echo `touch {sentinel}`',
+                f'echo $(touch {sentinel})',
+                f'echo $(shell touch {sentinel})',
+                "printf 'first\\n'\nprintf 'second\\n'",
+            ]
+            env = {"PATH": str(root) + os.pathsep + os.defpath}
+            for command in commands:
+                for source in ("argument", "environment"):
+                    with self.subTest(command=command, source=source):
+                        args = ["make", "--no-print-directory", "run"]
+                        run_env = dict(env)
+                        if source == "argument":
+                            args.append("COMMAND=" + command)
+                        else:
+                            run_env["COMMAND"] = command
+                        workspace = 'folder with "quotes" and $literal'
+                        args += ["WORKSPACE=" + workspace, "OUTPUT_DIR=custom results", "ARTIFACT_PATH=output files"]
+                        result = subprocess.run(args, cwd=example, env=run_env, text=True, capture_output=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        captured = json.loads(next(line.removeprefix("CAPTURE=") for line in result.stdout.splitlines() if line.startswith("CAPTURE=")))
+                        self.assertEqual(captured["command"], command)
+                        self.assertEqual(captured["workspace"], workspace)
+                        self.assertEqual(captured["output_dir"], "custom results")
+                        self.assertEqual(captured["artifact_path"], "output files")
+                        self.assertFalse(sentinel.exists(), "command executed on host")
+
     def test_archive_excludes_git_and_dotenv_but_keeps_example(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

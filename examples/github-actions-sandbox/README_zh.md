@@ -58,6 +58,22 @@ make run \
 `ARTIFACT_PATH` 必须是上传后工作区内的相对路径。如果路径不存在，会产生告警，
 但不会覆盖工作负载本身的退出码。
 
+传输或产物下载异常会将整体 `exit_code` 设为 2、`status` 设为
+`infrastructure_error`。`workload_exit_code` 单独保留业务结果，未取得时为 null。
+`main.py` 返回整体退出码；GNU Make 在 recipe 失败时返回 2，原始业务退出码需查报告。
+
+Make 通过环境变量原样传递命令和路径。调用时仍需给宿主 Shell 正确加引号，例如：
+
+```bash
+make run COMMAND='python -c "print(1)" && echo "$PATH" | head -c 100'
+```
+
+上述单引号内的变量与命令替换仅在沙箱中执行。请传入字面值，
+此目标不会展开 `$(OTHER_VARIABLE)` 等 Make 变量引用。
+
+如果 `OUTPUT_DIR` 位于 `WORKSPACE` 内，上传时会自动排除该目录及全部子项，
+连续运行也不会重新上传历史结果；其他同名目录仍会保留。输出目录不能与工作区相同。
+
 ## 在 GitHub Actions 中运行
 
 仓库已经包含

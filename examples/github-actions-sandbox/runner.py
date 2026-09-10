@@ -35,19 +35,34 @@ def should_exclude(relative_path: Path, extra_excludes: set[str]) -> bool:
     )
 
 
-def build_workspace_archive(workspace: Path, excludes: Iterable[str] = ()) -> bytes:
+def build_workspace_archive(
+    workspace: Path, excludes: Iterable[str] = (), *, output_dir: Path | None = None
+) -> bytes:
     workspace = workspace.resolve()
     if not workspace.is_dir():
         raise ValueError(f"workspace is not a directory: {workspace}")
+    output_dir = output_dir.resolve() if output_dir is not None else None
+    if output_dir == workspace:
+        raise ValueError("output directory must differ from workspace")
 
     extra_excludes = set(excludes)
+
+    def excluded(path: Path) -> bool:
+        return should_exclude(path.relative_to(workspace), extra_excludes) or (
+            output_dir is not None
+            and output_dir.is_relative_to(workspace)
+            and path.resolve().is_relative_to(output_dir)
+        )
+
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-        for path in sorted(workspace.rglob("*")):
-            relative = path.relative_to(workspace)
-            if should_exclude(relative, extra_excludes):
-                continue
-            archive.add(path, arcname=relative.as_posix(), recursive=False)
+        for directory, dirs, files in os.walk(workspace, followlinks=False):
+            root = Path(directory)
+            dirs[:] = sorted(name for name in dirs if not excluded(root / name))
+            for name in sorted(dirs + files):
+                path = root / name
+                if not excluded(path):
+                    archive.add(path, arcname=path.relative_to(workspace).as_posix(), recursive=False)
     return buffer.getvalue()
 
 
@@ -115,6 +130,10 @@ def run_in_sandbox(
         raise ValueError("command must not be empty")
     artifact_path = validate_artifact_path(artifact_path)
     envs = forwarded_environment(env_names)
+    workspace = workspace.resolve()
+    output_dir = output_dir.resolve()
+    if output_dir == workspace:
+        raise ValueError("output directory must differ from workspace")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if sandbox_factory is None:
@@ -133,13 +152,14 @@ def run_in_sandbox(
         "artifact_path": artifact_path,
         "sandbox_id": None,
         "exit_code": 2,
+        "workload_exit_code": None,
         "cleanup": "not_created",
     }
     sandbox = None
     return_code = 2
 
     try:
-        archive = build_workspace_archive(workspace, excludes)
+        archive = build_workspace_archive(workspace, excludes, output_dir=output_dir)
         report["workspace_archive_bytes"] = len(archive)
 
         print(f"Creating AGS sandbox from template {template!r}...")
@@ -179,6 +199,7 @@ def run_in_sandbox(
         if int(getattr(result, "exit_code", 1)) != 0:
             raise RuntimeError("workload wrapper did not complete")
         exit_code = int(str(sandbox.files.read(REMOTE_EXIT_CODE)).strip())
+        report["workload_exit_code"] = exit_code
         return_code = exit_code
         report["exit_code"] = exit_code
         report["status"] = "succeeded" if exit_code == 0 else "workload_failed"
@@ -204,6 +225,9 @@ def run_in_sandbox(
             print(report["artifact_warning"], file=os.sys.stderr)
 
     except Exception as exc:
+        return_code = 2
+        report["exit_code"] = 2
+        report["status"] = "infrastructure_error"
         report["error_type"] = type(exc).__name__
         report["error"] = str(exc)
         print(f"AGS sandbox infrastructure error: {exc}", file=os.sys.stderr)
@@ -217,7 +241,6 @@ def run_in_sandbox(
                 report["cleanup"] = "failed"
                 report["cleanup_error"] = str(exc)
                 report["status"] = "cleanup_failed"
-                report["workload_exit_code"] = report["exit_code"]
                 report["exit_code"] = 2
                 return_code = 2
                 print(f"Sandbox cleanup failed: {exc}", file=os.sys.stderr)

@@ -15,8 +15,8 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument(
         "--workspace",
         type=Path,
-        default=Path(os.getenv("GITHUB_WORKSPACE", ".")),
-        help="Local checkout to upload (default: GITHUB_WORKSPACE or current directory).",
+        default=Path(os.getenv("AGS_WORKSPACE", os.getenv("GITHUB_WORKSPACE", "."))),
+        help="Local checkout to upload (default: AGS_WORKSPACE, GITHUB_WORKSPACE or current directory).",
     )
     value.add_argument(
         "--command",
