@@ -1,0 +1,8 @@
+[project]
+name = "github-actions-sandbox"
+version = "0.1.0"
+description = "Run a GitHub Actions checkout in an isolated Tencent AGS sandbox"
+requires-python = ">=3.12"
+dependencies = [
+    "e2b>=2.15.2",
+]
