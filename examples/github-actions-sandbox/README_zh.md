@@ -58,7 +58,10 @@ make run \
 `ARTIFACT_PATH` 必须是上传后工作区内的相对路径。如果路径不存在，会产生告警，
 但不会覆盖工作负载本身的退出码。
 
-传输或产物下载异常会将整体 `exit_code` 设为 2、`status` 设为
+只有 SDK 明确返回路径不存在时才按缺失产物告警。存在性检查的权限或连接错误、
+以及路径存在但 tar 非零退出，都会使任务失败。打包失败时输出 tar 日志，不再下载产物。
+
+路径检查、打包、传输或产物下载异常会将整体 `exit_code` 设为 2、`status` 设为
 `infrastructure_error`。`workload_exit_code` 单独保留业务结果，未取得时为 null。
 `main.py` 返回整体退出码；GNU Make 在 recipe 失败时返回 2，原始业务退出码需查报告。
 

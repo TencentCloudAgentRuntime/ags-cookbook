@@ -68,7 +68,12 @@ make run \
 `ARTIFACT_PATH` is relative to the uploaded workspace. A missing artifact path
 is reported as a warning and does not replace the workload's exit code.
 
-Transport or artifact download failures set the overall `exit_code` to 2 and
+Only an explicit not-found result from the SDK's path check is treated as missing.
+Permission or transport errors during that check, and any non-zero tar result for
+an existing path, fail the run. Tar stdout/stderr is printed for diagnosis; no
+artifact download is attempted after packaging fails.
+
+Path-check, packaging, transport or artifact download failures set the overall `exit_code` to 2 and
 `status` to `infrastructure_error`. The separate `workload_exit_code` retains the
 business result (or is null if unavailable). `main.py` returns the overall code;
 GNU Make returns 2 when a recipe fails, so read the report for the original code.

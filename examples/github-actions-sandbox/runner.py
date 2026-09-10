@@ -204,14 +204,20 @@ def run_in_sandbox(
         report["exit_code"] = exit_code
         report["status"] = "succeeded" if exit_code == 0 else "workload_failed"
 
-        artifact_command = (
-            f"tar -czf {shlex.quote(REMOTE_ARTIFACT)} "
-            f"-C {shlex.quote(REMOTE_WORKSPACE)} {shlex.quote(artifact_path)}"
-        )
-        artifact_result = _run_allow_failure(
-            sandbox.commands, artifact_command, timeout=command_timeout
-        )
-        if int(getattr(artifact_result, "exit_code", 1)) == 0:
+        # SDK exists() returns False only for NOT_FOUND; permission and transport
+        # errors must reach the infrastructure-error handler below.
+        remote_artifact_path = str(PurePosixPath(REMOTE_WORKSPACE) / artifact_path)
+        if sandbox.files.exists(remote_artifact_path):
+            artifact_command = (
+                f"tar -czf {shlex.quote(REMOTE_ARTIFACT)} "
+                f"-C {shlex.quote(REMOTE_WORKSPACE)} -- {shlex.quote(artifact_path)}"
+            )
+            artifact_result = _run_allow_failure(
+                sandbox.commands, artifact_command, timeout=command_timeout
+            )
+            if int(getattr(artifact_result, "exit_code", 1)) != 0:
+                _print_command_output(artifact_result)
+                raise RuntimeError("failed to package sandbox artifacts")
             artifact_bytes = sandbox.files.read(REMOTE_ARTIFACT, format="bytes")
             if isinstance(artifact_bytes, str):
                 artifact_bytes = artifact_bytes.encode("utf-8")

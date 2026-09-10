@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from contextlib import redirect_stderr
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,9 @@ class FakeFiles:
 
     def write(self, path: str, content: bytes) -> None:
         self.writes[path] = content
+
+    def exists(self, path: str) -> bool:
+        return True
 
     def read(self, path: str, format: str = "text") -> bytes | str:
         if path == REMOTE_EXIT_CODE:
@@ -111,8 +115,14 @@ class RunnerTests(unittest.TestCase):
                 self.assertTrue(sandbox.killed)
                 self.assertIn("exit-code=2\n", (root / "github-output").read_text())
 
-    def test_artifact_transport_failure_and_missing_artifact_are_distinct(self) -> None:
-        for failure in (ConnectionError("synthetic command transport failure"), Result(1)):
+    def test_existing_artifact_packaging_failure_is_fatal(self) -> None:
+        failures = (
+            ConnectionError("synthetic command transport failure"),
+            Result(1, stderr="tar: file changed as we read it"),
+            Result(2, stderr="tar: write error: No space left on device"),
+            Result(2, stderr="tar: output: Cannot open: Permission denied"),
+        )
+        for failure in failures:
             with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 sandbox = FakeSandbox()
@@ -125,17 +135,55 @@ class RunnerTests(unittest.TestCase):
                         return failure
                     return original_run(command, **kwargs)
 
-                with patch.object(sandbox.commands, "run", side_effect=run):
+                stderr = io.StringIO()
+                with patch.object(sandbox.commands, "run", side_effect=run), \
+                        patch.object(sandbox.files, "exists", return_value=True) as exists, \
+                        patch.object(sandbox.files, "read", wraps=sandbox.files.read) as read, \
+                        redirect_stderr(stderr):
                     code = self.invoke(root, sandbox)
                 report = json.loads((root / "ags-results/run-report.json").read_text())
+                exists.assert_called_once_with("/tmp/ags-workspace/output")
                 self.assertTrue(sandbox.killed)
-                if isinstance(failure, Exception):
-                    self.assertEqual(code, 2)
-                    self.assertEqual(report["status"], "infrastructure_error")
-                else:
-                    self.assertEqual(code, 0)
-                    self.assertEqual(report["status"], "succeeded")
-                    self.assertIn("artifact_warning", report)
+                self.assertEqual(code, 2)
+                self.assertEqual(report["exit_code"], 2)
+                self.assertEqual(report["workload_exit_code"], 0)
+                self.assertEqual(report["status"], "infrastructure_error")
+                self.assertNotIn("artifact_warning", report)
+                self.assertNotIn("artifact_archive", report)
+                self.assertFalse(any(c.args[0] == REMOTE_ARTIFACT for c in read.call_args_list))
+                if isinstance(failure, Result):
+                    self.assertIn(failure.stderr, stderr.getvalue())
+
+    def test_missing_artifact_skips_tar_and_preserves_workload_result(self) -> None:
+        for workload_code in (0, 7):
+            with self.subTest(workload_code=workload_code), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                sandbox = FakeSandbox(workload_code)
+                with patch.object(sandbox.files, "exists", return_value=False), \
+                        patch.object(sandbox.files, "read", wraps=sandbox.files.read) as read:
+                    code = self.invoke(root, sandbox)
+                report = json.loads((root / "ags-results/run-report.json").read_text())
+                self.assertEqual(code, workload_code)
+                self.assertEqual(report["workload_exit_code"], workload_code)
+                self.assertEqual(report["status"], "succeeded" if workload_code == 0 else "workload_failed")
+                self.assertIn("artifact_warning", report)
+                self.assertNotIn("error", report)
+                self.assertFalse(any(cmd.startswith("tar -czf") for cmd, _ in sandbox.commands.calls))
+                self.assertFalse(any(c.args[0] == REMOTE_ARTIFACT for c in read.call_args_list))
+                self.assertTrue(sandbox.killed)
+
+    def test_artifact_existence_check_failure_is_fatal(self) -> None:
+        for failure in (PermissionError("access denied"), ConnectionError("disconnected")):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                sandbox = FakeSandbox()
+                with patch.object(sandbox.files, "exists", side_effect=failure):
+                    code = self.invoke(root, sandbox)
+                report = json.loads((root / "ags-results/run-report.json").read_text())
+                self.assertEqual(code, 2)
+                self.assertEqual(report["status"], "infrastructure_error")
+                self.assertNotIn("artifact_warning", report)
+                self.assertTrue(sandbox.killed)
 
     def test_repeated_runs_exclude_only_the_actual_output_subtree(self) -> None:
         for relative in (Path("ags-results"), Path("nested/custom-results")):

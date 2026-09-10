@@ -31,13 +31,29 @@ is read from a dedicated result file. The real exit-7 probe then passed.
 
 ## Review regression coverage
 
-The 12 local tests now include artifact read/transport failures after workload
+The 14 local tests now include artifact read/transport failures after workload
 success or failure, GitHub output exit-code consistency, literal Make command and
 path forwarding, and consecutive runs with default/custom nested output paths.
 Command forwarding tests run the actual Make recipe and CLI parser with a local
 stand-in for `uv`; they check that quotes, dollar signs, backticks, pipes, newlines,
 and Make `$(shell ...)` syntax are preserved without executing on the host.
 These tests run in the PR repository check without cloud credentials.
+
+Artifact collection tests distinguish SDK-confirmed absence from path-check errors
+and tar failure on an existing path. Injected tar exit codes 1 and 2 (changed file,
+no disk space, permission denied) must produce overall exit 2 and
+`infrastructure_error`, preserve `workload_exit_code`, print tar diagnostics, skip
+the download, and still clean up. A missing path skips tar entirely and preserves
+the workload result.
+
+On 2026-09-10, three additional local-to-AGS live probes verified successful
+packaging and artifact contents, missing-path warnings, and real tar write failure.
+The failure probe created the expected archive destination as a directory inside
+its own fresh sandbox: the workload exited 0, tar failed, diagnostics were emitted,
+and the wrapper returned `infrastructure_error` / 2 with `workload_exit_code=0`.
+All three owned instances were killed and absent from the active sandbox list.
+This probes an unwritable archive destination; disk exhaustion and permission
+failures are covered by local fault injection rather than cloud resource exhaustion.
 
 Artifact fault injection is local; it does not prove behavior under every possible
 cloud outage. The cancellation evidence above is a local caller-termination probe,
