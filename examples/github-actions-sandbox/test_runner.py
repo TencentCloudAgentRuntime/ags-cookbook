@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import json
 import os
 from pathlib import Path
@@ -55,6 +55,8 @@ class FakeCommands:
     def run(self, command: str, **kwargs: object) -> Result:
         self.calls.append((command, kwargs))
         if command.startswith("bash -lc"):
+            if "on_stdout" in kwargs:
+                kwargs["on_stdout"]("workload output\n")
             return Result(stdout="workload output\n")
         return Result()
 
@@ -77,6 +79,82 @@ class CleanupFailingSandbox(FakeSandbox):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_candidate_evaluation_reports_success_failure_and_import_error(self) -> None:
+        workload = Path(__file__).parent / "workload"
+        for source, expected_code, field in (
+            ((workload / "candidate.py").read_text(), 0, None),
+            ("def unique_in_order(values): return []\n", 1, "failures"),
+            ("raise RuntimeError('candidate import failed')\n", 1, "errors"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                candidate = root / "candidate.py"
+                candidate.write_text(source)
+                completed = subprocess.run(
+                    [sys.executable, str(workload / "ci_task.py"), "--candidate", str(candidate), "--output-dir", str(root / "output")],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(completed.returncode, expected_code, completed.stderr)
+                report = json.loads((root / "output/result.json").read_text())
+                self.assertEqual(report["tests"], 5)
+                if field:
+                    self.assertGreater(report[field], 0)
+                else:
+                    self.assertEqual(report["status"], "passed")
+                import xml.etree.ElementTree as ET
+                xml = ET.parse(root / "output/junit.xml").getroot()
+                self.assertEqual(len(xml.findall("testcase")), 5)
+                self.assertEqual(int(xml.attrib["failures"]), report["failures"])
+                self.assertEqual(int(xml.attrib["errors"]), report["errors"])
+
+    def test_reused_output_removes_only_owned_files(self) -> None:
+        for failure in ("missing", "download", "create"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.assertEqual(self.invoke(root, FakeSandbox()), 0)
+                output = root / "ags-results"
+                (output / "keep.txt").write_text("user file")
+                sandbox = FakeSandbox()
+                if failure == "missing":
+                    with patch.object(sandbox.files, "exists", return_value=False):
+                        self.assertEqual(self.invoke(root, sandbox), 0)
+                elif failure == "download":
+                    original_read = sandbox.files.read
+                    def read(path, **kwargs):
+                        if path == REMOTE_ARTIFACT:
+                            raise ConnectionError("download interrupted")
+                        return original_read(path, **kwargs)
+                    with patch.object(sandbox.files, "read", side_effect=read):
+                        self.assertEqual(self.invoke(root, sandbox), 2)
+                else:
+                    with patch("runner.build_workspace_archive", side_effect=OSError("archive failed")):
+                        self.assertEqual(self.invoke(root, sandbox), 2)
+                self.assertFalse((output / "artifacts.tar.gz").exists())
+                self.assertEqual((output / "keep.txt").read_text(), "user file")
+                report = json.loads((output / "run-report.json").read_text())
+                self.assertNotIn("artifact_archive", report)
+
+    def test_partial_logs_survive_command_failure_without_duplication(self) -> None:
+        for failure in (None, TimeoutError("timed out"), ConnectionError("disconnected")):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                sandbox = FakeSandbox()
+                stdout, stderr = io.StringIO(), io.StringIO()
+                def run(command, **kwargs):
+                    if command.startswith("bash -lc"):
+                        kwargs["on_stdout"]("partial progress\n")
+                        kwargs["on_stderr"]("partial diagnostic\n")
+                        self.assertIn("partial progress", stdout.getvalue())
+                        self.assertIn("partial diagnostic", stderr.getvalue())
+                        if failure:
+                            raise failure
+                        return Result(stdout="partial progress\n", stderr="partial diagnostic\n")
+                    return Result()
+                with patch.object(sandbox.commands, "run", side_effect=run), redirect_stdout(stdout), redirect_stderr(stderr):
+                    self.assertEqual(self.invoke(Path(directory), sandbox), 2 if failure else 0)
+                self.assertEqual(stdout.getvalue().count("partial progress"), 1)
+                self.assertEqual(stderr.getvalue().count("partial diagnostic"), 1)
+                self.assertTrue(sandbox.killed)
+
     def invoke(self, root: Path, sandbox: FakeSandbox, output: Path | None = None) -> int:
         return run_in_sandbox(
             workspace=root,

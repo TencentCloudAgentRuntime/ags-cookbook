@@ -135,6 +135,10 @@ def run_in_sandbox(
     if output_dir == workspace:
         raise ValueError("output directory must differ from workspace")
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Reusing a result directory must never expose a previous run's artifacts.
+    # Only remove files owned by this runner; preserve unrelated user files.
+    for name in ("artifacts.tar.gz", "run-report.json"):
+        (output_dir / name).unlink(missing_ok=True)
 
     if sandbox_factory is None:
         from e2b import Sandbox
@@ -194,8 +198,9 @@ def run_in_sandbox(
             cwd=REMOTE_WORKSPACE,
             envs=envs,
             timeout=command_timeout,
+            on_stdout=lambda chunk: print(chunk, end="", flush=True),
+            on_stderr=lambda chunk: print(chunk, end="", file=os.sys.stderr, flush=True),
         )
-        _print_command_output(result)
         if int(getattr(result, "exit_code", 1)) != 0:
             raise RuntimeError("workload wrapper did not complete")
         exit_code = int(str(sandbox.files.read(REMOTE_EXIT_CODE)).strip())

@@ -1,15 +1,25 @@
 # GitHub Actions to AGS sandbox
 
-This Phase 0 cookbook runs a checked-out GitHub repository inside a fresh Tencent
-Cloud Agent Sandbox (AGS) from an existing GitHub-hosted runner. It validates the
-workload path before adopting a native, just-in-time self-hosted runner:
+Evaluate agent-generated code without executing it on your GitHub Actions runner.
+This example uploads the checkout to a fresh Tencent Cloud Agent Sandbox (AGS),
+tests a candidate implementation, streams its logs, and returns JSON and JUnit
+reports before destroying the sandbox.
+
+The included `workload/candidate.py` is a deterministic stand-in for an agent's
+output, not a live model call. Replace it with generated code implementing
+`unique_in_order(values)` (deduplicate while preserving order). Five test cases
+exercise empty input, duplicates, unique input, negative values, and strings.
+No model API key or sandbox network access is needed for this fixture.
 
 ```text
 GitHub-hosted runner -> AGS SDK -> fresh sandbox -> command -> report/artifacts -> cleanup
 ```
 
 This example does **not** register a GitHub Actions runner in AGS and does not
-provide the future `runs-on: [self-hosted, tencent-agr]` integration.
+provide a `runs-on: [self-hosted, tencent-agr]` integration. The evaluation harness
+and candidate share a sandbox: this isolates execution from the host, but is not
+a tamper-proof grading system. Upload only a disposable, secret-free checkout;
+filename exclusions are not a general secret scanner.
 
 ## What it demonstrates
 
@@ -19,7 +29,7 @@ provide the future `runs-on: [self-hosted, tencent-agr]` integration.
 - runs one shell command without forwarding the host environment by default
 - captures and propagates the workload exit code without relying on a non-zero
   data-plane command transport response
-- returns stdout/stderr to the Actions log
+- streams stdout/stderr to the Actions log, retaining received output on timeout
 - downloads a selected result path as `artifacts.tar.gz`
 - writes a machine-readable `run-report.json`
 - kills the sandbox after success, workload failure, or infrastructure failure
@@ -54,6 +64,19 @@ From this example directory, run the included fixture:
 ```bash
 make run
 ```
+
+Expected workload output:
+
+```text
+Ran 5 tests
+OK
+{"tests": 5, "failures": 0, "errors": 0, "status": "passed"}
+```
+
+`ags-results/run-report.json` records `status: succeeded`, `workload_exit_code: 0`,
+and `cleanup: killed`. `ags-results/artifacts.tar.gz` contains
+`workload/output/result.json` and `workload/output/junit.xml`. An incorrect candidate
+returns exit 1 and still produces test reports; a hang is bounded by the command timeout.
 
 To upload a repository checkout and run its own CI command, set paths explicitly:
 
@@ -92,6 +115,10 @@ inside the sandbox. Pass literal values; Make variable references such as
 If `OUTPUT_DIR` is inside `WORKSPACE`, its entire subtree is automatically excluded
 from uploads, including on repeated runs. Other directories with the same name
 remain included. The output directory cannot equal the workspace.
+At the start of each run, only the runner-owned `artifacts.tar.gz` and
+`run-report.json` are removed from that directory. Unrelated files are preserved;
+a failed or missing download cannot leave a previous run's archive behind.
+Use a separate output directory for concurrent runs.
 
 ## Run with GitHub Actions
 
@@ -101,7 +128,7 @@ The repository includes
 1. Add `E2B_API_KEY` as a GitHub Actions repository secret.
 2. Optionally add `E2B_DOMAIN` as a repository variable. The workflow defaults to
    `ap-guangzhou.tencentags.com`.
-3. Open **Actions > AGS Sandbox Phase 0 > Run workflow**.
+3. Open **Actions > AGS Sandbox Code Evaluation > Run workflow** (select the branch containing the workflow).
 4. Inspect the job log and download the `ags-sandbox-...` workflow artifact.
 
 The artifact contains:
@@ -135,7 +162,7 @@ Run the unit tests without AGS credentials:
 make test
 ```
 
-For Phase 0 acceptance evidence and the expected network inventory, see
+For reproducible validation steps and network requirements, see
 [`VALIDATION.md`](./VALIDATION.md) and
 [`NETWORK_REQUIREMENTS.md`](./NETWORK_REQUIREMENTS.md).
 
@@ -144,11 +171,14 @@ For Phase 0 acceptance evidence and the expected network inventory, see
 - **Sandbox creation fails:** verify `E2B_API_KEY`, `E2B_DOMAIN`, template access,
   and runner-to-AGS HTTPS connectivity.
 - **Command is not found:** the selected sandbox template does not contain the
-  required runtime or toolchain. Record it in the image requirements section of
-  `VALIDATION.md` and test a suitable managed template.
+  required runtime or toolchain. This fixture needs Python 3, Bash, and tar/gzip.
 - **Dependency download fails:** add only the required package registry domains to
   the sandbox network policy; see `NETWORK_REQUIREMENTS.md`.
 - **No artifact archive:** ensure `ARTIFACT_PATH` is relative to the checkout and is
   created by the workload.
 - **Cleanup reports `failed`:** preserve `run-report.json` and ask AGS operations to
   reconcile the recorded sandbox ID.
+
+Cancellation or forced caller termination may prevent cleanup code from running.
+The sandbox timeout (default 900 seconds) bounds its lifetime; it is not evidence
+of immediate cleanup after cancelling a workflow.

@@ -1,40 +1,38 @@
-# Network requirements inventory
+# Network requirements
 
-Use this inventory to turn Phase 0 observations into the minimum managed Runner
-Profile policy. Do not allow an entire domain category when the workload needs only
-one endpoint.
+## Runner-to-AGS connections
 
-## Control path used by this example
+The SDK uses separate API and sandbox data endpoints. Allowing only the bare
+`E2B_DOMAIN` does not cover either path.
 
-| Source | Destination | Port | Purpose | Required by fixture |
-|---|---|---:|---|---|
-| Existing GitHub Actions runner | `${E2B_DOMAIN}` | TCP 443 | Create, execute in, transfer files to/from, and kill the AGS sandbox | Yes |
-| Existing GitHub Actions runner | GitHub Actions endpoints | TCP 443 | Checkout, action download, and workflow artifact upload | Yes; provided by GitHub-hosted runners |
+| Source | Destination | Port | Purpose |
+|---|---|---|---|
+| Existing runner | `api.<E2B_DOMAIN>` | TCP 443 | Create, list, and kill sandboxes |
+| Existing runner | `49983-<sandbox-id>.<sandbox-domain>` | TCP 443 | Execute commands and transfer files |
+| Existing runner | GitHub Actions endpoints | TCP 443 | Checkout, action downloads, and artifact upload |
+| Existing runner | Dependency download endpoints used by uv/setup-uv | TCP 443 | Install the SDK and Python tooling |
 
-The AGS API key stays on the existing runner and is used by the SDK control path.
-It is not forwarded into the sandbox.
+For the default AGS region the API host is
+`api.ap-guangzhou.tencentags.com`. The sandbox domain comes from the service's
+creation response, falling back to `E2B_DOMAIN`; use the returned domain rather
+than assuming they always match. The data hostname above is the AGS routing form
+used by this example. `49983` is part of the HTTPS hostname, **not** an outbound
+TCP port to open. API URL overrides or other service routing modes require their
+actual destinations instead.
 
-## Sandbox workload path
+Ensure DNS resolution and TLS access to both endpoint types. Sandbox IDs vary
+per run; scope any wildcard/proxy rule to your approved sandbox domain.
+Use the official GitHub runner connectivity requirements for the GitHub endpoint
+list; this table is not an exhaustive GitHub/Python package CDN allowlist.
 
-The included `ci_task.py` fixture performs no network requests. Its sandbox egress
-requirement is therefore **none**.
+The AGS API key stays on the runner and is not forwarded to the sandbox.
 
-For a real workload, record every observed dependency below before changing the
-network policy:
+## Sandbox workload connections
 
-| Destination/domain | Port | Consumer command | Reason | Credential forwarded? | Decision |
-|---|---:|---|---|---|---|
-| _example: package registry_ | 443 | _example: package install_ | Dependency download | No | Pending |
+The included candidate and tests use only Python's standard library and perform
+no network requests. They require no sandbox egress, but this example does not
+configure or enforce an egress firewall.
 
-Typical categories to investigate—not blanket-allow—include source hosts, action or
-release asset hosts, language package registries, container registries, artifact
-stores, test services, and telemetry endpoints.
-
-## Collection procedure
-
-1. Run the representative workload with default-deny sandbox egress.
-2. Record each failed destination and the exact command that needs it.
-3. Approve only destinations required for the accepted workload set.
-4. Re-run successful, failed, and cancelled jobs.
-5. Store the finalized list with the versioned Runner Profile rather than in a
-   workflow-controlled input.
+For another workload, identify exact package registries or test-service hosts,
+then configure the sandbox's network policy separately. Do not confuse allowing
+runner-to-AGS HTTPS with allowing outbound connections from workload code.

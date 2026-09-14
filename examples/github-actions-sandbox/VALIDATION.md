@@ -1,95 +1,58 @@
-# Phase 0 validation record
+# Validate your sandbox integration
 
-This record separates the runnable cookbook delivered in this repository from
-environment-specific acceptance evidence. The first real validation was completed
-on 2026-09-10 against commit `d6fcc90` in the `KayIter/ags-cookbook` fork.
+From this example directory, run `make setup` and `make test`.
+Unit tests use fake sandbox services and require no cloud credentials. They cover
+exit codes, cleanup, artifact errors, repeated output directories, streaming logs
+on timeout/disconnection, literal Make arguments, and candidate reports.
 
-## Exit criterion
+## Real AGS run
 
-An internal repository can use an existing GitHub Actions runner to create a fresh
-AGS sandbox, execute a checked-out task, retrieve its status/logs/artifacts, and
-clean up the sandbox.
+Set the environment variables described in [README.md](./README.md), then run:
 
-## Representative workload matrix
+```bash
+make run
+tar -tzf ags-results/artifacts.tar.gz
+```
 
-| Scenario | Command | Expected result | Evidence | Result |
-|---|---|---|---|---|
-| Checkout upload and Python execution | `python examples/github-actions-sandbox/workload/ci_task.py` | Exit 0 and `result.json` returned | [GitHub Actions run 34460706363](https://github.com/KayIter/ags-cookbook/actions/runs/34460706363) | Passed; report, log, artifact contents, and cleanup verified |
-| Workload failure propagation | `exit 7` | Wrapper reports exit 7 and `workload_failed`; workflow step fails; sandbox killed | Real AGS local runner probe | Passed after the exit-code transport fix in `d6fcc90` |
-| Missing artifact path | `true` with a nonexistent artifact path | Exit 0; report contains artifact warning; sandbox killed | Real AGS local runner probe | Passed |
-| Cancelled workflow | Terminate the caller with `SIGTERM` while `sleep 300` is running in a sandbox with a 30-second TTL | Platform TTL removes the sandbox | Real AGS local cancellation probe | Passed; running immediately after termination and absent after TTL |
+Check that `run-report.json` records success, workload exit 0, and cleanup
+`killed`. Inspect `workload/output/result.json` and `workload/output/junit.xml`
+inside the archive: both should describe five tests with no failures or errors.
+The console should show test progress before artifact collection starts.
 
-Cancellation cannot rely on a process `finally` block after GitHub terminates the
-runner. The probe deliberately observed the sandbox still running after caller
-termination, then confirmed it left the running set after its 30-second AGS TTL.
-Native lifecycle reconciliation remains part of the JIT runner phase.
+To evaluate your own generated implementation, replace `workload/candidate.py`
+or use `--candidate` with a path inside the uploaded workspace:
 
-Two pre-fix non-zero workload probes returned a data-plane `StreamReset` instead of
-the business exit code. Both instances were killed. Commit `d6fcc90` changed the
-protocol so the sandbox command transport exits normally and the business exit code
-is read from a dedicated result file. The real exit-7 probe then passed.
+```bash
+make run COMMAND='python workload/ci_task.py --candidate workload/candidate.py'
+```
 
-## Review regression coverage
+An incorrect implementation should return workload exit 1 and reports with
+failures. An import error should produce an error report. Candidate code that
+hangs or terminates the interpreter may not produce reports; inspect streamed
+logs and the runner's infrastructure report instead.
 
-The 14 local tests now include artifact read/transport failures after workload
-success or failure, GitHub output exit-code consistency, literal Make command and
-path forwarding, and consecutive runs with default/custom nested output paths.
-Command forwarding tests run the actual Make recipe and CLI parser with a local
-stand-in for `uv`; they check that quotes, dollar signs, backticks, pipes, newlines,
-and Make `$(shell ...)` syntax are preserved without executing on the host.
-These tests run in the PR repository check without cloud credentials.
+## Failure checks
 
-Artifact collection tests distinguish SDK-confirmed absence from path-check errors
-and tar failure on an existing path. Injected tar exit codes 1 and 2 (changed file,
-no disk space, permission denied) must produce overall exit 2 and
-`infrastructure_error`, preserve `workload_exit_code`, print tar diagnostics, skip
-the download, and still clean up. A missing path skips tar entirely and preserves
-the workload result.
+Use a disposable workspace/output directory, never production data.
 
-On 2026-09-10, three additional local-to-AGS live probes verified successful
-packaging and artifact contents, missing-path warnings, and real tar write failure.
-The failure probe created the expected archive destination as a directory inside
-its own fresh sandbox: the workload exited 0, tar failed, diagnostics were emitted,
-and the wrapper returned `infrastructure_error` / 2 with `workload_exit_code=0`.
-All three owned instances were killed and absent from the active sandbox list.
-This probes an unwritable archive destination; disk exhaustion and permission
-failures are covered by local fault injection rather than cloud resource exhaustion.
+| Check | Command / setup | Expected outcome |
+|---|---|---|
+| Workload failure | `make run COMMAND='exit 7'` | Workload code 7; overall workload failure; cleanup killed |
+| Reused output with missing artifacts | After success, `make run COMMAND=true ARTIFACT_PATH=does-not-exist` | Warning, no old archive; unrelated output files remain |
+| Command timeout | `AGS_COMMAND_TIMEOUT=5 make run COMMAND='echo started; sleep 30'` | Received log remains visible; overall code 2; cleanup attempted |
 
-Artifact fault injection is local; it does not prove behavior under every possible
-cloud outage. The cancellation evidence above is a local caller-termination probe,
-not a cancellation of a GitHub-hosted workflow. The historical cloud runs cited
-above cover their recorded commits and do not substitute for regression tests.
+GNU Make returns 2 for a failed recipe; use `workload_exit_code` in the JSON
+report to distinguish the workload result. Mocked transport failures test local
+error handling, not all possible cloud outages.
 
-## Image and toolchain inventory
+## GitHub-hosted verification
 
-| Requirement | Fixture expectation | Observed version | Decision |
-|---|---|---|---|
-| Shell | `bash` | Available; version not captured | Accepted for fixture; capture exact version before freezing a Runner Profile |
-| Archive tools | `tar` with gzip support | Available; checkout extraction and artifact creation passed | Accepted for fixture |
-| Python | Python 3 | 3.12.11 | Accepted for fixture |
-| Git | Not required inside sandbox for the fixture | Not exercised | Keep out of the Phase 0 fixture requirement |
+Run the included workflow on the exact commit under test. Retain its URL,
+`headSha`, console logs, run report, and archive contents in your PR or execution
+record. A successful workflow alone does not prove that the expected test report
+was returned: inspect the JSON and JUnit contents too.
 
-Add the runtime, build tools, package managers, certificates, locale, and operating
-system packages required by each accepted internal workload.
-
-## Evidence to retain
-
-- GitHub Actions run URL and conclusion
-- uploaded `run-report.json`
-- downloaded `artifacts.tar.gz` and expected file checks
-- sandbox ID correlation in AGS operations logs
-- create-to-command-start duration
-- cleanup result, or TTL/reconciliation evidence for cancellation
-- finalized network inventory from `NETWORK_REQUIREMENTS.md`
-
-## Phase 0 sign-off
-
-- [x] The designated validation fork completed the end-to-end fixture from a GitHub-hosted runner.
-- [x] Success and non-zero workload exits were propagated correctly.
-- [x] Result status, logs, and artifacts were available from the Actions run.
-- [x] Normal completion and workload failure killed the sandbox.
-- [x] Cancellation cleanup behavior was measured and documented.
-- [x] No API key or explicitly forwarded secret appeared in the workspace archive,
-      run report, or persisted sandbox metadata.
-- [x] Required image/toolchain components and sandbox egress destinations were
-      recorded for the representative workload set.
+Normal completion attempts explicit sandbox destruction. If the caller is killed
+or the workflow is cancelled, its cleanup block may not execute; verify expiration
+against the sandbox timeout separately. Do not claim immediate cancellation
+cleanup from a successful normal run.

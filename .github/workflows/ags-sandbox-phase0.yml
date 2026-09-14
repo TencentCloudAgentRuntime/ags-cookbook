@@ -1,4 +1,4 @@
-name: AGS Sandbox Phase 0
+name: AGS Sandbox Code Evaluation
 
 on:
   workflow_dispatch:
@@ -28,9 +28,36 @@ jobs:
         run: |
           make run \
             WORKSPACE="${GITHUB_WORKSPACE}" \
-            COMMAND='python -c "print(1)" && python examples/github-actions-sandbox/workload/ci_task.py' \
+            COMMAND='python examples/github-actions-sandbox/workload/ci_task.py' \
             ARTIFACT_PATH="examples/github-actions-sandbox/workload/output" \
             OUTPUT_DIR="${RUNNER_TEMP}/ags-results"
+
+      - name: Verify returned evaluation reports
+        env:
+          AGS_RESULT_DIR: ${{ runner.temp }}/ags-results
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import tarfile
+          import xml.etree.ElementTree as ET
+
+          output = Path(os.environ["AGS_RESULT_DIR"])
+          report = json.loads((output / "run-report.json").read_text())
+          assert report["status"] == "succeeded", report
+          assert report["workload_exit_code"] == 0, report
+          assert report["cleanup"] == "killed", report
+          with tarfile.open(output / "artifacts.tar.gz") as archive:
+              prefix = "examples/github-actions-sandbox/workload/output/"
+              result = json.load(archive.extractfile(prefix + "result.json"))
+              assert result == {"tests": 5, "failures": 0, "errors": 0, "status": "passed"}, result
+              suite = ET.parse(archive.extractfile(prefix + "junit.xml")).getroot()
+              assert suite.attrib["tests"] == "5"
+              assert suite.attrib["failures"] == suite.attrib["errors"] == "0"
+              assert len(suite.findall("testcase")) == 5
+          print("Verified sandbox cleanup and five passing JSON/JUnit test cases")
+          PY
 
       - name: Upload AGS run report and workload artifacts
         if: always()
