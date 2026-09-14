@@ -4,6 +4,10 @@ From this example directory, run `make setup` and `make test`.
 Unit tests use fake sandbox services and require no cloud credentials. They cover
 exit codes, cleanup, artifact errors, repeated output directories, streaming logs
 on timeout/disconnection, literal Make arguments, and candidate reports.
+Host-side evaluation tests use fixed trusted fixtures, not the replaceable
+`workload/candidate.py`. A sentinel regression verifies that replacing that file
+does not cause local tests to execute it. Evaluate user candidates with `make run`
+through AGS, not by invoking the workload script directly on the host.
 
 ## Real AGS run
 

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -82,7 +83,8 @@ class RunnerTests(unittest.TestCase):
     def test_candidate_evaluation_reports_success_failure_and_import_error(self) -> None:
         workload = Path(__file__).parent / "workload"
         for source, expected_code, field in (
-            ((workload / "candidate.py").read_text(), 0, None),
+            # Never read the replaceable user candidate into a host-side test.
+            ("def unique_in_order(values): return list(dict.fromkeys(values))\n", 0, None),
             ("def unique_in_order(values): return []\n", 1, "failures"),
             ("raise RuntimeError('candidate import failed')\n", 1, "errors"),
         ):
@@ -106,6 +108,26 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(len(xml.findall("testcase")), 5)
                 self.assertEqual(int(xml.attrib["failures"]), report["failures"])
                 self.assertEqual(int(xml.attrib["errors"]), report["errors"])
+
+    def test_local_evaluation_tests_do_not_execute_replaceable_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            example = Path(__file__).parent
+            (root / "workload").mkdir()
+            for name in ("test_runner.py", "runner.py", "workload/ci_task.py"):
+                shutil.copyfile(example / name, root / name)
+            marker = root / "candidate-executed"
+            (root / "workload/candidate.py").write_text(
+                f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
+                "raise RuntimeError('replaceable candidate must not run on host')\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-m", "unittest",
+                 "test_runner.RunnerTests.test_candidate_evaluation_reports_success_failure_and_import_error"],
+                cwd=root, capture_output=True, text=True, timeout=30,
+            )
+            self.assertFalse(marker.exists(), "local tests executed the replaceable candidate")
+            self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_reused_output_removes_only_owned_files(self) -> None:
         for failure in ("missing", "download", "create"):

@@ -16,7 +16,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
 - `envd-oci-env` — preserve OCI image environment variables when envd is PID 1
-- `github-actions-sandbox` — call a fresh AGS sandbox from an existing GitHub Actions runner
+- `github-actions-sandbox` — evaluate candidate code in AGS from GitHub Actions and collect test reports
 - `harness-nix-volume` — package a self-contained Harness runtime with Nix and mount it into a custom image
 - `mini-swe-agent` — SWE-bench evaluation with AGS SWE sandbox and SWE-ReX runtime
 - `mobile-use` — Android / Appium automation in AGS
@@ -48,7 +48,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | [`deployment-cookbook`](./deployment-cookbook/README.md) | advanced | agr CLI + Markdown + Python | Follow a scenario README | Covers deployment, scaling, lifecycle, affinity, a native MCP server, and a persistent agent workspace |
 | `envd-oci-env` | advanced | Bash + Docker + agr | `make run` | Reproduces and validates envd OCI environment inheritance |
-| `github-actions-sandbox` | advanced | Python + GitHub Actions + code sandbox | `make run` | Phase 0 checkout upload, isolated execution, result return, and cleanup |
+| `github-actions-sandbox` | advanced | Python + GitHub Actions + code sandbox | `make run` | Evaluate candidate code in AGS from GitHub Actions and collect test reports |
 | `harness-nix-volume` | advanced | Nix + custom image + image volume | `make build-images` then `make run` | Mount self-contained Harness dependencies into a main image |
 | `html-processing` | starter | Python + browser/code sandboxes | `make run` | Good visual intro to dual-sandbox flow |
 | `hybrid-cookbook` | starter | Go | `make run` | Minimal Go integration path |

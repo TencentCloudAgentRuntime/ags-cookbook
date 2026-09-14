@@ -116,6 +116,10 @@ make run COMMAND='python -c "print(1)" && echo "$PATH" | head -c 100'
   不持久化命令原文
 - `artifacts.tar.gz`：从沙箱下载的业务结果目录
 
+工作流上传整个仓库，因此压缩包内路径以 `examples/github-actions-sandbox/workload/output/`
+开头，与上面本地 `make run` 的较短路径不同。工作流的报告校验步骤要求内置候选代码
+通过全部五个用例；更换评测任务时，也需同步校验预期。
+
 ## 转发工作负载凭证
 
 脚本默认不会将 GitHub Actions 环境变量或 Secret 传进沙箱。只有显式指定的变量
@@ -139,6 +143,10 @@ Actions 日志，因此 workflow 仍需避免主动输出 Secret，并正确配�
 ```bash
 make test
 ```
+
+本地测试只执行固定、可信的测试代码，不会执行可替换的 `workload/candidate.py`。
+请使用 `make run` 在 AGS 中评测候选代码；不要在宿主机直接运行
+`workload/ci_task.py` 来执行不可信代码。
 
 可复现验证步骤和出网需求分别见 [`VALIDATION.md`](./VALIDATION.md) 与
 [`NETWORK_REQUIREMENTS.md`](./NETWORK_REQUIREMENTS.md)。

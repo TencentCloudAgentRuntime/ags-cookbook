@@ -32,7 +32,7 @@ filename exclusions are not a general secret scanner.
 - streams stdout/stderr to the Actions log, retaining received output on timeout
 - downloads a selected result path as `artifacts.tar.gz`
 - writes a machine-readable `run-report.json`
-- kills the sandbox after success, workload failure, or infrastructure failure
+- attempts to kill the sandbox after success, workload failure, or infrastructure failure
 
 ## Prerequisites
 
@@ -137,6 +137,11 @@ The artifact contains:
   and a SHA-256 digest of the command (the command itself is not persisted)
 - `artifacts.tar.gz`: the selected result directory produced inside the sandbox
 
+The workflow uploads the repository root, so its archive paths start with
+`examples/github-actions-sandbox/workload/output/`, unlike the shorter paths from
+local `make run` above. The report-verification step expects the bundled candidate
+to pass all five tests; adjust those expectations if you change the evaluation task.
+
 ## Forwarding workload credentials
 
 No GitHub Actions environment variables or secrets are copied into the sandbox
@@ -161,6 +166,10 @@ Run the unit tests without AGS credentials:
 ```bash
 make test
 ```
+
+Local tests execute only fixed, trusted fixtures, never your replaceable
+`workload/candidate.py`. Use `make run` to evaluate that candidate in AGS;
+do not run `workload/ci_task.py` directly on the host with untrusted code.
 
 For reproducible validation steps and network requirements, see
 [`VALIDATION.md`](./VALIDATION.md) and
