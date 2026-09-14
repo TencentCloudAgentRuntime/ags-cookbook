@@ -1,0 +1,69 @@
+name: AGS Sandbox Code Evaluation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-runner-calls-ags:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install cookbook dependencies
+        working-directory: examples/github-actions-sandbox
+        run: make setup
+
+      - name: Run checked-out source in a fresh AGS sandbox
+        id: ags
+        working-directory: examples/github-actions-sandbox
+        env:
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          E2B_DOMAIN: ${{ vars.E2B_DOMAIN || 'ap-guangzhou.tencentags.com' }}
+        run: |
+          make run \
+            WORKSPACE="${GITHUB_WORKSPACE}" \
+            COMMAND='python examples/github-actions-sandbox/workload/ci_task.py' \
+            ARTIFACT_PATH="examples/github-actions-sandbox/workload/output" \
+            OUTPUT_DIR="${RUNNER_TEMP}/ags-results"
+
+      - name: Verify returned evaluation reports
+        env:
+          AGS_RESULT_DIR: ${{ runner.temp }}/ags-results
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import tarfile
+          import xml.etree.ElementTree as ET
+
+          output = Path(os.environ["AGS_RESULT_DIR"])
+          report = json.loads((output / "run-report.json").read_text())
+          assert report["status"] == "succeeded", report
+          assert report["workload_exit_code"] == 0, report
+          assert report["cleanup"] == "killed", report
+          with tarfile.open(output / "artifacts.tar.gz") as archive:
+              prefix = "examples/github-actions-sandbox/workload/output/"
+              result = json.load(archive.extractfile(prefix + "result.json"))
+              assert result == {"tests": 5, "failures": 0, "errors": 0, "status": "passed"}, result
+              suite = ET.parse(archive.extractfile(prefix + "junit.xml")).getroot()
+              assert suite.attrib["tests"] == "5"
+              assert suite.attrib["failures"] == suite.attrib["errors"] == "0"
+              assert len(suite.findall("testcase")) == 5
+          print("Verified sandbox cleanup and five passing JSON/JUnit test cases")
+          PY
+
+      - name: Upload AGS run report and workload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ags-sandbox-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ags-results
+          if-no-files-found: warn
+          retention-days: 7

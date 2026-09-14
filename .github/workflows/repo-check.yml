@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 .repo/check_repo_contracts.py
           python3 .repo/python_syntax_check.py
+          python3 -m unittest discover -s examples/github-actions-sandbox -p test_runner.py -v
           for dir in examples/*; do
             if [ -f "$dir/go.mod" ]; then
               echo "==> go build ./... in $dir"
