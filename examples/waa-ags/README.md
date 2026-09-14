@@ -11,7 +11,7 @@ Note that the WAA server running inside the AGS sandbox is built on top of **Ten
 - `git`
 - `uv`
 - an AGS API key
-- a WAA-compatible AGS sandbox template
+- a WAA-compatible AGS sandbox template — see the [AGS WAA Custom Image Guide](./CUSTOM-IMAGE_en.md) if you need to build your own
 - an OpenAI-compatible model endpoint
 
 ## Install
@@ -130,6 +130,10 @@ http://127.0.0.1:8006
   - **Cross region**: when the sandbox and the COS bucket are in different regions, you can still stay on the internal network by using the COS **internal global acceleration endpoint** (like `<BucketName-APPID>.cos-internal.accelerate.tencentcos.cn`). If you use the regular **global acceleration endpoint** (`<BucketName-APPID>.cos.accelerate.myqcloud.com`) or the default endpoint of a different region, the request will go over the public internet and incur public egress traffic fees.
 - Therefore, in cross-region scenarios where cost or network path matters, prefer the **internal global acceleration endpoint**.
 - For the full endpoint list, endpoint rules, and how to enable global acceleration, please refer to the official Tencent Cloud documentation: [COS Regions and Access Domains](https://cloud.tencent.com/document/product/436/6224).
+
+## Custom Image
+
+If the default WAA image does not fit your needs (pre-installed software, a specific resolution, seeded business data, and so on), you can build your own WAA image from a clean Tencent Cloud Windows Server CVM. See the [AGS WAA Custom Image Guide](./CUSTOM-IMAGE_en.md) for the full workflow.
 
 ## Notes
 
