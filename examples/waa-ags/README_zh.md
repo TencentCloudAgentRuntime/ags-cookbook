@@ -11,7 +11,7 @@ overlay 会尽量保留 WAA 原生 runner、任务、Navi agent 和 evaluator，
 - `git`
 - `uv`
 - AGS API Key
-- 一个兼容 WAA 的 AGS sandbox template
+- 一个兼容 WAA 的 AGS sandbox template —— 如需自制镜像，参见 [AGS WAA 自定义镜像制作指导](./CUSTOM-IMAGE_zh.md)
 - OpenAI-compatible 模型接口
 
 ## 安装
@@ -131,6 +131,10 @@ http://127.0.0.1:8006
   - **跨地域访问**：当 sandbox 与 COS Bucket 不在同一地域时，也可以通过 COS 提供的**内网全球加速域名**（形如 `<BucketName-APPID>.cos-internal.accelerate.tencentcos.cn`）走腾讯云内网访问，实现跨地域内网访问；如果使用普通的**全球加速域名**（`<BucketName-APPID>.cos.accelerate.myqcloud.com`）或跨地域的默认域名，则会走外网并产生相应的公网流量费用。
 - 因此在跨地域场景下，如果对成本和网络路径敏感，优先选用**内网全球加速域名**。
 - 具体的域名列表、Endpoint 规则和全球加速的开通方式，请参考腾讯云官方文档：[COS 地域和访问域名](https://cloud.tencent.com/document/product/436/6224)。
+
+## 自定义镜像
+
+如果平台默认 WAA 镜像不满足需求（例如需要预装业务软件、指定分辨率、预置业务数据等），可以从一台干净的腾讯云 Windows Server CVM 出发，自行制作 WAA 自定义镜像。完整流程参见 [AGS WAA 自定义镜像制作指导](./CUSTOM-IMAGE_zh.md)。
 
 ## 注意事项
 
