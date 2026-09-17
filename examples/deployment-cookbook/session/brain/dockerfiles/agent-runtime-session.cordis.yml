@@ -1,0 +1,17 @@
+- id: session-persistence-jsonl
+  disabled: true
+
+- insert:
+    - id: session-persistence-agent-runtime
+      name: '@tencentcloud/ags-dsh-session-persistence'
+      config:
+        region: !!js process.env.AGR_REGION
+        endpoint: !!js process.env.SESSION_API_ENDPOINT
+        spaceId: !!js process.env.SESSION_SPACE_ID
+        userId: !!js process.env.SESSION_USER_ID
+        brainDeploymentName: !!js process.env.DSH_DEPLOYMENT_NAME
+        handsDeploymentId: !!js process.env.HANDS_DEPLOYMENT_ID
+        domain: !!js process.env.AGR_DOMAIN
+        secretId: !!js process.env.TENCENTCLOUD_SECRET_ID
+        secretKey: !!js process.env.TENCENTCLOUD_SECRET_KEY
+        sessionToken: !!js process.env.TENCENTCLOUD_SESSION_TOKEN
