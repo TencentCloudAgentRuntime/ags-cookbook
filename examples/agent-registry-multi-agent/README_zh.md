@@ -6,9 +6,9 @@
 
 五个示例 Agent 分别负责需求分析、代码开发、代码评审、测试判定和发布验收。DSH 模型根据资产描述和结构化交接决定下一步使用哪个能力，Coordinator 中没有写死五步工作流。
 
-![DSH 中五个注册中心 Agent 及其 A2A 任务交接](./docs/images/five-agent-e2e-collaboration.png)
+![五个注册中心 Agent 的完整 DSH 协作界面](./docs/images/five-agent-e2e-collaboration.png)
 
-*滚动后的协作视图完整展示五个实际参与的 Agent 和五次 A2A 任务交接，底部输入区不再遮挡卡片。本次隔离验证使用了 `cbk-e2e-20260918a` 名称前缀。*
+*完整协作界面在一张图中展示注册中心—Coordinator—A2A 拓扑、五个实际参与的 Agent、五次 A2A 任务交接和实时事件，底部没有遮挡。本次隔离验证使用了 `cbk-e2e-20260918a` 名称前缀。*
 
 > 这是参考接入示例，不是注册中心内置的统一调用能力。注册中心负责保存和治理资产元数据与稳定版本；DSH 负责发现与编排；A2A Client MCP 负责协议调用；演示服务中的五个 A2A 处理器负责实际执行。
 

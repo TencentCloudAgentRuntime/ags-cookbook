@@ -6,9 +6,9 @@ This runnable example connects DeepSeek Harness (DSH) to Tencent Cloud Agent Reg
 
 The five example agents cover requirements, implementation, review, testing, and release readiness. Their descriptions and structured handoffs allow the DSH model to choose the next capability; there is no hard-coded five-step workflow in the coordinator.
 
-![Five Agent Registry participants and their A2A task handoffs in DSH](./docs/images/five-agent-e2e-collaboration.png)
+![The complete DSH collaboration interface for five Agent Registry participants](./docs/images/five-agent-e2e-collaboration.png)
 
-*The scrolled collaboration view keeps all five participating agents and all five A2A task handoffs visible without the composer covering the cards. This validation run used an isolated `cbk-e2e-20260918a` name prefix.*
+*The complete collaboration interface shows the Registry-Coordinator-A2A topology, all five participating agents, five A2A task handoffs, and the live event stream in one unobstructed view. This validation run used an isolated `cbk-e2e-20260918a` name prefix.*
 
 > This is a reference integration, not a built-in Agent Registry invocation mechanism. Agent Registry stores and governs asset metadata and stable versions. DSH performs discovery and orchestration; the A2A Client MCP server performs protocol invocation; five A2A handlers in the demo service execute the work.
 
