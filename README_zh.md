@@ -80,6 +80,7 @@ make example-run EXAMPLE=mini-rl
 
 | 示例 | 技术栈 | 说明 |
 |---|---|---|
+| [`agent-registry-multi-agent`](./examples/agent-registry-multi-agent/README_zh.md) | Node.js + A2A + MCP + DSH | 通过注册中心发现五个受治理 Agent，并运行可观察的多 Agent 交付闭环 |
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |

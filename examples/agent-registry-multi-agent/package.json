@@ -1,0 +1,28 @@
+{
+  "name": "agent-registry-multi-agent-cookbook",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "description": "Five A2A agents discovered through Tencent Cloud Agent Registry and invoked from DeepSeek Harness",
+  "scripts": {
+    "start": "node scripts/run-demo.mjs",
+    "start:agents": "node src/server.mjs",
+    "start:mcp": "node src/mcp-server.mjs",
+    "register": "node scripts/register-agents.mjs",
+    "cleanup": "node scripts/cleanup.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:plugins": "pnpm --dir plugins/dsh-agent-registry test && pnpm --dir plugins/dsh-collaboration-stage test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "1.0.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "dotenv": "17.3.1",
+    "express": "5.2.1",
+    "zod": "4.4.3"
+  }
+}

@@ -12,6 +12,7 @@
 
 ### 进阶
 
+- [`agent-registry-multi-agent`](./agent-registry-multi-agent/README_zh.md) —— 通过注册中心发现五个受治理的 A2A Agent，并由 DeepSeek Harness 调用
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
 - `deployment-cookbook` —— 使用 `agr` 管理 Deployment，从 httpbin 基础到长驻 Agent 工作区
@@ -44,6 +45,7 @@
 
 | 示例 | 分类 | 主要技术栈 | 主命令 | 说明 |
 |---|---|---|---|---|
+| [`agent-registry-multi-agent`](./agent-registry-multi-agent/README_zh.md) | 进阶 | Node.js + A2A + MCP + DSH | `make run` 后执行 `make register` | 包含注册中心发现与协作视图 DSH 插件源码 |
 | `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
