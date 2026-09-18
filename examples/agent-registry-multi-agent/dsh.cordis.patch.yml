@@ -1,0 +1,23 @@
+# Merge these entries into the active DSH profile's cordis.patch.yml.
+- insert:
+    - id: client-collaboration-stage
+      name: '@local/dsh-collaboration-stage'
+    - id: tool-agent-registry
+      name: '@local/dsh-agent-registry'
+      config:
+        endpoint: !!js process.env.AGENT_REGISTRY_ENDPOINT
+        region: !!js process.env.TENCENTCLOUD_REGION
+        registryId: !!js process.env.AGENT_REGISTRY_ID
+        service: ags
+        version: 2025-09-20
+        timeoutMs: 30000
+        autoDiscover: true
+        autoDiscoverLimit: 20
+    - id: mcp-a2a-client
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: a2a
+        transport: streamable-http
+        url: http://127.0.0.1:18081/mcp
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true

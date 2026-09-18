@@ -87,6 +87,7 @@ You can also enter an example directory directly and run its local `make setup` 
 
 | Example | Stack | Notes |
 |---|---|---|
+| [`agent-registry-multi-agent`](./examples/agent-registry-multi-agent/README.md) | Node.js + A2A + MCP + DSH | Discover five governed agents through Agent Registry and run an observable multi-agent delivery loop |
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |

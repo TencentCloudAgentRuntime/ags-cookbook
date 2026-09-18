@@ -1,0 +1,29 @@
+{
+  "name": "@local/dsh-collaboration-stage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
