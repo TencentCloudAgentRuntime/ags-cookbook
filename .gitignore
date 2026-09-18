@@ -45,6 +45,7 @@ enhanced_demo_output/
 *.jpg
 *.jpeg
 *.csv
+!examples/agent-registry-multi-agent/docs/images/*.png
 !package.json
 !package-lock.json
 !examples/dind/tool-custom-configuration.hk.json
