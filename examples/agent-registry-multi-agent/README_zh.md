@@ -6,9 +6,9 @@
 
 五个示例 Agent 分别负责需求分析、代码开发、代码评审、测试判定和发布验收。DSH 模型根据资产描述和结构化交接决定下一步使用哪个能力，Coordinator 中没有写死五步工作流。
 
-![一次真实验证中五个注册中心 Agent 全部完成且无异常](./docs/images/five-agent-e2e-collaboration.png)
+![DSH 中五个注册中心 Agent 及其 A2A 任务交接](./docs/images/five-agent-e2e-collaboration.png)
 
-*一个需求、五个受治理的 A2A Agent、五个完成的任务，以及贯穿注册中心、DSH Coordinator、A2A Client MCP 和本地工作区的实时轨迹。*
+*滚动后的协作视图完整展示五个实际参与的 Agent 和五次 A2A 任务交接，底部输入区不再遮挡卡片。本次隔离验证使用了 `cbk-e2e-20260918a` 名称前缀。*
 
 > 这是参考接入示例，不是注册中心内置的统一调用能力。注册中心负责保存和治理资产元数据与稳定版本；DSH 负责发现与编排；A2A Client MCP 负责协议调用；演示服务中的五个 A2A 处理器负责实际执行。
 
@@ -100,6 +100,10 @@ make register
 
 预期得到包含五项结果的 JSON，`action` 为 `CREATED`、`UNCHANGED` 等。也可以在注册中心控制台确认五个 Record 均已有 Approved 的稳定版本。
 
+使用默认的 `DEMO_RECORD_PREFIX=demo-rd` 时，五个受治理的 A2A 资产会集中显示在注册中心控制台中，状态均为正常：
+
+![注册中心中已注册且可用的五个演示 A2A Agent](./docs/images/agent-registry-records.png)
+
 接入 DSH 前，先直接验证 A2A 服务：
 
 ```bash
@@ -158,13 +162,11 @@ AGENT_REGISTRY_ENDPOINT
 
 协作界面应显示五个不同的参与 Agent。发生评审返工或测试证据不足时，同一角色可能被再次调用，因此 A2A Task 数量可能大于五。协议层的 `TASK_STATE_COMPLETED` 也不等于业务结论通过，DSH 还必须检查 `handoff.outcome`。
 
-最终回答应为每次交接保留不可变的 `RecordId`、`VersionId` 和 A2A `TaskId`，并同时给出业务结论。这样，一次协作不只是模型消息的串联，而是一条可以检查的交付证据链：
+DSH 还会把本次交付闭环拆成明确的任务清单。本次验证中，资产解析、五个角色交接和证据汇总共七项任务全部完成：
 
-![包含 Record、Version、Task 和真实测试证据的五段交接](./docs/images/end-to-end-evidence.png)
+![DSH 自动生成并全部完成的七项任务清单](./docs/images/dsh-generated-tasks.png)
 
-本次验证还产出了真实可交互的页面，而不只是几份报告。下图中的计数按钮已经在浏览器中点击，页面也给出了递增验证通过的结果：
-
-![完成一次真实交互后的单文件 Demo 页面](./docs/images/generated-demo.png)
+最终回答应为每次交接保留不可变的 `RecordId`、`VersionId` 和 A2A `TaskId`，并同时给出业务结论。这样，一次协作不只是模型消息的串联，而是一条可以检查的交付证据链。
 
 ## 清理
 

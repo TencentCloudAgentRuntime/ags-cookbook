@@ -6,9 +6,9 @@ This runnable example connects DeepSeek Harness (DSH) to Tencent Cloud Agent Reg
 
 The five example agents cover requirements, implementation, review, testing, and release readiness. Their descriptions and structured handoffs allow the DSH model to choose the next capability; there is no hard-coded five-step workflow in the coordinator.
 
-![A verified DSH run with five Agent Registry participants and no failed agents](./docs/images/five-agent-e2e-collaboration.png)
+![Five Agent Registry participants and their A2A task handoffs in DSH](./docs/images/five-agent-e2e-collaboration.png)
 
-*One request, five governed A2A agents, five completed tasks, and a live trace across Agent Registry, the DSH coordinator, the A2A Client MCP bridge, and the workspace.*
+*The scrolled collaboration view keeps all five participating agents and all five A2A task handoffs visible without the composer covering the cards. This validation run used an isolated `cbk-e2e-20260918a` name prefix.*
 
 > This is a reference integration, not a built-in Agent Registry invocation mechanism. Agent Registry stores and governs asset metadata and stable versions. DSH performs discovery and orchestration; the A2A Client MCP server performs protocol invocation; five A2A handlers in the demo service execute the work.
 
@@ -100,6 +100,10 @@ The command is idempotent for the five names matching `DEMO_RECORD_PREFIX`:
 
 Expect a JSON result containing exactly five entries and actions such as `CREATED` or `UNCHANGED`. You can also open the Agent Registry console and confirm that the five Records have an approved stable Version.
 
+With the default `DEMO_RECORD_PREFIX=demo-rd`, the five governed A2A assets appear together in the Registry console, each in normal status:
+
+![Five demo A2A agents registered and available in Agent Registry](./docs/images/agent-registry-records.png)
+
 Run the direct A2A smoke test before involving DSH:
 
 ```bash
@@ -159,13 +163,11 @@ Expected behavior:
 
 The collaboration view should show five unique participating agents. The A2A task count can exceed five when review or testing sends work back for revision; protocol-level `TASK_STATE_COMPLETED` also does not mean the business outcome passed, so DSH must inspect `handoff.outcome`.
 
-The final answer should preserve the immutable `RecordId`, `VersionId`, and A2A `TaskId` for every handoff, alongside the business result. This turns the conversation into an inspectable delivery trail rather than an unverified chain of model messages:
+DSH also turns the requested delivery loop into an explicit task checklist. In the verified run, all seven generated tasks completed, including discovery, five role handoffs, and evidence aggregation:
 
-![Five handoffs with Record, Version, Task, and executable-test evidence](./docs/images/end-to-end-evidence.png)
+![The seven-task checklist generated and completed by DSH](./docs/images/dsh-generated-tasks.png)
 
-The verified run produced a real, interactive artifact—not only reports. The counter below was clicked in the browser, and the page displayed its own successful increment check:
-
-![The generated single-file demo after a successful interaction](./docs/images/generated-demo.png)
+The final answer should preserve the immutable `RecordId`, `VersionId`, and A2A `TaskId` for every handoff, alongside the business result. This turns the conversation into an inspectable delivery trail rather than an unverified chain of model messages.
 
 ## Cleanup
 
