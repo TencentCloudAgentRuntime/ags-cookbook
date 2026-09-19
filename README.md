@@ -89,6 +89,7 @@ You can also enter an example directory directly and run its local `make setup` 
 |---|---|---|
 | [`agent-registry-multi-agent`](./examples/agent-registry-multi-agent/README.md) | Node.js + A2A + MCP + DSH | Discover five governed agents through Agent Registry and run an observable multi-agent delivery loop |
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
+| `local-service-tunnel` | Go/Python + custom sandbox + image volume | Let sandbox workloads call a user-managed local or private service through a WebSocket tunnel |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
 | [`deployment-cookbook`](./examples/deployment-cookbook/README.md) | agr CLI + Markdown + Python | Deployment, scaling, lifecycle, affinity, native MCP server, and persistent agent workspace scenarios |

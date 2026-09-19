@@ -82,6 +82,7 @@ make example-run EXAMPLE=mini-rl
 |---|---|---|
 | [`agent-registry-multi-agent`](./examples/agent-registry-multi-agent/README_zh.md) | Node.js + A2A + MCP + DSH | 通过注册中心发现五个受治理 Agent，并运行可观察的多 Agent 交付闭环 |
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
+| `local-service-tunnel` | Go/Python + custom 沙箱 + 镜像卷 | 让沙箱内 workload 通过用户侧 WebSocket tunnel 访问本地或内网服务 |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
 | `deployment-cookbook` | agr CLI + Markdown | Deployment、伸缩、生命周期、亲和性与长驻 Agent 工作区场景 |

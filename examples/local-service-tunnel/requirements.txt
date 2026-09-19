@@ -1,0 +1,5 @@
+websocket-client>=1.8.0
+PyYAML>=6.0.0
+e2b>=1.0.0
+tencentcloud-sdk-python-common>=3.0.0
+tencentcloud-sdk-python-ags>=3.0.0
