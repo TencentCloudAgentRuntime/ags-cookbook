@@ -1,0 +1,20 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: openclaw-browser-skills-rollout-preview
+  namespace: default
+spec:
+  dryRun: true
+  selector:
+    matchLabels:
+      app: openclaw-browser
+  agentSpecStrategicPatch:
+    skillPackRefs:
+      $patch: replace
+      items:
+        - openclaw-browser-skills-v2
+  strategy:
+    type: Rolling
+    batchSize: 20%
+    maxUnavailable: 1
+    intervalSeconds: 30

@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tencent-runtime-credentials
+  namespace: agent-way-system
+type: Opaque
+stringData:
+  secret_id: "<YOUR_SECRET_ID>"
+  secret_key: "<YOUR_SECRET_KEY>"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentSandboxProvider
+metadata:
+  name: openclaw-tencent-runtime
+spec:
+  tencentAgentRuntime:
+    region: "ap-shanghai"
+    roleArn: "<YOUR_ROLE_ARN>"
+    accessSecretRef:
+      name: tencent-runtime-credentials
+    # Cookbook 默认使用 CFS 作为 OpenClaw 工作区持久化存储。
+    # AgentProfile 中的 spec.volumeMounts[].mountPath 决定 CFS 挂到容器内的路径。
+    cfsStorage:
+      filesystemId: "cfs-xxxxxxxx"
+      path: "/"
+    # cosStorage:
+    #   bucketName: "<YOUR_BUCKET_NAME>"
+    #   bucketPath: "/default"
+    logConfig:
+      topicId: "<YOUR_CLS_TOPIC_ID>"
+      sourceFiles:
+        - "/logs/envd.log"
+        - "/logs/ags.log"
+    # 如果切换到 VPC 模式, 不必和CFS实例的VPCID、子网ID保持一致。
+    networkMode: "PUBLIC"
+    # networkMode: "VPC"
+    # securityGroupIds: ["<YOUR_SECURITY_GROUP_ID>"]
+    # subnetIds: ["<YOUR_SUBNET_ID_A>", "<YOUR_SUBNET_ID_B>"] # 可多个，agent创建会稳定选择一个
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentInfraProvider
+metadata:
+  name: openclaw-tencent-runtime
+spec:
+  tencentAgentRuntime:
+    region: "ap-shanghai"
+    accessSecretRef:
+      name: tencent-runtime-credentials

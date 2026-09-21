@@ -1,0 +1,24 @@
+# 创建前替换 namespace、sandboxProviderRef 和 image 为你环境中的可用值。
+# expireAfter 使用 AGS 接受的原始 timeout 字符串；示例为 2 小时。
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: timed-openclaw-browser
+  namespace: default
+spec:
+  sandboxProviderRef: openclaw-tencent-runtime
+  expireAfter: 2h
+  authMode: none
+  profile:
+    image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+    command: ["/init"]
+    access:
+      port: 9000
+      path: /ping
+    startupProbe:
+      httpGet:
+        path: /ping
+        port: 9000
+  resources:
+    cpu: "2"
+    memory: 4Gi

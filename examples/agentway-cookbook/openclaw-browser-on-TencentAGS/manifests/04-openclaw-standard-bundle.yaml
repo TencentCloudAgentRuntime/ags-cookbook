@@ -1,0 +1,165 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: openclaw-browser-profile-ref
+  namespace: default
+spec:
+  # 公共 Profile：建议放镜像、启动命令、访问入口、探针、通用 env。
+  image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+  command: ["/init"]
+  access:
+    port: 9000
+    path: /
+  startupProbe:
+    httpGet:
+      # startupProbe 决定“实例什么时候算启动完成”，建议直接复用应用自身健康检查接口。
+      path: /ping
+      port: 9000
+    timeoutSeconds: 2
+    periodSeconds: 5
+    successThreshold: 1
+    failureThreshold: 12
+  # 未设置 subPath 时直接使用 AgentSandboxProvider 的 storage root；如需隔离或共享目录，请显式填写 subPath。
+  volumeMounts:
+    - name: openclaw-data
+      mountPath: /openclaw
+      # subPath: shared/openclaw # 可选：填写时就是 CFS/COS root 下的相对路径。
+  pluginCommand:
+    install: "openclaw plugins install {{name}}"
+    uninstall: "openclaw plugins uninstall {{name}}"
+  env:
+    - key: AGENT_ROOT_DIR
+      value: /openclaw/.openclaw
+    - key: AGENT_WORKSPACE
+      value: /openclaw/.openclaw/workspace
+    - key: AGENT_SKILL_DIR
+      value: /openclaw/.openclaw/workspace/skills
+    - key: MODEL_API_KEY
+      value: "sk-123"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: SkillSource
+metadata:
+  name: tencent-skill-hub
+  namespace: default
+spec:
+  # SkillSource 只负责声明技能安装方式，具体装哪些技能由 SkillPack 决定。
+  installCommand: "/root/.local/bin/skillhub --dir $AGENT_SKILL_DIR install {{name}} --force"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: SkillPack
+metadata:
+  name: openclaw-browser-skills
+  namespace: default
+spec:
+  # SkillPack 负责把一组技能打包成可复用单元，Template 只需要引用名字即可。
+  name: openclaw-browser-skills
+  source: tencent-skill-hub
+  skills:
+    - self-improving
+    - find-skills
+    - summarize
+    - github
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: FileInjects
+metadata:
+  name: openclaw-browser-agent-rules
+  namespace: default
+spec:
+  # FileInjects CR 自身也使用扁平结构：一条资源对应一个目标文件。
+  name: openclaw-agent-rules
+  path: /openclaw/.openclaw/workspace/AGENTS.md
+  content: |
+    你是一个自带浏览器的 OpenClaw 智能体。
+    你的任务是帮助用户浏览网页、总结信息、执行多步任务，并在执行前先说明你的计划。
+  writeMode: overwrite
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: FileInjects
+metadata:
+  name: openclaw-browser-model-config
+  namespace: default
+spec:
+  name: openclaw-model-config
+  path: /openclaw/.openclaw/openclaw.json
+  content: |
+    {
+      "agents": {
+        "defaults": {
+          "model": {
+            "primary":  "moonshot/kimi-k2.5"
+          }
+        }
+      },
+      "models": {
+        "mode": "merge",
+        "providers": {
+          "moonshot": {
+            "baseUrl": "https://api.moonshot.cn/v1",
+            "apiKey": "$MODEL_API_KEY",
+            "api": "openai-completions",
+            "models": [
+              {
+                "id": "kimi-k2.5",
+                "name": "kimi-k2.5",
+                "reasoning": false,
+                "input": ["text"],
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0
+                },
+                "contextWindow": 204800,
+                "maxTokens": 204800
+              }
+            ]
+          }
+        }
+      }
+    }
+  writeMode: merge
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Bootscript
+metadata:
+  name: openclaw-browser-bootstrap
+  namespace: default
+spec:
+  name: openclaw-browser-bootstrap
+  script: |
+    curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --no-skills
+    OPENCLAW_HOME=/openclaw/.openclaw openclaw setup
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: openclaw-browser-template-ref
+  namespace: default
+spec:
+  version: v1
+  agentSpecTemplate:
+    # 外部引用模式：把可复用资源拆开管理，Template 只负责组装。
+    profileRef: openclaw-browser-profile-ref
+    skillPackRefs:
+      - openclaw-browser-skills
+    fileInjectRefs:
+      - openclaw-browser-agent-rules
+      - openclaw-browser-model-config
+    bootscriptRefs:
+      - openclaw-browser-bootstrap
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-ref
+  namespace: default
+  labels:
+    app: openclaw-browser
+spec:
+  templateRef: openclaw-browser-template-ref
+  sandboxProviderRef: openclaw-tencent-runtime

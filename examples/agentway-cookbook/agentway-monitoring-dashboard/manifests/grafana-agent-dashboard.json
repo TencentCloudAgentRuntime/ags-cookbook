@@ -1,0 +1,1638 @@
+{
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "uid": "agentway-agent-overview",
+  "title": "AgentWay Agent 监控",
+  "tags": [
+    "agentway",
+    "agent",
+    "exporter",
+    "dev"
+  ],
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Datasource",
+        "current": {
+          "text": "meta-agentway-cls-sh-public",
+          "value": "PB566E4C64303B1B0"
+        },
+        "options": [
+          {
+            "text": "meta-agentway-cls-sh-public",
+            "value": "PB566E4C64303B1B0",
+            "selected": true
+          }
+        ]
+      },
+      {
+        "name": "clusterID",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agent_info, clusterID)",
+        "label": "Cluster",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "cls-xxx",
+          "value": "cls-xxx"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agent_info{clusterID=~\"$clusterID\"}, namespace)",
+        "label": "Namespace",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "default",
+          "value": "default"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "agent",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agent_info{clusterID=~\"$clusterID\",namespace=~\"$namespace\"}, agent)",
+        "refresh": 1,
+        "label": "Agent",
+        "includeAll": false,
+        "multi": true,
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "默认不选择 All，避免首次打开加载所有 Agent 时浏览器 OOM；刷新变量后选择第一个或少量 Agent 查看明细。"
+      },
+      {
+        "name": "labelKey",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_names(agentway_agent_labels)",
+        "regex": "/label_(.*)/",
+        "label": "Label Key",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "app",
+          "value": "app"
+        }
+      },
+      {
+        "name": "labelValue",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\"}, label_${labelKey:raw})",
+        "label": "Label Value",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "tagKey",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_names(agentway_agent_tags)",
+        "regex": "/tag_(.*)/",
+        "label": "Tag Key",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "env",
+          "value": "env"
+        }
+      },
+      {
+        "name": "tagValue",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\"}, tag_${tagKey:raw})",
+        "label": "Tag Value",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "1. Agent 顶层结果",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 1
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Agents",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "count(agentway_agent_info{clusterID=~\"$clusterID\",namespace=~\"$namespace\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "agents",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "description": "当前筛选条件下的 Agent 总数。用于确认本页正在观察的资产范围。"
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "异常",
+      "gridPos": {
+        "x": 4,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(sum((agentway_agent_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",phase!=\"Running\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1)) or vector(0)",
+          "legendFormat": "bad",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "description": "异常 Agent 数。统计 phase 不是 Running 的 Agent；非 0 时先看“异常对象”和“状态”面板定位原因。"
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "不存活",
+      "gridPos": {
+        "x": 8,
+        "y": 9,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(count((agentway_agent_sandbox_alive{clusterID=~\"$clusterID\",namespace=~\"$namespace\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 0)) or vector(0)",
+          "legendFormat": "dead",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "description": "当前选中 Agent 的沙箱不存活数量。基于 agentway_agent_sandbox_alive，1 表示存活，0 表示不存活。"
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "无负载",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(count((agentway_agent_sandbox_metrics_available{clusterID=~\"$clusterID\",namespace=~\"$namespace\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 0)) or vector(0)",
+          "legendFormat": "missing",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "description": "当前选中 Agent 缺少新鲜 Barad 负载数据的数量。基于 agentway_agent_sandbox_metrics_available，0 表示无可用负载数据。"
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "策略过期",
+      "gridPos": {
+        "x": 16,
+        "y": 17,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(sum((agentway_agent_network_policy_stale{clusterID=~\"$clusterID\",namespace=~\"$namespace\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1)) or vector(0)",
+          "legendFormat": "stale",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "description": "当前选中 Agent 的网络策略是否过期。基于 agentway_agent_network_policy_stale，1 表示需要重新同步或当前策略状态不可信。"
+    },
+    {
+      "type": "row",
+      "title": "2. Agent 当前状态",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 7
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "状态",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1",
+          "legendFormat": "{{agent}} {{phase}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "选中 Agent 的当前生命周期状态。phase 指标只暴露当前状态，避免 0 值状态线干扰阅读。"
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "存活 / 负载数据",
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_sandbox_alive{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "alive",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_sandbox_metrics_available{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "usage_ok",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "选中 Agent 的沙箱存活性和负载数据可用性。alive=1 表示底层 sandbox 存活；usage_ok=1 表示 Barad 负载数据可用。"
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "异常对象",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\",phase!=\"Running\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1",
+          "legendFormat": "{{namespace}}/{{agent}} {{phase}}",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_sandbox_alive{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 0",
+          "legendFormat": "{{namespace}}/{{agent}} not_alive",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "description": "只列异常 Agent。包含非 Running 状态和 sandbox 不存活的对象；正常情况下这个表为空。",
+      "transformations": [
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": false
+            },
+            "renameByName": {
+              "Metric": "item",
+              "Value": "value"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "3. Agent 负载",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 11
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "CPU",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_cpu_usage_cores{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cores"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "选中 Agent 的实际 CPU 使用量，来自 Barad 缓存，单位 core。没有线通常说明 Barad usage 数据不可用。"
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Memory",
+      "gridPos": {
+        "x": 8,
+        "y": 54,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_memory_usage_bytes{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "选中 Agent 的实际内存使用量，来自 Barad 缓存，单位 byte。没有线通常说明 Barad usage 数据不可用。"
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "CPU / 内存使用率（Barad 原始百分比）",
+      "gridPos": {
+        "x": 16,
+        "y": 61,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_cpu_usage_percent{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} cpu %",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_memory_usage_percent{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} memory %",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "直接展示 Barad/云监控返回的 CPU/内存使用率。不要用 used bytes / Agent spec limit 代替，因为验证样本或存量对象可能存在 spec 与实际 sandbox 规格不一致。"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "CPU 使用率来自 SandboxCpuUsagePercent，多核场景可超过 100%；已使用核数来自 SandboxCpuUsedCores。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "id": 24,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_cpu_usage_percent{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} cpu %",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_cpu_usage_cores{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} cores",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "title": "CPU 使用率 / 已使用核数",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "内存使用率与已使用字节数。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "id": 25,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_memory_usage_percent{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} memory %",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_memory_usage_bytes{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} bytes",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "title": "内存使用率 / 已使用字节",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "磁盘读写速率，单位 Bytes/s。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 75
+      },
+      "id": 26,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_disk_read_bytes_per_second{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} read",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_disk_write_bytes_per_second{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} write",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "title": "磁盘读写速率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "文件系统使用率与已使用字节数。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 75
+      },
+      "id": 27,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_filesystem_usage_percent{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} fs %",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_filesystem_used_bytes{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} bytes",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "title": "文件系统使用量",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "网络入/出方向速率，单位 Bytes/s。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 75
+      },
+      "id": 28,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_network_receive_bytes_per_second{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} rx",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_network_transmit_bytes_per_second{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} tx",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "title": "网络收发速率",
+      "type": "timeseries"
+    },
+    {
+      "type": "row",
+      "title": "4. Agent 过程指标",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 82,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 15
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Skill applied / total",
+      "gridPos": {
+        "x": 0,
+        "y": 83,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_skill_applied_count{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} applied",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_skill_total_count{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} total",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "每个 Agent 的 skill 安装进度。legend 中包含 agent 名称；applied 小于 total 表示未装全。"
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "资产阶段",
+      "gridPos": {
+        "x": 8,
+        "y": 90,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_asset_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} {{asset}} {{phase}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "每个 Agent 的资产处理阶段。legend 格式为 agent / asset / phase，值为 1 的线表示该资产当前阶段。"
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "网络策略同步",
+      "gridPos": {
+        "x": 16,
+        "y": 97,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_network_policy_stale{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} stale",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "time() - (agentway_agent_network_policy_last_sync_timestamp_seconds{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} last_ok_age",
+          "refId": "B",
+          "format": "time_series"
+        },
+        {
+          "expr": "(time() - (agentway_agent_network_policy_last_failure_timestamp_seconds{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) (agentway_agent_network_policy_stale{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} == 1) and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})) or vector(0)",
+          "legendFormat": "{{agent}} last_fail_age",
+          "refId": "C",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "每个 Agent 的网络策略同步情况。legend 中包含 agent 名称；stale=1 表示策略过期，last_ok_age/last_fail_age 是距上次成功/失败同步的秒数。"
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "资产异常",
+      "gridPos": {
+        "x": 0,
+        "y": 104,
+        "w": 12,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_asset_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\",phase=\"Failed\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1",
+          "legendFormat": "{{namespace}}/{{agent}} {{asset}} failed",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        },
+        {
+          "expr": "(agentway_agent_asset_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\",phase=\"Applying\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1",
+          "legendFormat": "{{namespace}}/{{agent}} {{asset}} applying",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "description": "只列资产异常或仍在执行中的 Agent。Failed 表示失败；Applying 长时间存在通常表示执行卡住或超时。",
+      "transformations": [
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": false
+            },
+            "renameByName": {
+              "Metric": "item",
+              "Value": "value"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "策略异常",
+      "gridPos": {
+        "x": 12,
+        "y": 109,
+        "w": 12,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_network_policy_stale{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"}) == 1",
+          "legendFormat": "{{namespace}}/{{agent}} stale",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        },
+        {
+          "expr": "time() - (agentway_agent_network_policy_last_failure_timestamp_seconds{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) (agentway_agent_network_policy_stale{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} == 1) and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{namespace}}/{{agent}} fail_age",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": false
+            },
+            "renameByName": {
+              "Metric": "item",
+              "Value": "value"
+            }
+          }
+        }
+      ],
+      "description": "只列 Agent 网络策略异常。stale=1 表示策略过期；fail_age 表示距离最近一次同步失败已经过去多久。"
+    },
+    {
+      "type": "row",
+      "title": "5. 数据源健康",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 114,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 21
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Runtime Metrics / Exporter",
+      "gridPos": {
+        "x": 0,
+        "y": 115,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "agentway_exporter_runtime_metric_cache_entries{clusterID=~\"$clusterID\"}",
+          "legendFormat": "runtime_metric_cache",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "agentway_exporter_scrape_build_duration_seconds{clusterID=~\"$clusterID\"}",
+          "legendFormat": "scrape_seconds",
+          "refId": "B",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Exporter 与运行时指标缓存健康。runtime_metric_cache 是当前缓存了多少个 sandbox 的运行时指标样本；scrape_seconds 是 exporter 生成本次 metrics 的耗时。"
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "负载数据延迟",
+      "gridPos": {
+        "x": 12,
+        "y": 121,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(agentway_agent_sandbox_metrics_cache_age_seconds{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agent=~\"$agent\"} and on(namespace,agent) agentway_agent_labels{clusterID=~\"$clusterID\",namespace=~\"$namespace\",label_${labelKey:raw}=~\"${labelValue:regex}\"} and on(namespace,agent) agentway_agent_tags{clusterID=~\"$clusterID\",namespace=~\"$namespace\",tag_${tagKey:raw}=~\"${tagValue:regex}\"})",
+          "legendFormat": "{{agent}} {{sandbox_id}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "负载数据延迟。指标为 agentway_agent_sandbox_metrics_cache_age_seconds，表示当前 Barad 负载样本距现在过去多少秒；持续变大说明负载数据没有更新。"
+    }
+  ]
+}

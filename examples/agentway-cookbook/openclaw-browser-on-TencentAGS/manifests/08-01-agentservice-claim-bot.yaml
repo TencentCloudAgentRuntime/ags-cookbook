@@ -1,0 +1,23 @@
+# Chapter 08 quick-start manifest: publish the claim-bot AgentReplicaSet through AgentService.
+# Prerequisites:
+# - Apply 08-00-agentreplicaset-claim-bot.yaml first.
+# - Wait until at least two claim-bot Agents are Running.
+# - The AgentService CRD and controller are installed by the AgentWay operator.
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentService
+metadata:
+  name: claim-bot
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: claim-bot
+      service.agentway.io/name: claim-bot
+  ports:
+    - name: http-9000
+      protocol: HTTP
+      port: 9000
+    - name: http-9001
+      protocol: HTTP
+      port: 9001

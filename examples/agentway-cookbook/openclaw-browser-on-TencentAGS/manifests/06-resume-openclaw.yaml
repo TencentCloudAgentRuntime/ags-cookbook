@@ -1,0 +1,7 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent
+  namespace: default
+spec:
+  paused: false

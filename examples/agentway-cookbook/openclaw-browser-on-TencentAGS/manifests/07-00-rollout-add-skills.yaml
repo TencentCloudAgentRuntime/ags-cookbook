@@ -1,0 +1,35 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: SkillPack
+metadata:
+  name: openclaw-browser-skills-v2
+  namespace: default
+spec:
+  name: openclaw-browser-skills-v2
+  source: tencent-skill-hub
+  skills:
+    - self-improving
+    - find-skills
+    - summarize
+    - github
+    - browser
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: openclaw-browser-skills-rollout
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: openclaw-browser-rollout
+  # SMP 风格 rollout patch：默认 merge，显式 replace/delete 时使用 $patch。
+  agentSpecStrategicPatch:
+    skillPackRefs:
+      $patch: replace
+      items:
+        - openclaw-browser-skills-v2
+  strategy:
+    type: Rolling
+    batchSize: 20%
+    maxUnavailable: 1
+    intervalSeconds: 30

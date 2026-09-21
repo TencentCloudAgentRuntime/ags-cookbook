@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentway-exporter
+  namespace: agent-way-system
+  labels:
+    app.kubernetes.io/name: agentway-exporter
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentway-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentway-exporter
+        app.kubernetes.io/component: observability
+    spec:
+      # Current proposal stage does not productize dedicated RBAC. Dev deploy reuses operator permissions.
+      serviceAccountName: agent-way-operator
+      containers:
+        - name: exporter
+          image: ccr.ccs.tencentyun.com/agentway/exporter:v1.0.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --env-file=/app/.env
+          env:
+            - name: AGENTWAY_EXPORTER_BIND_ADDR
+              value: :9108
+            - name: AGENTWAY_EXPORTER_TAG_LABELS_ENABLED
+              value: "true"
+            - name: AGENTWAY_EXPORTER_BARAD_ENABLED
+              value: "true"
+            - name: AGENTWAY_EXPORTER_BARAD_REGION
+              value: ap-shanghai
+            - name: AGENTWAY_EXPORTER_BARAD_QUERY_WINDOW
+              value: 5m
+            - name: AGENTWAY_EXPORTER_BARAD_CACHE_TTL
+              value: 5m
+            - name: AGENTWAY_EXPORTER_BARAD_BATCH_SIZE
+              value: "50"
+            - name: AGENTWAY_EXPORTER_BARAD_MAX_CONCURRENT_REQUESTS
+              value: "8"
+            - name: AGENTWAY_EXPORTER_BARAD_MAX_REQUESTS_PER_SECOND
+              value: "20"
+            - name: AGENTWAY_EXPORTER_BARAD_REQUEST_TIMEOUT
+              value: 10s
+            - name: AGENTWAY_EXPORTER_OPERATOR_SECRET_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AGENTWAY_EXPORTER_BARAD_SECRET_NAME
+              value: tencent-runtime-credentials
+            - name: AGENTWAY_EXPORTER_BARAD_SECRET_ID_KEY
+              value: secret_id
+            - name: AGENTWAY_EXPORTER_BARAD_SECRET_KEY_KEY
+              value: secret_key
+          ports:
+            - name: metrics
+              containerPort: 9108
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentway-exporter
+  namespace: agent-way-system
+  labels:
+    app.kubernetes.io/name: agentway-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: agentway-exporter
+  ports:
+    - name: metrics
+      port: 9108
+      targetPort: metrics

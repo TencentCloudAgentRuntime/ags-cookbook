@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: corp-internal-ca
+  namespace: agent-way-system
+  labels:
+    agentway.io/secret-type: trust-ca
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_YOUR_PEM_CA_CERTIFICATE
+    -----END CERTIFICATE-----
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: openclaw-browser-internal-https
+  namespace: default
+spec:
+  defaultDecision: deny
+  trustCARefs:
+    - name: corp-internal-ca
+      key: ca.crt
+  rules:
+    - name: allow-internal-https
+      hosts:
+        - internal-api.example.com
+      protocol: https
+      port: 443
+      action: allow
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-internal-https
+  namespace: default
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  netPolicyRef: openclaw-browser-internal-https

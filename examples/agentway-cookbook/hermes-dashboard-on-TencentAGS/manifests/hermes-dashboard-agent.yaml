@@ -1,0 +1,155 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: hermes-dashboard-profile
+  namespace: default
+spec:
+  # 运行镜像：基于 Hermes 官方镜像定制的 AGS 入口版本。
+  image: "ccr.ccs.tencentyun.com/agentway/hermes:v2026.06.30-r1"
+
+  # AGS / K8s Provider 都以这里声明的命令作为容器启动入口。
+  # 入口脚本负责首次初始化、启动健康检查、拉起 envd 并切换到运行用户。
+  command: ["/usr/local/bin/hermes-ags-entrypoint.sh"]
+
+  # Access 定义外部访问入口，最终会体现在 status.accessURL 上。
+  # 默认 fixed 到 /login，避免 Hermes 0.17.0 根路径重定向问题。
+  access:
+    port: 9119
+    path: /login
+
+  # 放开健康检查端口供 startupProbe 使用。
+  ports:
+    - name: health
+      port: 18080
+      protocol: TCP
+
+  startupProbe:
+    httpGet:
+      # 健康检查由入口脚本内的轻量 HTTP server 提供。
+      path: /health
+      port: 18080
+    # 单次探测超时；超时后本次检查记为失败。
+    timeoutSeconds: 2
+    # 探测间隔；示例为每 5 秒检查一次。
+    periodSeconds: 5
+    # 连续成功阈值，startupProbe 通常保持 1 即可。
+    successThreshold: 1
+    # 连续失败阈值；Hermes AGS 完整启动含 skill 安装约 2-3 分钟，给 36 次（共 180 秒）冗余。
+    failureThreshold: 36
+    # 注意：当前不支持 initialDelaySeconds / exec / tcpSocket / grpc / httpHeaders。
+
+  # 为 Hermes 预留持久化数据目录，配置、会话、skills、dashboard 状态都落在这里。
+  # 显式固定 subPath，避免 delete + apply 后因 Agent UID 变化漂移到新后端路径。
+  # 如果需要换 namespace、换 Agent 名称或者多实例部署，请把 subPath 改成你自己的唯一值。
+  volumeMounts:
+    - name: hermes-data
+      mountPath: /opt/data
+      subPath: default/hermes-dashboard-agent/hermes-data
+
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: hermes-dashboard-template
+  namespace: default
+spec:
+  version: v1
+  agentSpecTemplate:
+    # 模板引用公共 profile，避免每个 Agent 重复声明镜像、启动命令、探针等基础参数。
+    profileRef: hermes-dashboard-profile
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+    # 默认资源规格。当前推荐使用 K8s Quantity 风格字段。
+
+    # Template env 按 Hermes 的真实读取方式承载环境变量配置：
+    # - Hermes 原生通过环境变量读取的参数（如 Dashboard 监听、认证、API Server key）放在这里
+    # - 模型 provider / base_url / 系统提示词等文件型配置则走 fileInjects
+    # Template env 和 Agent 自己声明的 env 按 key merge：同 key 时 Agent 覆盖 Template，不同 key 一起保留。
+    env:
+      - key: HERMES_DASHBOARD
+        value: "true"
+      - key: HERMES_DASHBOARD_HOST
+        value: "0.0.0.0"
+      - key: HERMES_DASHBOARD_PORT
+        value: "9119"
+      - key: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+        value: "admin"
+      - key: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+        value: "CHANGE_ME_FIRST_BOOT_DASHBOARD_PASSWORD"
+      - key: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+        value: "CHANGE_ME_DASHBOARD_SESSION_SECRET"
+      - key: API_SERVER_ENABLED
+        value: "true"
+      - key: API_SERVER_HOST
+        value: "0.0.0.0"
+      - key: API_SERVER_KEY
+        value: "CHANGE_ME_64_HEX_API_KEY"
+      # GATEWAY_ALLOW_ALL_USERS: 仅用于降低首次接入门槛，正式对外开放前建议关闭。
+      - key: GATEWAY_ALLOW_ALL_USERS
+        value: "true"
+      # HERMES_MODEL_API_KEY: 模型密钥通过环境变量注入，config.yaml 中通过 $HERMES_MODEL_API_KEY 引用。
+      - key: HERMES_MODEL_API_KEY
+        value: "CHANGE_ME_MODEL_API_KEY"
+      - key: AGENT_SKILL_DIR
+        value: "/opt/data/skills"
+
+    # FileInjects 使用当前 CRD 的扁平结构：一条记录就是一个文件。
+    # 只放 Hermes 原生通过文件读取的配置（config.yaml、SOUL.md），不把环境变量参数硬塞进 .env。
+    fileInjects:
+      - name: hermes-model-config
+        path: /opt/data/config.yaml
+        content: |
+          model:
+            provider: custom
+            model: deepseek-v4-flash
+            base_url: https://api.deepseek.com/v1
+            api_key: "$HERMES_MODEL_API_KEY"
+        # writeMode: overwrite 表示以 manifest 为唯一事实来源；想保留已有配置时改为 merge。
+        writeMode: overwrite
+      - name: hermes-system-prompt
+        path: /opt/data/SOUL.md
+        content: |
+          你是部署在 Tencent AGS 上的 Hermes 企业智能体。
+          你的默认工作语言是简体中文。
+          在执行任何多步骤任务前，先用一句话说明你的计划，再开始行动。
+          优先保证可审计、可回滚、可解释，不要对外泄露敏感配置。
+        writeMode: overwrite
+
+    # 首次启动时执行的引导脚本，用于安装 skillhub 依赖、初始化目录。
+    bootstrapScripts:
+      - name: install-skillhub
+        interpreter: bash
+        script: |
+          export HERMES_HOME="${HERMES_HOME:-/opt/data}"
+          export HOME="$HERMES_HOME"
+          export PATH="$HOME/.local/bin:/root/.local/bin:/.local/bin:$PATH"
+          mkdir -p "$HERMES_HOME" "$AGENT_SKILL_DIR"
+          if ! command -v skillhub >/dev/null 2>&1; then
+            curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --no-skills
+          fi
+
+    # SkillPack 描述一组希望注入到 Agent 中的技能。{{name}} 会在运行时替换成技能名。
+    skillPacks:
+      - name: starter-skills
+        installCommand: 'export HERMES_HOME="${HERMES_HOME:-/opt/data}"; export HOME="$HERMES_HOME"; export PATH="$HOME/.local/bin:/root/.local/bin:/.local/bin:$PATH"; mkdir -p "$AGENT_SKILL_DIR"; if ! command -v skillhub >/dev/null 2>&1; then curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --no-skills; export PATH="$HOME/.local/bin:/root/.local/bin:/.local/bin:$PATH"; fi; skillhub --dir "$AGENT_SKILL_DIR" install {{name}} --force'
+        skills:
+          - self-improving
+          - github
+
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: hermes-dashboard-agent
+  namespace: default
+  labels:
+    app: hermes-dashboard
+spec:
+  # Agent 只保留"个性化差异"：基础镜像、资源、bootstrap、默认技能等都来自 template。
+  templateRef: hermes-dashboard-template
+  # 指定实际运行在哪个沙箱提供方上，这里是 Tencent AGS。
+  sandboxProviderRef: openclaw-tencent-runtime
+  # 关闭 AGS 平台为实例下发 access token，让外部只处理 Hermes 自己的认证体系。
+  # 默认值为 default（带 token）；改为 none 后 status.gatewayToken 会为空。
+  authMode: none

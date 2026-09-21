@@ -1,0 +1,15 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: rs-rollout
+  labels:
+    validation.agentway.io/case: rs-rollout
+spec:
+  agentReplicaSetName: claim-bot
+  agentMetadataStrategicPatch:
+    annotations:
+      agentway.io/restart-key: restart-20260717-001
+  strategy:
+    batchSize: "1"
+    maxUnavailable: 1
+    intervalSeconds: 1

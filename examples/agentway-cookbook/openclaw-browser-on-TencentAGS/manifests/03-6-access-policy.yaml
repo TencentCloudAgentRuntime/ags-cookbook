@@ -1,0 +1,21 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: openclaw-browser-office-access
+  namespace: default
+spec:
+  accessPolicy:
+    rules:
+      - action: ALLOW
+        ports: ["9000"]
+        vpcIds: ["<YOUR_VPC_ID>"]
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-office-access
+  namespace: default
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  netPolicyRef: openclaw-browser-office-access

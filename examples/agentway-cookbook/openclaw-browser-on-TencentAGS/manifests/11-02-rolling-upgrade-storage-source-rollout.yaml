@@ -1,0 +1,57 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: openclaw-browser-storage-source-rollout
+  namespace: default
+  # RollingUpgrade 批次失败后，AgentRollout 会暂停后续批次。
+  # 修复失败原因后，可取消下面注释并改成新的任意非空值触发失败批次重试：
+  # annotations:
+  #   agentway.io/retry-generation: "20260710120000"
+spec:
+  # 该示例直接命中 manifests/11-01-storage-source-agent-storage.yaml 创建的 demo Agent。
+  selector:
+    matchLabels:
+      storage.agentway.io/example: storage-source
+  agentSpecStrategicPatch:
+    profile:
+      # Agent spec 中 profile 已由 controller 展开；这里仅替换存储来源列表。
+      storageSources:
+        $patch: replace
+        items:
+          - name: workspace
+            type: cfs
+            cfs:
+              # Replace with the CFS filesystem used by your Tencent AGS environment.
+              filesystemId: your-filesystemId
+              # New root used by replacement sandboxes after this RollingUpgrade.
+              path: /agents/openclaw-rollout
+          - name: workspace2
+            type: cos
+            cos:
+              bucketName: "your-bucketName"
+              bucketPath: "/agents/openclaw-rollout"
+      # 同步替换挂载列表，展示 volumeMounts[].storageSource 和 subPath 的 rollout 更新。
+      volumeMounts:
+        $patch: replace
+        items:
+          - name: workspace1
+            mountPath: /openclaw/.openclaw/workspace
+            storageSource: workspace
+            # Final CFS path: /agents/openclaw-rollout/team-a/workspace
+            subPath: team-a/workspace
+          - name: workspace2
+            mountPath: /openclaw/.openclaw/another-workspace
+            storageSource: workspace
+            # Final CFS path: /agents/openclaw-rollout/team-a/another-workspace
+            subPath: team-a/another-workspace
+          - name: cos-workspace
+            mountPath: /openclaw/.openclaw/cos-workspace
+            storageSource: workspace2
+            # Final COS path: /agents/openclaw-rollout/team-a/cos-workspace
+            subPath: team-a/cos-workspace
+  strategy:
+    type: Rolling
+    updateMode: RollingUpgrade
+    batchSize: 20%
+    maxUnavailable: 1
+    intervalSeconds: 30

@@ -1,0 +1,9 @@
+apiVersion: 1
+
+datasources:
+  - name: meta-agentway-cls-sh-public
+    type: prometheus
+    access: proxy
+    url: http://prometheus.agentway-monitoring.svc:9090
+    isDefault: true
+    editable: true

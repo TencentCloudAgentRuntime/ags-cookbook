@@ -1,0 +1,58 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: openclaw-browser-rolling-upgrade-profile
+  namespace: default
+spec:
+  # 运行镜像：应包含 OpenClaw 主程序和 /init 入口。
+  image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+  # AGS/K8s Provider 都会以这里声明的命令作为容器启动入口。
+  command: ["/init"]
+  # Access 定义外部访问入口，最终会体现在 status.accessURL / Service / Ingress 上。
+  # access:
+  #   port: 9000
+  #   path: /
+  startupProbe:
+    httpGet:
+      # AGS / K8s 当前都支持 httpGet 这一种探针形式。
+      path: /ping
+      port: 9000
+    # 单次探测超时；超时后本次检查记为失败。
+    timeoutSeconds: 2
+    # 探测间隔；建议根据应用启动速度设置，示例为每 5 秒检查一次。
+    periodSeconds: 5
+    # 连续成功阈值，startupProbe 通常保持 1 即可。
+    successThreshold: 1
+    # 连续失败阈值；示例给 12 次，适合启动较慢的浏览器类 Agent。
+    failureThreshold: 12
+    # 注意：当前不支持 initialDelaySeconds / exec / tcpSocket / grpc / httpHeaders。
+  # 为 rolling upgrade 预留专用持久化目录，避免新旧 sandbox 并发写 /openclaw。
+  volumeMounts:
+    - name: persist
+      mountPath: /mnt/persist
+  # 插件安装/卸载命令模板。{{name}} 会在运行时替换成插件名。
+  pluginCommand:
+    install: "openclaw plugins install {{name}}"
+    uninstall: "openclaw plugins uninstall {{name}}"
+  # Profile 级 env：所有引用这个 profile 的 Agent 都会继承这些变量。
+  env:
+    - key: AGENT_ROOT_DIR
+      value: /openclaw/.openclaw
+    - key: AGENT_WORKSPACE
+      value: /openclaw/.openclaw/workspace
+    - key: AGENT_SKILL_DIR
+      value: /openclaw/.openclaw/workspace/skills
+    - key: MODEL_API_KEY
+      value: "sk-123"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-rolling-upgrade-test
+  namespace: default
+  labels:
+    app: openclaw-browser-rollout
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  profileRef: openclaw-browser-rolling-upgrade-profile
