@@ -1,0 +1,87 @@
+# 规划示例：固定版本 v1.0.15-d5afc116 不支持，禁止用于该版本的 kubectl apply。
+# 尚未绑定可执行的已发布 Operator 镜像、源码 SHA 和 CRD 组合。
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: openclaw-browser-storage-source-profile
+  namespace: default
+spec:
+  image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+  command: ["/init"]
+  startupProbe:
+    httpGet:
+      path: /ping
+      port: 9000
+    timeoutSeconds: 2
+    periodSeconds: 5
+    successThreshold: 1
+    failureThreshold: 12
+  storageSources:
+    # 先声明可复用的存储来源。对 CFS / COS 这类基于路径的来源，
+    # 每个 mount 会解析为该 root 加上自己的 subPath 或 subPathExpr。
+    - name: workspace
+      type: cfs
+      cfs:
+        # 替换为你的 Tencent AGS 环境使用的 CFS filesystem。
+        filesystemId: 'your-filesystemId'
+        # OpenClaw workspace 目录的统一 root。
+        path: /agents/openclaw
+    - name: workspace2
+      type: cos
+      cos:
+        bucketName: "your-bucketName"
+        bucketPath: "/agents/openclaw"
+  volumeMounts:
+    - name: workspace1
+      mountPath: /openclaw/.openclaw/workspace
+      storageSource: workspace
+      # 最终 backend path:
+      # /agents/openclaw/<namespace>/<agent-name>/<agent-uid>/workspace
+      # subPathExpr 遵循 Kubernetes $(VAR_NAME) 语法，并与 subPath 互斥。
+      subPathExpr: "$(AGENT_NAMESPACE)/$(AGENT_NAME)/$(AGENT_UID)/workspace"
+    - name: workspace2
+      mountPath: /openclaw/.openclaw/another-workspace
+      storageSource: workspace
+      # 最终 backend path: /agents/openclaw/abc2
+      subPath: abc2
+    - name: cos-workspace
+      mountPath: /openclaw/.openclaw/cos-workspace
+      storageSource: workspace2
+      # 最终 backend path: /agents/openclaw/abc3
+      subPath: abc3
+  env:
+    - key: AGENT_NAMESPACE
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.namespace
+    - key: AGENT_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - key: AGENT_UID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+    - key: AGENT_ROOT_DIR
+      value: /openclaw/.openclaw
+    - key: AGENT_WORKSPACE
+      value: /openclaw/.openclaw/workspace
+    - key: AGENT_SKILL_DIR
+      value: /openclaw/.openclaw/workspace/skills
+    - key: MODEL_API_KEY
+      value: "sk-123"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-storage-source-demo
+  namespace: default
+  labels:
+    app: openclaw-browser
+    storage.agentway.io/example: storage-source
+spec:
+  sandboxProviderRef: openclaw-tencent-runtime
+  profileRef: openclaw-browser-storage-source-profile
+  resources:
+    cpu: "2"
+    memory: "4Gi"

@@ -1,0 +1,49 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: openclaw-browser-webhook-guard
+  namespace: default
+spec:
+  defaultDecision: deny
+  rules:
+    - name: review-sensitive-write-actions
+      hosts:
+        - git.internal.company.com
+      protocol: https
+      port: 443
+      action: allow
+      scriptDetector:
+        lang: cel
+        source: 'request.method in ["POST", "PUT", "DELETE"]'
+        failureAsMatch: false
+      webhook: internal-review
+  webhookArbiters:
+    deny-logger:
+      url: <YOUR_AUDIT_WEBHOOK_URL>
+      category: notify
+      timeoutSeconds: 3
+      global: true
+      captureBody: true
+      notifyTriggerDecisions:
+        - deny
+      headers:
+        x-agentway-source: openclaw-browser
+    internal-review:
+      url: <YOUR_REVIEW_WEBHOOK_URL>
+      category: notify
+      timeoutSeconds: 3
+      captureBody: true
+      notifyTriggerDecisions:
+        - allow
+      headers:
+        x-agentway-source: openclaw-browser
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-webhook
+  namespace: default
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  netPolicyRef: openclaw-browser-webhook-guard

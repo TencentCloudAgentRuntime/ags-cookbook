@@ -1,0 +1,164 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: openclaw-browser-profile
+  namespace: default
+spec:
+  # 和 02 中的 profile 一样，这里也完整声明基础运行时配置，便于单文件演示。
+  image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+  command: ["/init"]
+  access:
+    port: 9000
+    path: /
+  startupProbe:
+    httpGet:
+      # 当前推荐只使用 httpGet 子集，便于同时兼容 AGS 和 K8s provider。
+      path: /ping
+      port: 9000
+    timeoutSeconds: 2      # 单次探测超时，超过 2 秒视为本次探测失败
+    periodSeconds: 5       # 每隔 5 秒探测一次
+    successThreshold: 1    # 连续成功 1 次即可判定探针成功
+    failureThreshold: 12   # 连续失败 12 次后才判定启动失败，给慢启动场景更多缓冲
+  # 省略 subpath 时按 namespace/name/UID 和 mount name 自动隔离；显式填写时固定到文件系统内指定目录。
+  volumeMounts:
+    - name: openclaw-data
+      mountPath: /openclaw
+      # subpath: shared/openclaw # 可选：填写时固定到文件系统内指定目录，不再按 UID 隔离。
+  # 这些 env 会成为所有基于该 profile 启动的 Agent 的基础环境变量。
+  pluginCommand:
+    install: "openclaw plugins install {{name}}"
+    uninstall: "openclaw plugins uninstall {{name}}"
+  env:
+    - key: AGENT_ROOT_DIR
+      value: /openclaw/.openclaw
+    - key: AGENT_WORKSPACE
+      value: /openclaw/.openclaw/workspace
+    - key: AGENT_SKILL_DIR
+      value: /openclaw/.openclaw/workspace/skills
+    - key: MODEL_API_KEY
+      # 功能验收必填：替换成与模型配置匹配的真实 API Key。
+      value: "CHANGE_ME_MODEL_API_KEY"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: openclaw-browser-net-ref
+  namespace: default
+spec:
+  defaultDecision: allow
+  # 规则按声明顺序确定优先级（first-match-wins）
+  rules:
+    # 规则 1：允许访问 GitHub API
+    - name: baidu
+      protocol: https
+      hosts:
+        - "www.baidu.com"
+      port: 443
+      action: deny
+  # Webhook 仲裁器
+  webhookArbiters:
+    # 全局审计 hook：记录所有被拒绝的请求
+    deny-logger:
+      url: http://10.10.10.10:8080/audit
+      timeoutSeconds: 3
+      category: notify
+      global: true                    # 全局 hook，无需被 rule 引用
+      captureBody: true               # 在 payload 中包含请求体
+      notifyTriggerDecisions:         # 仅在请求被拒绝时触发
+        - deny
+
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: openclaw-browser-template2
+  namespace: default
+spec:
+  version: v1
+  # 模版级默认网络策略：实例创建后会自动关联。
+  netPolicyTemplateRef: openclaw-browser-net-ref
+  agentSpecTemplate:
+    profileRef: openclaw-browser-profile
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+    # inline bootstrap：在不使用 BootscriptRef 的情况下，直接把初始化逻辑写进模版。
+    bootstrapScripts:
+      - name: install-skillhub
+        interpreter: bash
+        script: |
+          echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+          curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --no-skills
+          while [ ! -f /openclaw/.openclaw/openclaw.json ]; do sleep 1; done
+    # inline skill pack：适合 demo / cookbook，方便读者一眼看懂实例最终会拥有哪些技能。
+    skillPacks:
+      - name: starter-skills
+        installCommand: "/root/.local/bin/skillhub --dir $AGENT_SKILL_DIR install {{name}} --force"
+        skills:
+          - self-improving
+          - find-skills
+          - summarize
+          - github
+    # inline file inject：直接写入工作说明和模型配置。
+    fileInjects:
+      - name: openclaw-agent-rules
+        path: /openclaw/.openclaw/workspace/AGENTS.md
+        content: |
+          你是一个自带浏览器的 OpenClaw 智能体。
+          你的任务是帮助用户浏览网页、总结信息、执行多步任务，并在执行前先说明你的计划。
+        writeMode: overwrite
+      - name: openclaw-model-config
+        path: /openclaw/.openclaw/openclaw.json
+        content: |
+          {
+            "agents": {
+              "defaults": {
+                "model": {
+                  "primary":  "moonshot/kimi-k2.5"
+                }
+              }
+            },
+            "tools": {
+              "profile": "full"
+            },
+            "models": {
+              "mode": "merge",
+              "providers": {
+                "moonshot": {
+                  "baseUrl": "https://api.moonshot.cn/v1",
+                  "apiKey": "$MODEL_API_KEY",
+                  "api": "openai-completions",
+                  "models": [
+                    {
+                      "id": "kimi-k2.5",
+                      "name": "kimi-k2.5",
+                      "reasoning": false,
+                      "input": ["text"],
+                      "cost": {
+                        "input": 0,
+                        "output": 0,
+                        "cacheRead": 0,
+                        "cacheWrite": 0
+                      },
+                      "contextWindow": 204800,
+                      "maxTokens": 204800
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        writeMode: "merge"
+
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agen-net-webhook2
+  namespace: default
+  labels:
+    app: openclaw-browser
+spec:
+  templateRef: openclaw-browser-template2
+  sandboxProviderRef: openclaw-tencent-runtime
+#  authMode: none

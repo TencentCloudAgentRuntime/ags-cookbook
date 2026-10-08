@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agentway-exporter
+  namespace: agentway-monitoring
+  labels:
+    app.kubernetes.io/name: agentway-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - agent-way-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentway-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      relabelings:
+        - targetLabel: clusterID
+          replacement: cls-xxx
+      metricRelabelings: []

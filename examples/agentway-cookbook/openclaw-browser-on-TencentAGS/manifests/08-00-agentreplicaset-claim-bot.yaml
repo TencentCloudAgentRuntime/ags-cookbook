@@ -1,0 +1,112 @@
+# Chapter 08 quick-start manifest: create reusable runtime config and an AgentReplicaSet.
+# Prerequisites:
+# - Chapter 01 has created AgentInfraProvider/SandboxProvider named openclaw-tencent-runtime.
+# - AgentReplicaSet CRD is installed by the AgentWay operator chart.
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: claim-bot-profile
+  namespace: default
+spec:
+  image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+  command: ["/init"]
+  ports:
+    - name: port-9000
+      port: 9000
+      protocol: TCP
+    - name: extra-9001
+      port: 9001
+      protocol: TCP
+  startupProbe:
+    httpGet:
+      path: /ping
+      port: 9000
+    timeoutSeconds: 2
+    periodSeconds: 5
+    successThreshold: 1
+    failureThreshold: 12
+  volumeMounts:
+    - name: openclaw-data
+      mountPath: /openclaw
+  env:
+    - key: AGENT_ROOT_DIR
+      value: /openclaw/.openclaw
+    - key: AGENT_WORKSPACE
+      value: /openclaw/.openclaw/workspace
+    - key: AGENT_SKILL_DIR
+      value: /openclaw/.openclaw/workspace/skills
+    - key: MODEL_API_KEY
+      # 功能验收必填：替换成与模型配置匹配的真实 API Key。
+      value: "CHANGE_ME_MODEL_API_KEY"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: claim-bot-template
+  namespace: default
+spec:
+  version: v1
+  agentSpecTemplate:
+    profileRef: claim-bot-profile
+    sandboxProviderRef: openclaw-tencent-runtime
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+    env:
+      - key: OPENCLAW_MODE
+        value: "browser"
+    bootstrapScripts:
+      - name: start-port-9001
+        interpreter: bash
+        script: |
+          cat >/tmp/agentservice_port9001.py <<'PY'
+          import json
+          import socket
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+          INSTANCE_ID = socket.gethostname()
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = json.dumps({
+                      "status": "ok",
+                      "port": 9001,
+                      "instance": INSTANCE_ID,
+                      "path": self.path,
+                  }).encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, fmt, *args):
+                  return
+
+          ThreadingHTTPServer(("0.0.0.0", 9001), Handler).serve_forever()
+          PY
+          nohup python3 /tmp/agentservice_port9001.py >/tmp/agentservice_port9001.log 2>&1 &
+          sleep 1
+          curl -fsS http://127.0.0.1:9001/ping >/tmp/agentservice_port9001.ready
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentReplicaSet
+metadata:
+  name: claim-bot
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: claim-bot
+      service.agentway.io/name: claim-bot
+  template:
+    metadata:
+      labels:
+        app: claim-bot
+        service.agentway.io/name: claim-bot
+    spec:
+      templateRef: claim-bot-template
+      sandboxProviderRef: openclaw-tencent-runtime
+      authMode: none

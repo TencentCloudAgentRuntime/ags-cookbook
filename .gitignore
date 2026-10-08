@@ -46,6 +46,7 @@ enhanced_demo_output/
 *.jpeg
 *.csv
 !examples/agent-registry-multi-agent/docs/images/*.png
+!examples/agentway-cookbook/**/images/*.png
 !package.json
 !package-lock.json
 !examples/dind/tool-custom-configuration.hk.json

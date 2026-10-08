@@ -1,0 +1,58 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentSandboxProvider
+metadata:
+  name: openclaw-tencent-runtime
+spec:
+  defaultTags:
+    - key: platform
+      value: agentway
+    - key: environment
+      value: prod
+  tencentAgentRuntime:
+    region: "<YOUR_REGION>"
+    accessSecretRef:
+      name: ags-credentials
+    roleArn: "<YOUR_ROLE_ARN>"
+    cosStorage:
+      bucketName: "<YOUR_BUCKET_NAME>"
+      bucketPath: "/default"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentTemplate
+metadata:
+  name: openclaw-browser-template-chargeback
+  namespace: default
+spec:
+  version: v1
+  agentSpecTemplate:
+    profileRef: openclaw-browser-profile-ref
+    skillPackRefs:
+      - openclaw-browser-skills
+    fileInjectRefs:
+      - openclaw-browser-agent-rules
+    bootscriptRefs:
+      - openclaw-browser-bootstrap
+    tags:
+      - key: workload
+        value: openclaw-browser
+      - key: costCenter
+        value: search
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-chargeback
+  namespace: default
+  labels:
+    app: openclaw-browser
+spec:
+  templateRef: openclaw-browser-template-chargeback
+  sandboxProviderRef: openclaw-tencent-runtime
+  tags:
+    - key: costCenter
+      value: search-exp
+    - key: owner
+      value: alice
