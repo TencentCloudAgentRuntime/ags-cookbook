@@ -29,7 +29,7 @@ AgentWay 的服务型 Agent 能力提供了这样的使用方式：
 
 - [00. 准备集群环境并部署 Operator](./00-prepare-cluster-and-deploy-operator.md)
 - [01. 准备 Tencent Agent Runtime 基础设施](./01-prepare-tencent-agent-runtime.md)
-- [02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
+- [02. 快速启动一个自带浏览器和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
 
 不需要在 Kubernetes 集群里额外安装七层入口组件。
 
@@ -105,6 +105,8 @@ flowchart TB
 
 ## 先应用示例运行配置
 
+以下运行配置中的模型 Key 仅为占位符；如需验收模型调用，先替换 `CHANGE_ME_MODEL_API_KEY` 并确认模型 provider 配置。
+
 下面的示例会创建一个可被后续 `Agent` 和 `AgentReplicaSet` 直接引用的运行配置。你可以先原样测试；如果要接入自己的业务 Agent，只需要替换镜像、启动命令和环境变量。
 
 ```yaml
@@ -154,7 +156,7 @@ kubectl apply -f <your-agent-template-file>.yaml
 如果你只想直接体验 `AgentReplicaSet` 主路径，可以使用本目录提供的完整示例：
 
 ```bash
-kubectl apply -f manifests/08-00-agentreplicaset-claim-bot.yaml
+kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/08-00-agentreplicaset-claim-bot.yaml
 ```
 
 该文件包含 `AgentProfile`、`AgentTemplate` 和一个 2 副本 `AgentReplicaSet`。示例把 child Agent 设置为 `authMode: none`，便于你直接验证多副本负载均衡，不会因为每个 Agent 的独立 token 导致随机 401。
@@ -173,7 +175,7 @@ kubectl get agent -n default -l app=claim-bot -w
 然后创建稳定入口：
 
 ```bash
-kubectl apply -f manifests/08-01-agentservice-claim-bot.yaml
+kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/08-01-agentservice-claim-bot.yaml
 ```
 
 该文件只包含一个 `AgentService`，selector 与 `08-00-agentreplicaset-claim-bot.yaml` 中的副本标签一致。
@@ -328,7 +330,7 @@ status:
 如果你想直接体验“单个 Agent + AgentService 稳定入口 + RollingUpgrade”的完整路径，可以先创建单 Agent 和对应的 AgentService：
 
 ```bash
-kubectl apply -f manifests/08-02-single-agentservice.yaml
+kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/08-02-single-agentservice.yaml
 ```
 
 这个 manifest 只包含两个对象，便于你先确认稳定入口可用：
@@ -346,7 +348,7 @@ kubectl get agentservice claim-bot-primary -n default
 确认 `Agent` 进入 `Running`，且 `AgentService` 的 `READY` 为 `True` 后，再单独应用 rollout：
 
 ```bash
-kubectl apply -f manifests/08-02-single-agentservice-rolling-upgrade.yaml
+kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/08-02-single-agentservice-rolling-upgrade.yaml
 ```
 
 下面这个 rollout 会升级 `claim-bot-primary` 使用的镜像，并要求平台按 RollingUpgrade 方式处理底层运行实例：
@@ -373,16 +375,7 @@ spec:
     intervalSeconds: 30
 ```
 
-默认情况下，`preUpgrade` 执行期间旧 sandbox 仍作为 AgentService backend 服务流量。若升级前脚本需要先停止接收新请求，再保存旧实例状态，可以设置：
-
-```yaml
-strategy:
-  type: Rolling
-  updateMode: RollingUpgrade
-  agentServiceOldBackendDetachTiming: PreUpgrade
-```
-
-`agentServiceOldBackendDetachTiming` 表示 AgentService 摘除旧 sandbox backend 的时间点，默认 `PostPromotion` 会保持旧行为：旧 backend 在 replacement promotion 后再被移除。设置为 `PreUpgrade` 时，AgentService 会先摘除旧 backend，再执行旧实例上的 `preUpgrade`。如果 `preUpgrade`、replacement 创建或 `postUpgrade` 在 promotion 前失败，旧 sandbox 不会被删除，AgentService 会重新发布旧 sandbox backend，避免旧实例仍可恢复但入口不可访问。
+固定版本在 replacement promotion 后摘除旧 backend；不支持 `agentServiceOldBackendDetachTiming`，请勿配置 `PreUpgrade`。升级脚本应适应旧实例在 `preUpgrade` 期间继续服务的行为。
 
 ### 升级流程
 
@@ -480,70 +473,19 @@ status:
 
 ### 更新 AgentReplicaSet 管理的多副本 Agent
 
-更新 `AgentReplicaSet` 管理的多副本服务时，推荐使用 `spec.agentReplicaSetName` 显式指定目标 `AgentReplicaSet`：
+固定版本支持通过 `selector` 对已存在的 child Agent 执行 rollout，但不会更新 `AgentReplicaSet.spec.template`。后续扩容或补建是否使用新配置，需要独立核对并更新副本集模板。
 
-```yaml
-apiVersion: agent.agentway.io/v1alpha1
-kind: AgentRollout
-metadata:
-  name: claim-bot-rollout
-  namespace: default
-spec:
-  agentReplicaSetName: claim-bot
-  agentSpecStrategicPatch:
-    profile:
-      image: ccr.ccs.tencentyun.com/ags-image/claim-bot:v2
-  strategy:
-    type: Rolling
-    updateMode: RollingUpgrade
-    batchSize: "1"
-    maxUnavailable: 0
-    intervalSeconds: 30
-```
+自动同步模板的 `AgentRollout.spec.agentReplicaSetName` 不受 `d5afc116` 支持。以下仅为规划示例，禁止用于当前版本：
 
-关键语义：
-
-- `selector` 与 `agentReplicaSetName` 互斥，必须且只能设置一个。
-- 使用 `agentReplicaSetName` 时，Operator 先同步 `AgentReplicaSet.spec.template`，再对同步时刻固定快照内的 child `Agent` 分批 rollout。
-- `batchSize` 只控制推进节奏，不裁剪 `agentReplicaSetName` 模式下的目标范围。
-- template 同步后扩容或故障重建出来的新 child 会继承新 template，但不会回填到已创建 rollout 的 completion 统计。
-- 如果 snapshot member 被删除并由 `AgentReplicaSet` 重建，当前 rollout 会进入失败状态；需要创建 follow-up rollout 重新收敛，或按业务策略人工回滚。
-
-从旧 selector manifest 迁移时，把原来用于匹配 child 的 `spec.selector` 改成目标 `AgentReplicaSet` 名称即可：
-
-```yaml
-spec:
-  agentReplicaSetName: claim-bot
-  # 保留原有 agentSpecStrategicPatch / strategy
-```
-
-继续使用 `selector` 时，Operator 会升级所有匹配到的 `Agent`，包括 `AgentReplicaSet` 管理的 child，但不会更新 `AgentReplicaSet.spec.template`。如果你希望后续扩容、补建或重建出来的 child 都继承新配置，请改用 `spec.agentReplicaSetName`。
+- [`08-03-rolling-upgrade-replicaset.yaml.txt`](./planned-examples/08-03-rolling-upgrade-replicaset.yaml.txt)
 
 ---
 
-## 场景四：按批重启 AgentReplicaSet 管理的副本
+## 场景四：按批重启副本（规划，当前版本不支持）
 
-如果只是希望让 `AgentReplicaSet` 管理的副本做一次运行态重启，可以用 `agentMetadataStrategicPatch` 写入新的 `restart-key`：
+`agentReplicaSetName` 和 `agentMetadataStrategicPatch` 均不在固定版本 CRD 中。当前版本不要应用这类 rollout；只能按受支持的单 Agent 操作另行安排重启。
 
-```yaml
-apiVersion: agent.agentway.io/v1alpha1
-kind: AgentRollout
-metadata:
-  name: claim-bot-restart
-  namespace: default
-spec:
-  agentReplicaSetName: claim-bot
-  agentMetadataStrategicPatch:
-    annotations:
-      agentway.io/restart-key: restart-claim-bot-20260717-001
-  strategy:
-    type: Rolling
-    batchSize: "1"
-    maxUnavailable: 1
-    intervalSeconds: 30
-```
-
-检查完成水位、再次提交新 key、扩容后新 child 的行为，参考 [第 07 章的“只触发运行态重启”](./07-roll-out-existing-agents-gradually.md#第六步只触发运行态重启)。
+设计参考：[`08-04-rolling-upgrade-replicaset-restart.yaml.txt`](./planned-examples/08-04-rolling-upgrade-replicaset-restart.yaml.txt)。恢复为可执行步骤前，需要发布版本绑定与真实多副本验收。
 
 ---
 
@@ -746,7 +688,7 @@ X-Agent-Engine-Affinity-Id: <Affinity ID>
 
 ### 滚动更新期间的亲和行为
 
-使用 `AgentRollout.spec.agentReplicaSetName` 更新多副本 Agent 时：
+使用固定版本支持的 selector rollout 对现有多副本 Agent 做 RollingUpgrade 时（副本集 template 需独立管理）：
 
 1. 旧运行实例继续提供服务，已有 Affinity ID 仍优先命中原实例。
 2. Operator 创建替代运行实例，并等待初始化和健康检查完成。
@@ -832,7 +774,7 @@ spec:
 3. 创建 `AgentService`，用 selector 匹配 `AgentReplicaSet` 管理的 child Agent。
 4. 让调用方使用 `AgentService.status.ingressURL`。
 5. 连续请求需要运行时亲和时，按业务上下文保存并回传最新 Affinity ID。
-6. 通过 `AgentRollout.spec.agentReplicaSetName` 更新多副本配置，确保存量 child 和后续新增 child 使用同一目标 template。
+6. 对现有 child 使用 selector rollout；单独管理 `AgentReplicaSet.spec.template`，并核对扩容、补建后的配置。`agentReplicaSetName` 仅为规划内容。
 7. 通过调整 `AgentReplicaSet.spec.replicas` 做手动扩缩容。
 
 ---

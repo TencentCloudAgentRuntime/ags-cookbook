@@ -17,7 +17,7 @@
 ## 前置章节
 
 建议先完成：
-- [02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
+- [02. 快速启动一个自带浏览器和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
 - [04. 沉淀一套可复制的 OpenClaw 标准配置](./04-reduce-agent-config-with-external-references.md)
 - [05. 用 Tags 给不同业务线做分账归属](./05-use-tags-for-chargeback.md)
 - [06. 在不删除实例的前提下暂停与恢复你的 OpenClaw](./06-pause-and-resume-openclaw.md)
@@ -563,83 +563,15 @@ spec:
 
 因此，不要在 `profile.volumeMounts` 中指定频繁写入、依赖本地文件锁、或应用自身不支持并发安全访问的目录。更推荐像上面这样把 `mountPath` 设为 `/mnt/persist` 这类专用持久化目录，由 `preUpgrade` 把 `/openclaw` 的状态归档进去，`postUpgrade` 再校验并恢复到 replacement 的 `/openclaw`。hook 返回非零时 Operator 不会 promotion。
 
-## 第六步：只触发运行态重启
+## 第六步：运行态重启的版本边界
 
-如果只是想让一批正在运行的 Agent 做一次重启，不需要修改镜像或其它 `Agent.spec`，可以通过 rollout 写入新的 `restart-key`。每次真实重启都要换一个新值，推荐使用时间戳、流水线编号或 UUID。
+固定版本 CRD 不包含 `AgentRollout.spec.agentMetadataStrategicPatch` 或 `agentReplicaSetName`，因此本章不提供通过 rollout 批量写入 restart-key 的可执行步骤。副本集重启的规划示例见[第 08 章](./08-publish-openclaw-service-with-agentreplicaset.md#场景四按批重启副本规划当前版本不支持)。
 
-```yaml
-apiVersion: agent.agentway.io/v1alpha1
-kind: AgentRollout
-metadata:
-  name: openclaw-browser-restart
-  namespace: default
-spec:
-  selector:
-    matchLabels:
-      app: openclaw-browser
-  agentMetadataStrategicPatch:
-    annotations:
-      agentway.io/restart-key: restart-20260717-001
-  strategy:
-    batchSize: 20%
-    maxUnavailable: 1
-    intervalSeconds: 1
-```
-
-应用并观察：
+单个 Agent 的人工重启可使用固定版本支持的注解，执行前确认允许该实例短暂中断：
 
 ```bash
-kubectl apply -f openclaw-browser-restart.yaml
-kubectl get agentrollout openclaw-browser-restart -n default -w
+kubectl annotate agent openclaw-browser-agent -n default agentway.io/restart=true --overwrite
 ```
-
-确认每个 Agent 是否完成本次重启：
-
-```bash
-kubectl get agent -n default -l app=openclaw-browser
-```
-
-当 `metadata.annotations["agentway.io/restart-key"]` 和 `status.restartCompletedKey` 相同，表示这个 Agent 完成了本次重启。
-
-如果目标是 `AgentReplicaSet` 管理的一组副本，把 `selector` 换成 `agentReplicaSetName`：
-
-```yaml
-spec:
-  agentReplicaSetName: claim-bot
-  agentMetadataStrategicPatch:
-    annotations:
-      agentway.io/restart-key: restart-claim-bot-20260717-001
-  strategy:
-    batchSize: "1"
-    maxUnavailable: 1
-    intervalSeconds: 1
-```
-
-检查 child Agent：
-
-```bash
-kubectl get agent -n default -l app=claim-bot,service.agentway.io/name=claim-bot
-```
-
-当 `metadata.annotations["agentway.io/restart-key"]` 和 `status.restartCompletedKey` 相同，表示这个 child Agent 完成了本次重启。
-
-如果后续扩容，新 child 可能继承这个 `restart-key`。新 child 首次创建完成会直接记录完成水位，不会刚创建完又额外重启一次。
-
-如果要再次重启同一批 Agent，只改 `restart-key`：
-
-```bash
-kubectl patch agentrollout openclaw-browser-restart -n default --type merge -p '{
-  "spec": {
-    "agentMetadataStrategicPatch": {
-      "annotations": {
-        "agentway.io/restart-key": "restart-20260717-002"
-      }
-    }
-  }
-}'
-```
-
-单个 Agent 的人工一次性重启仍可使用 `kubectl annotate agent <name> agentway.io/restart=true --overwrite`。批量或 GitOps 场景优先使用 `restart-key`。
 
 ## 一个完整例子：从 ref 发布到最终实际生效
 
@@ -774,7 +706,7 @@ kubectl get agent -n default -l app=openclaw-browser -w
 做到这里，你已经掌握了这条主线里的完整能力：
 - 准备环境
 - 准备 Tencent Agent Runtime 基础设施
-- 快速启动一个自带浏览器、技能和角色设定的 OpenClaw
+- 快速启动一个自带浏览器和角色设定的 OpenClaw
 - 保护 OpenClaw 只访问你允许的目标
 - 沉淀一套可复制的 OpenClaw 标准配置
 - 为存量 OpenClaw 分批升级技能组合

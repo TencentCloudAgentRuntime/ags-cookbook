@@ -18,7 +18,7 @@
 ## 前置章节
 
 建议先完成：
-- [02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
+- [02. 快速启动一个自带浏览器和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
 
 ---
 

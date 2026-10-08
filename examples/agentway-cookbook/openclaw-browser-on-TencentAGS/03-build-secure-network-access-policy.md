@@ -45,8 +45,8 @@
 
 `AgentNetPolicy` 描述 Agent 的网络访问策略，但不同方向的绑定范围不同：
 
-- 出站字段（`rules`、`defaultDecision`、`trustCARefs`、`webhookArbiters`）保持既有行为，支持 `netPolicyRef` 和 `selector`。
-- AGS 入站字段 `accessPolicy` 只对显式设置同 namespace `Agent.spec.netPolicyRef` 的 Agent 生效；`selector` 不会绑定 AccessPolicy。
+- 当前固定版本支持出站字段 `rules`、`defaultDecision`、`webhookArbiters`，通过 `netPolicyRef` 或 `selector` 绑定。
+- 固定版本不支持 AGS 入站 `accessPolicy` 或私有 CA `trustCARefs`，对应内容仅供规划阅读，不能作为访问防护措施。
 
 这层逻辑通常分三步：
 
@@ -61,7 +61,7 @@
 
 > 访问规则允许了这个域名，不等于代理链路已经信任这个域名的服务端证书。
 
-因此，本章也补充 `trustCARefs` 的产品形态。它解决的是“信任上游服务端 CA”，不是客户端证书，也不是跳过证书校验。
+私有 CA 功能尚未绑定支持它的发布版本，当前安装路径不能通过 `trustCARefs` 信任这些证书。
 
 这篇文档统一使用 `netPolicyRef` 来讲解：先定义一条策略，再让一个 Agent 明确引用它。
 
@@ -71,42 +71,11 @@
 
 ---
 
-# 03.1 允许指定 VPC 或 CIDR 访问 AGS 沙箱
+# 03.1 AGS 入站访问控制（规划，当前版本不支持）
 
-AGS AccessPolicy 是 SandboxInstance 的内嵌入站策略，不是一个独立云资源。推荐新建一条不带 `selector` 的 `AgentNetPolicy`，并只让新增 Agent 通过单值 `spec.netPolicyRef` 引用：
+`d5afc116` 的 CRD / Operator 不支持 `AgentNetPolicy.spec.accessPolicy`。当前版本不能通过这一字段限制 VPC / CIDR 入站访问，也不能通过关闭严格校验让它生效。
 
-```yaml
-apiVersion: agent.agentway.io/v1alpha1
-kind: AgentNetPolicy
-metadata:
-  name: openclaw-browser-office-access
-  namespace: default
-spec:
-  accessPolicy:
-    rules:
-      - action: ALLOW
-        ports: ["9000"]
-        vpcIds: ["<YOUR_VPC_ID>"]
----
-apiVersion: agent.agentway.io/v1alpha1
-kind: Agent
-metadata:
-  name: openclaw-browser-agent-office-access
-  namespace: default
-spec:
-  templateRef: openclaw-browser-template
-  sandboxProviderRef: openclaw-tencent-runtime
-  netPolicyRef: openclaw-browser-office-access
-```
-
-这里有两个容易配错的边界：
-
-- 使用 `vpcIds` 时，调用方必须走对应内网入口，例如 Sandbox 的 `https://9000-<sandbox-id>.<region>.internal.tencentags.com` 或 AgentService 的 `https://9000-<gateway-id>.<region>.internal.agents.tencentags.com`。公开 `ingressURL` 不携带客户 VPC 身份，在该规则下预期被拒绝。
-- `ports` 匹配内网域名 Host 前缀所表示的 Sandbox 业务端口。例如访问 `9000-...` 就配置 `"9000"`；它不是 HTTPS 连接使用的 TLS 端口 `443`。
-
-同一条策略可以同时声明出站字段和 `accessPolicy`。创建时两者随同一个 `StartSandboxInstance` 请求下发；修改或移除被引用策略的 `accessPolicy` 时，Operator 对原 Sandbox 执行 `UpdateSandboxInstance`，不会因为该变更重建 Sandbox。
-
-可执行示例见 [`manifests/03-6-access-policy.yaml`](./manifests/03-6-access-policy.yaml)。
+仅供设计参考：[`03-6-access-policy.yaml.txt`](./planned-examples/03-6-access-policy.yaml.txt)。请勿 apply。恢复为操作步骤前，必须绑定实际发布的镜像、完整源码 SHA 与配套 CRD，并在真实 AGS 环境分别验证允许来源可访问、拒绝来源不可访问，以及策略确实下发到 SandboxInstance。
 
 ---
 
@@ -221,135 +190,11 @@ kubectl describe agentnetpolicy openclaw-browser-allow-one-host
 
 ---
 
-# 03.3 访问使用企业私有 CA 的内网 HTTPS 服务
+# 03.3 私有 CA（规划，当前版本不支持）
 
-## 这一节解决什么问题
+固定版本 CRD 不包含 `trustCARefs`。域名放行无法代替证书信任，当前版本不能应用私有 CA 示例。
 
-有些客户允许 Agent 访问自己的内网 HTTPS 服务，例如：
-
-- `internal-api.example.com`
-- `git.internal.company.com`
-- `service.corp.example.com`
-
-这些服务通常使用企业私有 CA 或自签 CA。此时即使 `AgentNetPolicy` 已经允许访问对应域名，HTTPS 连接仍可能因为证书链不被信任而失败。
-
-在 AGS provider 下，出站访问会经过 ZeroProxy。这个场景需要让 AgentWay 把客户提供的上游 Trust CA 下发给 AGS 出站代理链路。
-
-## 这不是什么
-
-`trustCARefs` 只表示“信任这些 CA 签发的上游服务端证书”。
-
-它不是：
-
-- 客户端证书
-- mTLS 身份凭证
-- Header Token
-- `insecureSkipVerify`
-- 放行规则本身
-
-因此你仍然需要在 `rules` 中显式允许目标 host；Trust CA 只解决 HTTPS 证书链信任问题。
-
----
-
-## 你需要填写的参数
-
-| 参数 | 是否必填 | 示例 |
-|---|---|---:|
-| Operator system namespace | 是 | `agent-way-system` |
-| CA Secret 名称 | 是 | `corp-internal-ca` |
-| CA Secret key | 否 | `ca.crt` |
-| 内网 HTTPS 域名 | 是 | `internal-api.example.com` |
-| Agent 名称 | 是 | `openclaw-browser-agent-internal-https` |
-
----
-
-## 使用 manifest
-
-你可以直接复制旁边的 manifest 文件 `./manifests/03-5-trust-ca-policy.yaml`，并替换：
-
-- `REPLACE_WITH_YOUR_PEM_CA_CERTIFICATE`
-- `internal-api.example.com`
-
-如果你想直接 apply，执行：
-
-```bash
-kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/03-5-trust-ca-policy.yaml
-```
-
-YAML 内容以上文链接的 `manifests/` 文件为唯一事实来源，本文不再重复维护。
-
----
-
-## 配置形态
-
-CA 证书材料放在 Operator `systemNamespace` 的 Kubernetes Secret 中。Cookbook 默认 `systemNamespace` 是 `agent-way-system`：
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: corp-internal-ca
-  namespace: agent-way-system
-  labels:
-    agentway.io/secret-type: trust-ca
-type: Opaque
-stringData:
-  ca.crt: |
-    -----BEGIN CERTIFICATE-----
-    ...
-    -----END CERTIFICATE-----
-```
-
-CA bundle 必须满足以下条件：
-
-- 只包含 PEM 编码的 `CERTIFICATE` block 和空白字符，不能包含私钥、注释或其他 block
-- 每张证书的 `BasicConstraints` 必须声明 `CA:TRUE`
-- 如果证书声明了 `KeyUsage`，必须包含证书签发用途
-- 证书必须已经生效且未过期
-- 去重后最多 16 张 CA 证书，PEM 总大小不超过 48 KiB
-
-如果上游直接使用一张没有 `CA:TRUE` 的自签名服务器证书，不能把它直接作为 Trust CA；应使用 CA 证书签发带正确 DNS SAN 或 IP SAN 的服务器证书。
-
-`AgentNetPolicy` 可以继续放在业务 namespace，`trustCARefs` 只保存 Secret 的 `name/key`，不允许指定 namespace：
-
-```yaml
-spec:
-  defaultDecision: deny
-  trustCARefs:
-    - name: corp-internal-ca
-      key: ca.crt
-  rules:
-    - name: allow-internal-https
-      hosts:
-        - internal-api.example.com
-      protocol: https
-      port: 443
-      action: allow
-```
-
----
-
-## 预期效果
-
-配置生效后：
-
-- Agent `openclaw-browser-agent-internal-https` 会引用 `openclaw-browser-internal-https`
-- `internal-api.example.com:443` 会被策略允许
-- AGS ZeroProxy 会获得 `corp-internal-ca` 中的 CA bundle
-- CA Secret 内容更新后，引用该 Secret 的策略会重新 reconcile
-- Running AGS Agent 会通过 `UpdateSandboxInstance` 热更新，不需要重建 SandboxTool
-
-如果 Secret 不存在、key 不存在或 CA bundle 非法，策略会进入 `Failed`，受影响的 Running AGS Agent 会标记为 `NetworkPolicyStale=true`，不会在省略 CA 后继续报告同步成功。
-
-可以在 Agent 内直接验证，不要增加 `-k` 或 `--insecure`：
-
-```bash
-curl -sS -o /dev/null \
-  -w '%{http_code}\n' \
-  --connect-timeout 10 \
-  --max-time 20 \
-  https://internal-api.example.com/health
-```
+仅供设计参考：[`03-5-trust-ca-policy.yaml.txt`](./planned-examples/03-5-trust-ca-policy.yaml.txt)。请勿 apply。需要该功能时，先取得支持它的镜像、源码 SHA 和 CRD，再验证目标 HTTPS 服务的证书链。
 
 ---
 

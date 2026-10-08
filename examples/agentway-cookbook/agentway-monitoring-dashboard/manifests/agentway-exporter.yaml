@@ -1,3 +1,56 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentway-exporter
+  namespace: agent-way-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentway-exporter
+rules:
+  - apiGroups: ["agent.agentway.io"]
+    resources: ["agents", "agentnetpolicies", "agentrollouts"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentway-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentway-exporter
+subjects:
+  - kind: ServiceAccount
+    name: agentway-exporter
+    namespace: agent-way-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentway-exporter-credentials
+  namespace: agent-way-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["tencent-runtime-credentials"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agentway-exporter-credentials
+  namespace: agent-way-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agentway-exporter-credentials
+subjects:
+  - kind: ServiceAccount
+    name: agentway-exporter
+    namespace: agent-way-system
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,8 +70,7 @@ spec:
         app.kubernetes.io/name: agentway-exporter
         app.kubernetes.io/component: observability
     spec:
-      # Current proposal stage does not productize dedicated RBAC. Dev deploy reuses operator permissions.
-      serviceAccountName: agent-way-operator
+      serviceAccountName: agentway-exporter
       containers:
         - name: exporter
           image: ccr.ccs.tencentyun.com/agentway/exporter:v1.0.1

@@ -1,3 +1,5 @@
+# 规划示例：固定版本 v1.0.15-d5afc116 不支持，禁止用于该版本的 kubectl apply。
+# 尚未绑定可执行的已发布 Operator 镜像、源码 SHA 和 CRD 组合。
 apiVersion: agent.agentway.io/v1alpha1
 kind: AgentRollout
 metadata:

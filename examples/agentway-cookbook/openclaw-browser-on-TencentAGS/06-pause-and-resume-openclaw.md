@@ -17,7 +17,7 @@
 ## 前置章节
 
 建议先完成：
-- [02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
+- [02. 快速启动一个自带浏览器和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
 - [05. 用 Tags 给不同业务线做分账归属](./05-use-tags-for-chargeback.md)
 
 如果你还没有一个正在运行的 OpenClaw，可以先回到第 2 章把它创建出来。
@@ -124,7 +124,7 @@ openclaw-browser-agent   Running
 ```
 
 如果它还没进入 `Running`，请先回到：
-- [02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
+- [02. 快速启动一个自带浏览器和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
 
 ---
 

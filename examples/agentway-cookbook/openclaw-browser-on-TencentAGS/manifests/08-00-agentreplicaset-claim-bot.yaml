@@ -37,7 +37,8 @@ spec:
     - key: AGENT_SKILL_DIR
       value: /openclaw/.openclaw/workspace/skills
     - key: MODEL_API_KEY
-      value: "sk-123"
+      # 功能验收必填：替换成与模型配置匹配的真实 API Key。
+      value: "CHANGE_ME_MODEL_API_KEY"
 ---
 apiVersion: agent.agentway.io/v1alpha1
 kind: AgentTemplate

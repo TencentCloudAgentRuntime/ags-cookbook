@@ -53,6 +53,8 @@ flowchart LR
 
 - 你当前 `kubectl` 指向的是目标集群
 - 你拥有该集群的安装权限
+- 集群有至少 16 CPU / 16Gi 可调度余量：清单部署 2 个 Operator Pod，每个请求和限制均为 8 CPU / 8Gi；集群系统组件和可选 connect 服务还需要额外容量
+- 每个待调度节点能容纳单个 8 CPU / 8Gi Pod；容量不足时 Pod 会持续 Pending
 
 建议先执行：
 
@@ -97,11 +99,17 @@ kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/00-01-connect.yaml
 
 ## 执行步骤
 
-本示例的静态清单使用 `v1.0.15-d5afc116` 镜像。先获取同版本 AgentWay 源码并安装 CRD：
+本示例的静态清单使用 `v1.0.15-d5afc116` 镜像。镜像后缀不是 Git tag；请按完整 commit SHA 获取对应源码并安装 CRD。以下命令首次执行时使用新目录；若目录已存在，先核对其 HEAD，不要混用其他版本：
 
 ```bash
-git clone --depth 1 --branch v1.0.15-d5afc116 \
-  https://github.com/TencentCloudAgentRuntime/agentway.git agentway-v1.0.15-d5afc116
+git init agentway-v1.0.15-d5afc116
+git -C agentway-v1.0.15-d5afc116 remote add origin \
+  https://github.com/TencentCloudAgentRuntime/agentway.git
+git -C agentway-v1.0.15-d5afc116 fetch --depth 1 origin \
+  d5afc116883d3ffbf9041b09adda39d640e29eb1
+git -C agentway-v1.0.15-d5afc116 checkout --detach FETCH_HEAD
+test "$(git -C agentway-v1.0.15-d5afc116 rev-parse HEAD)" = \
+  d5afc116883d3ffbf9041b09adda39d640e29eb1
 kubectl apply -f ./agentway-v1.0.15-d5afc116/operator/config/crd/generated/
 ```
 
@@ -146,7 +154,7 @@ kubectl get apiservice v1alpha1.connect.agentway.io
 - `agent-infra` namespace 已创建
 - `agent-way-operator` Deployment 正常运行
 - `agent-way-operator-metrics` Service 已创建
-- `agent-way-operator-leader-election` Lease 已创建，表示 Operator 使用标准 controller-runtime 抢主模式；如果后续将 Deployment 扩容到 2+ 副本，只有 leader 会执行 reconcile。
+- `agent-way-operator-leader-election` Lease 已创建，表示 Operator 使用标准 controller-runtime 抢主模式；清单默认 2 副本，只有 leader 会执行 reconcile。
 
 增量开启 `00-01-connect.yaml` 后，你还会得到：
 
@@ -170,7 +178,7 @@ kubectl get svc agent-way-operator-metrics -n agent-way-system
 
 你应该看到：
 
-- `agent-way-operator` 为 `READY 1/1`
+- `agent-way-operator` Deployment 为 `READY 2/2`（每个 Pod 为 `READY 1/1`）
 - `agent-way-operator-metrics` Service 已存在
 
 如果已开启 Agent connect：

@@ -141,6 +141,7 @@ data:
     apiVersion: 1
     datasources:
       - name: meta-agentway-cls-sh-public
+        uid: PB566E4C64303B1B0
         type: prometheus
         access: proxy
         url: http://prometheus.agentway-monitoring.svc:9090

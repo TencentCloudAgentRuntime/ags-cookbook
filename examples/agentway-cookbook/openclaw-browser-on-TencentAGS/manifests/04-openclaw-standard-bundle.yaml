@@ -19,11 +19,11 @@ spec:
     periodSeconds: 5
     successThreshold: 1
     failureThreshold: 12
-  # 未设置 subPath 时直接使用 AgentSandboxProvider 的 storage root；如需隔离或共享目录，请显式填写 subPath。
+  # 省略 subpath 时按 namespace/name/UID 和 mount name 自动隔离；显式填写时固定到文件系统内指定目录。
   volumeMounts:
     - name: openclaw-data
       mountPath: /openclaw
-      # subPath: shared/openclaw # 可选：填写时就是 CFS/COS root 下的相对路径。
+      # subpath: shared/openclaw # 可选：填写时固定到文件系统内指定目录，不再按 UID 隔离。
   pluginCommand:
     install: "openclaw plugins install {{name}}"
     uninstall: "openclaw plugins uninstall {{name}}"
@@ -35,7 +35,8 @@ spec:
     - key: AGENT_SKILL_DIR
       value: /openclaw/.openclaw/workspace/skills
     - key: MODEL_API_KEY
-      value: "sk-123"
+      # 功能验收必填：替换成与模型配置匹配的真实 API Key。
+      value: "CHANGE_ME_MODEL_API_KEY"
 ---
 apiVersion: agent.agentway.io/v1alpha1
 kind: SkillSource

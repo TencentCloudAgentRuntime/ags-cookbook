@@ -274,7 +274,7 @@ spec:
     - key: HERMES_DASHBOARD_HOST
       value: 0.0.0.0
     - key: HERMES_DASHBOARD_PORT
-        value: "9119"
+      value: "9119"
 ```
 
 ### 3. 模板版本：`AgentTemplate` / `AgentTemplateRevision`

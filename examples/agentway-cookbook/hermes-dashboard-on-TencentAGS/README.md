@@ -189,4 +189,27 @@ kubectl get agent hermes-dashboard-agent -n default -o yaml
 4. `status.fileInjectStatus` 是否为 `Applied`
 5. `status.skillStatus` 是否为 `Applied`
 6. `volumeMounts.mountPath` 是否误写成了别的目录
-7. `volumeMounts.subPath` 是否被改成了错误路径
+7. `volumeMounts.subpath` 是否被改成了错误路径
+
+## 验证删除重建后保留数据
+
+本示例绑定第 00 章的 `d5afc116` 版本，挂载字段是小写 `subpath`。`hermes-data` 固定使用 `default/hermes-dashboard-agent/hermes-data`，不会随 Agent UID 改变。显式 subpath 使用文件系统中的固定路径，不再拼接 Provider 的 `cfsStorage.path`。
+
+以下步骤会重建示例 Agent，造成短暂不可用，请在测试实例上执行。先按第 00 章启用 connect API 并安装 `kubectl agent` 插件，然后写入独立验收文件：
+
+```bash
+kubectl agent exec -n default hermes-dashboard-agent -- bash -lc \
+  'printf "%s\n" persistence-check > /opt/data/persistence-check.txt'
+kubectl get agent hermes-dashboard-agent -n default \
+  -o jsonpath='{.metadata.uid}{" "}{.status.volumeMounts}{"\n"}'
+kubectl delete agent hermes-dashboard-agent -n default --wait=true
+kubectl apply -f ./hermes-dashboard-on-TencentAGS/manifests/hermes-dashboard-agent.yaml
+kubectl wait agent/hermes-dashboard-agent -n default \
+  --for=jsonpath='{.status.phase}'=Running --timeout=600s
+kubectl get agent hermes-dashboard-agent -n default \
+  -o jsonpath='{.metadata.uid}{" "}{.status.volumeMounts}{"\n"}'
+kubectl agent exec -n default hermes-dashboard-agent -- bash -lc \
+  'test "$(cat /opt/data/persistence-check.txt)" = persistence-check'
+```
+
+验收应同时满足：Agent UID 已改变，`status.volumeMounts` 中 `hermes-data` 的 `storageSubPath` 仍为 `default/hermes-dashboard-agent/hermes-data`，最后一条命令退出码为 0。此检查需要真实 AGS/CFS 环境；本仓库的静态校验不能证明删除重建后的数据可读。

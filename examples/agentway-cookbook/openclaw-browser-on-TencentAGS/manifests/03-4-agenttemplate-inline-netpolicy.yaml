@@ -19,11 +19,11 @@ spec:
     periodSeconds: 5       # 每隔 5 秒探测一次
     successThreshold: 1    # 连续成功 1 次即可判定探针成功
     failureThreshold: 12   # 连续失败 12 次后才判定启动失败，给慢启动场景更多缓冲
-  # 未设置 subPath 时直接使用 AgentSandboxProvider 的 storage root；如需隔离或共享目录，请显式填写 subPath。
+  # 省略 subpath 时按 namespace/name/UID 和 mount name 自动隔离；显式填写时固定到文件系统内指定目录。
   volumeMounts:
     - name: openclaw-data
       mountPath: /openclaw
-      # subPath: shared/openclaw # 可选：填写时就是 CFS/COS root 下的相对路径。
+      # subpath: shared/openclaw # 可选：填写时固定到文件系统内指定目录，不再按 UID 隔离。
   # 这些 env 会成为所有基于该 profile 启动的 Agent 的基础环境变量。
   pluginCommand:
     install: "openclaw plugins install {{name}}"
@@ -36,7 +36,8 @@ spec:
     - key: AGENT_SKILL_DIR
       value: /openclaw/.openclaw/workspace/skills
     - key: MODEL_API_KEY
-      value: "sk-123"
+      # 功能验收必填：替换成与模型配置匹配的真实 API Key。
+      value: "CHANGE_ME_MODEL_API_KEY"
 ---
 apiVersion: agent.agentway.io/v1alpha1
 kind: AgentNetPolicy

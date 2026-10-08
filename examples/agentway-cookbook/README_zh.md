@@ -10,7 +10,9 @@
 3. 使用章节指定的方式操作，可能是 Console 表单、完整 YAML 或命令行
 4. 按验证步骤确认结果符合预期
 
-做到这些，你就可以获得与文档中描述一致的效果。
+请先阅读[版本与能力边界](./openclaw-browser-on-TencentAGS/README.md#版本与能力边界)。operator-only 路径固定使用 `v1.0.15-d5afc116` 镜像与 `d5afc116883d3ffbf9041b09adda39d640e29eb1` 的 CRD；不支持的内容隔离为 `planned-examples/*.yaml.txt`，不能执行。
+
+第 02 章默认创建 3 个 AGS Agent，每个 2 CPU / 4Gi，不预装 Skill，模型调用验收需要真实 Key。Operator 另需至少 16 CPU / 16Gi 可调度余量及系统组件容量。`make setup` / `make run` 和静态校验均不能代替真实 TKE/AGS 端到端验收。
 
 ---
 
@@ -21,7 +23,7 @@ AgentWay 的多个 CRD 需要协同工作。只阅读单个对象的 YAML 字段
 这套 Cookbook 按**客户场景**组织相关能力：
 - 先准备集群和 Operator
 - 再准备 Tencent Agent Runtime 基础设施
-- 然后快速启动一个自带浏览器、技能和角色设定的 OpenClaw
+- 然后快速启动一个自带浏览器和角色设定的 OpenClaw
 - 再逐步增加访问控制、把常用配置打包复用、学习如何暂停恢复实例，并对存量实例做灰度变更
 
 ---
@@ -68,7 +70,8 @@ agentway-cookbook/
     ├── 09-console-init-ags-provider.md
     ├── 10-observe-agentway-assets-with-exporter.md
     ├── 11-use-explicit-agent-storage.md
-    └── 12-reclaim-timed-openclaw-runtime.md
+    ├── 12-reclaim-timed-openclaw-runtime.md
+    └── planned-examples/  # 不可执行的规划材料（*.yaml.txt）
 ```
 
 ---
@@ -79,7 +82,7 @@ agentway-cookbook/
 
 1. [`00-prepare-cluster-and-deploy-operator.md`](./openclaw-browser-on-TencentAGS/00-prepare-cluster-and-deploy-operator.md)
 2. [`01-prepare-tencent-agent-runtime.md`](./openclaw-browser-on-TencentAGS/01-prepare-tencent-agent-runtime.md)
-3. [`02-create-openclaw-browser-agent.md`](./openclaw-browser-on-TencentAGS/02-create-openclaw-browser-agent.md) —— 快速启动一个自带浏览器、技能和角色设定的 OpenClaw，并通过 `Agent` 名称直接进入它的 AGS shell
+3. [`02-create-openclaw-browser-agent.md`](./openclaw-browser-on-TencentAGS/02-create-openclaw-browser-agent.md) —— 快速启动一个自带浏览器和角色设定的 OpenClaw，并通过 `Agent` 名称直接进入它的 AGS shell
 4. [`03-build-secure-network-access-policy.md`](./openclaw-browser-on-TencentAGS/03-build-secure-network-access-policy.md) —— 保护 OpenClaw 只访问你允许的目标
 5. [`04-reduce-agent-config-with-external-references.md`](./openclaw-browser-on-TencentAGS/04-reduce-agent-config-with-external-references.md) —— 把常用技能、角色和启动配置打包复用
 6. [`05-use-tags-for-chargeback.md`](./openclaw-browser-on-TencentAGS/05-use-tags-for-chargeback.md) —— 用 Tags 给不同业务线做分账归属
@@ -88,7 +91,7 @@ agentway-cookbook/
 9. [`08-publish-openclaw-service-with-agentreplicaset.md`](./openclaw-browser-on-TencentAGS/08-publish-openclaw-service-with-agentreplicaset.md) —— 将 OpenClaw 发布为具备稳定入口、多副本和 Affinity ID 运行时亲和能力的服务型 Agent
 10. [`09-console-init-ags-provider.md`](./openclaw-browser-on-TencentAGS/09-console-init-ags-provider.md) —— 通过 Console 初始化 AGS Provider 并创建 AGS Agent
 11. [`10-observe-agentway-assets-with-exporter.md`](./openclaw-browser-on-TencentAGS/10-observe-agentway-assets-with-exporter.md) —— 使用 agentway-exporter 观测 AgentWay 资产
-12. [`11-use-explicit-agent-storage.md`](./openclaw-browser-on-TencentAGS/11-use-explicit-agent-storage.md) —— 了解显式声明存储挂载的提案
+12. [`11-use-explicit-agent-storage.md`](./openclaw-browser-on-TencentAGS/11-use-explicit-agent-storage.md) —— 显式多存储来源规划，当前版本不支持
 
 如果你要在同一套 Tencent Agent Runtime 底座上启动 Hermes Dashboard，请阅读：
 

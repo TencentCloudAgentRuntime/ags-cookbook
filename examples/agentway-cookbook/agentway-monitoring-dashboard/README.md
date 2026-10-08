@@ -66,6 +66,8 @@ secret_id key: secret_id
 secret_key key: secret_key
 ```
 
+清单使用独立 `agentway-exporter` ServiceAccount：集群范围仅允许 Agent、AgentNetPolicy、AgentRollout 的 get/list/watch；凭证仅允许读取 `agent-way-system/tencent-runtime-credentials` 这一个 Secret。修改 Secret 名称时，必须同步修改 Role 的 `resourceNames` 和下列环境变量；修改 namespace 时还需同步调整 Role / RoleBinding。
+
 如客户环境不同，请修改 `manifests/agentway-exporter.yaml` 中这些环境变量：
 
 ```yaml
@@ -392,7 +394,7 @@ Dashboard 的默认 datasource 名称是：
 meta-agentway-cls-sh-public
 ```
 
-建议客户侧 Grafana datasource 也使用这个名字，避免导入 dashboard 后逐个替换。
+三个 dashboard 按 UID `PB566E4C64303B1B0` 引用数据源，provisioning 必须设置这个 UID；仅名称相同不足以匹配。接入已有数据源时，可将三个 JSON 中的这个 UID 统一替换为现有 UID。
 
 如果 Grafana 使用文件 provisioning，可参考：
 
@@ -407,6 +409,7 @@ apiVersion: 1
 
 datasources:
   - name: meta-agentway-cls-sh-public
+    uid: PB566E4C64303B1B0
     type: prometheus
     access: proxy
     url: http://prometheus.agentway-monitoring.svc:9090
@@ -433,7 +436,7 @@ datasources:
 1. 打开 Grafana。
 2. 进入 **Dashboards → New → Import**。
 3. 上传 JSON 文件。
-4. 选择 datasource：`meta-agentway-cls-sh-public`。
+4. 确认已配置 UID 为 `PB566E4C64303B1B0` 的 datasource；这些 JSON 直接引用 UID，不依赖导入时映射。
 5. 点击 Import。
 
 ### 方式 B：Grafana API 导入

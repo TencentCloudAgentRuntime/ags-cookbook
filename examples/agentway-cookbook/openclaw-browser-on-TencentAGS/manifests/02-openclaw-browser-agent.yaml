@@ -1,3 +1,4 @@
+# 此清单一次创建 3 个 AGS Agent，每个 2 CPU / 4Gi；云端资源与费用按 3 个实例估算。
 apiVersion: agent.agentway.io/v1alpha1
 kind: AgentProfile
 metadata:
@@ -32,15 +33,15 @@ spec:
     failureThreshold: 12
     # 注意：当前不支持 initialDelaySeconds / exec / tcpSocket / grpc / httpHeaders。
   # 为 Agent 预留持久化工作目录，OpenClaw 的配置、workspace、技能目录都挂在这里。
-  # 未设置 subPath 时直接使用 AgentSandboxProvider 的 storage root；如需隔离或共享目录，请显式填写 subPath。
+  # 固定版本使用小写 subpath；省略时按 namespace/name/UID 和 mount name 自动隔离。
   volumeMounts:
     - name: openclaw-data
       mountPath: /openclaw
-      # subPath: shared/openclaw # 可选：填写时就是 CFS/COS root 下的相对路径。
+      # subpath: shared/openclaw # 可选：填写后为文件系统内固定目录，不再按 UID 隔离。
   # 插件安装/卸载命令模板。{{name}} 会在运行时替换成插件名。
     - name: shared
       mountPath: /shared
-      subPath: shared-subpath
+      subpath: shared-subpath
   pluginCommand:
     install: "openclaw plugins install {{name}}"
     uninstall: "openclaw plugins uninstall {{name}}"
@@ -52,8 +53,6 @@ spec:
       value: /openclaw/.openclaw/workspace
     - key: AGENT_SKILL_DIR
       value: /openclaw/.openclaw/workspace/skills
-    - key: MODEL_API_KEY
-      value: "sk-123"
 
 ---
 apiVersion: agent.agentway.io/v1alpha1
@@ -71,7 +70,8 @@ spec:
     # - 不同 key 会一起保留
     env:
       - key: MODEL_API_KEY
-        value: "sk-from-template"
+        # 功能验收必填：替换为下方 moonshot provider 的真实 Key。
+        value: "CHANGE_ME_MODEL_API_KEY"
       - key: OPENCLAW_MODE
         value: "browser"
     resources:
@@ -87,7 +87,7 @@ spec:
           export PATH="$HOME/.local/bin:/root/.local/bin:/.local/bin:$PATH"
           mkdir -p "$AGENT_ROOT_DIR" "$AGENT_WORKSPACE" "$AGENT_SKILL_DIR"
           curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --no-skills
-    # SkillPack 描述一组希望注入到 Agent 中的技能。
+    # 可选 SkillPack 默认关闭；当前快速启动不承诺预装 Skill。
     # skillPacks:
     #   - name: starter-skills
     #     installCommand: 'export HOME=/openclaw; export PATH="$HOME/.local/bin:/root/.local/bin:/.local/bin:$PATH"; if ! command -v skillhub >/dev/null 2>&1; then curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --no-skills; export PATH="$HOME/.local/bin:/root/.local/bin:/.local/bin:$PATH"; fi; skillhub --dir "$AGENT_SKILL_DIR" install {{name}} --force'
@@ -185,9 +185,7 @@ metadata:
 spec:
   templateRef: openclaw-browser-template
   sandboxProviderRef: openclaw-tencent-runtime
-  # Agent env 会和 Template env merge，用于按实例覆盖敏感信息或追加调试开关。
+  # Agent env 会和 Template env merge；本例只追加调试开关，模型 Key 统一继承模板。
   env:
-    - key: MODEL_API_KEY
-      value: "sk-override-from-agent"
     - key: OPENCLAW_DEBUG
       value: "true"

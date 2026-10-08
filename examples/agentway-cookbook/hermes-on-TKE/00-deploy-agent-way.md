@@ -24,7 +24,7 @@ Hermes Dashboard 后续会通过 Console 创建，也会由 Kubernetes provider 
 | `postgres.external.host` | 生产建议 | `10.0.0.10` |
 | `postgres.external.username` | 生产建议 | `agentway` |
 | `postgres.external.password` | 生产建议 | `********` |
-| `defaultInfraProvider.ingress.service.mode` | 否 | `Public` / `Private` |
+| `defaultInfraProvider.ingress.service.mode` | 本章安装必填 | `Public` / `Private` |
 | `defaultInfraProvider.ingress.service.privateSubnetId` | 内网 CLB 必填 | `subnet-xxxxxxxx` |
 | `console.extraEnv` | 测试环境可选 | `ENABLE_SWAGGER=true` |
 
@@ -129,6 +129,7 @@ helm repo update
 helm install agent-way agent-way-system/agent-way \
   --version 1.3.5 \
   --namespace agent-way-system --create-namespace \
+  --set defaultInfraProvider.ingress.service.mode=Public \
   --set modelGateway.masterKey=<模型网关密钥> \
   --set securityGroups.system.id=<系统组件安全组ID> \
   --set securityGroups.agent.id=<Agent实例安全组ID> \
@@ -159,6 +160,7 @@ CREATE DATABASE agentway;
 helm install agent-way agent-way-system/agent-way \
   --version 1.3.5 \
   --namespace agent-way-system --create-namespace \
+  --set defaultInfraProvider.ingress.service.mode=Public \
   --set modelGateway.masterKey=<模型网关密钥> \
   --set postgres.password=<内置PostgreSQL密码> \
   --set securityGroups.system.id=<系统组件安全组ID> \
@@ -182,6 +184,7 @@ Console 后端内置 Swagger UI，可用于查看和调试 Console API。测试�
 helm install agent-way agent-way-system/agent-way \
   --version 1.3.5 \
   --namespace agent-way-system --create-namespace \
+  --set defaultInfraProvider.ingress.service.mode=Public \
   --set modelGateway.masterKey=<模型网关密钥> \
   --set postgres.password=<内置PostgreSQL密码> \
   --set securityGroups.system.id=<系统组件安全组ID> \
@@ -226,20 +229,21 @@ Istio 和 Model Gateway 由 Operator 启动后自动安装，通常需要额外�
 
 ## 4. 配置 Ingress Gateway CLB 模式
 
-AgentWay 通过 `agent-infra/istio-ingressgateway` 这个 stable Service 暴露 Console 和 Agent 实例入口。该 Service 始终保持 `type: LoadBalancer`，但可以选择公网 CLB 或 TKE 内网 CLB。
+AgentWay 通过 `agent-infra/istio-ingressgateway` 这个 stable Service 暴露 Console 和 Agent 实例入口。chart 1.3.5 默认不声明 `ingress.service`，Operator 此时创建 `type: ClusterIP`，不会创建公网 CLB。本章安装命令显式设置 `Public`，才会创建公网 LoadBalancer；也可以改用 `Private` 并指定子网。
 
 ### 4.1 模式说明
 
 | 模式 | 配置值 | 行为 |
 |---|---|---|
-| 公网 CLB | `Public` 或不声明 `service` | 不设置 TKE 内网 CLB annotation，保持默认公网 LoadBalancer 行为 |
+| 集群内访问（默认） | 不声明 `service` | 创建 ClusterIP，无 CLB 和 EXTERNAL-IP |
+| 公网 CLB | `Public` | 创建 LoadBalancer，不设置 TKE 内网 CLB annotation，由 TKE 创建公网 CLB |
 | 内网 CLB | `Private` + `privateSubnetId` | 在 Service 上设置 `service.kubernetes.io/qcloud-loadbalancer-internal-subnetid=<子网ID>`，由 TKE 创建内网 CLB |
 
 `privateSubnetId` 必须是当前 TKE 集群 VPC 内可用于内网 CLB 的子网 ID。
 
 ### 4.2 新安装时直接使用内网 CLB
 
-如果从一开始就希望 AgentWay 入口使用内网 CLB，在安装时追加：
+如果从一开始就希望 AgentWay 入口使用内网 CLB，把安装命令中的 `mode=Public` 替换为以下参数：
 
 ```bash
 --set defaultInfraProvider.ingress.service.mode=Private \

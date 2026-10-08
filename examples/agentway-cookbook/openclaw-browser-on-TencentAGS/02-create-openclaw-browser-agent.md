@@ -1,17 +1,12 @@
-# 02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw
+# 02. 快速启动一个自带浏览器和角色设定的 OpenClaw
 
 ## 本章场景
 
-从业务负责人的视角看，你现在最关心的通常不是某个 CRD 叫什么名字，而是：
+本章创建带浏览器、默认角色描述和模型配置的 OpenClaw 实例，验证页面启动与模型调用。
 
-- 我怎么尽快把一个 OpenClaw 跑起来？
-- 它能不能一启动就自带常用 Skill？
-- 我能不能先给它定义一个默认角色描述？
-- 我能不能顺手把模型配置也注入进去，让它开箱即用？
+清单一次创建 **3 个 AGS Agent**，每个 2 CPU / 4Gi，合计 6 CPU / 12Gi；云端资源和费用按 3 个实例估算。只需要一个实例时，先删除清单中 `openclaw-browser-agent2`、`openclaw-browser-agent3` 两个文档块。
 
-这一章解决的就是这个问题：
-
-> 用一份完整 YAML，一次性把 OpenClaw 本体、常用 Skill、角色描述和模型配置都准备好。
+`skillPacks` 默认注释，本章只安装 SkillHub 工具，不承诺预装 Skill。可选技能安装见第 04、07 章。
 
 ---
 
@@ -23,30 +18,12 @@
 
 ---
 
-## 为什么这一章这样组织
-
-如果一开始只教用户“创建一个 Agent”，客户很快就会碰到这些问题：
-- Agent 启动了，但没有默认 Skill
-- Agent 能打开，但没有明确角色设定
-- Agent 容器里缺少模型配置文件，还要再补一次
-
-所以更贴近业务场景的做法不是只讲“怎么创建对象”，而是直接把下面四件事一起准备好：
-
-1. **OpenClaw 本体怎么运行**
-2. **它默认自带哪些 Skill**
-3. **它应该扮演什么角色**
-4. **它如何自动拿到模型配置**
-
-这样业务负责人第一次创建 OpenClaw 时，得到的就是一个更接近可用状态的结果，而不是一个还要继续手工补配置的空壳。
-
----
-
 ## 原理说明
 
 这一章虽然底层会用到 `AgentProfile`、`AgentTemplate` 和 `Agent` 三类对象，但你可以把它们理解成三层不同职责：
 
 - **运行画像**：定义 OpenClaw 镜像如何启动、对外怎么暴露、命令默认用哪个用户执行
-- **业务预设**：定义默认 Skill、角色描述、模型配置注入等“开箱即用能力”
+- **业务预设**：定义角色描述、模型配置注入和可选 Skill
 - **实例对象**：真正创建一个可以访问的 OpenClaw
 
 也就是说：
@@ -63,7 +40,7 @@
 ```mermaid
 flowchart LR
     Profile[运行画像]
-    Skills[常用 Skill]
+    Skills[可选 Skill，默认关闭]
     Files[角色描述 / 模型配置]
     Boot[启动脚本]
     Profile --> Template[业务套餐]
@@ -81,10 +58,10 @@ flowchart LR
 | 参数 | 是否必填 | 示例 |
 |---|---|---:|
 | namespace | 是 | `default` |
-| 模型配置 | 否 | 如需替换默认 provider，请修改 manifest 中的 `openclaw-model-config` |
-| 模型 API Key | 否 | 可通过 `MODEL_API_KEY` 环境变量覆盖 |
+| 模型配置 | 功能验收必填 | 确认 `openclaw-model-config` 中 provider、baseUrl、模型与 Key 匹配 |
+| 模型 API Key | 功能验收必填 | 将模板 env 中 `CHANGE_ME_MODEL_API_KEY` 换成真实 Key；仅验证页面启动时可以暂不配置 |
 | 角色描述 | 否 | 可以先使用文档里的默认值 |
-| Skill 列表 | 否 | `self-improving`、`find-skills`、`summarize`、`github` |
+| Skill 列表 | 可选 | 默认未启用 `skillPacks`，需要时自行配置并验收 |
 
 ---
 
@@ -93,7 +70,7 @@ flowchart LR
 执行完本章后，你会得到一组示例 OpenClaw Agent：
 - 运行在 Tencent Agent Runtime 上的 OpenClaw
 - 自带浏览器访问能力
-- 预装一组常用 Skill
+- 已安装 SkillHub 工具；默认不预装 Skill
 - 自带默认角色描述
 - 已经注入模型配置文件
 - 可以直接拿 URL 打开
@@ -105,7 +82,7 @@ flowchart LR
 
 你可以直接使用旁边的 manifest 文件：`./manifests/02-openclaw-browser-agent.yaml`
 
-如果你只是想直接执行，可以用：
+先替换模型 Key 并确认实例数量，再执行：
 
 ```bash
 kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/02-openclaw-browser-agent.yaml
@@ -113,19 +90,9 @@ kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/02-openclaw-browser-
 
 YAML 内容以上文链接的 `manifests/` 文件为唯一事实来源，本文不再重复维护。
 
-示例 manifest 中的 `volumeMounts` 支持声明多个持久化目录；如需复用同一个 CFS/COS 根路径下的精确目录，可以为每个挂载项设置 `subPath`。
+固定版本 `d5afc116` 使用小写 `volumeMounts[].subpath`：省略时按 Agent UID 和挂载名称隔离，显式填写时固定到文件系统中的指定目录。本例 `/shared` 挂载使用固定 `subpath: shared-subpath`，三个实例共享该目录；`/openclaw` 则各自隔离。
 
-> 显式存储方案：需要让不同目录使用不同 CFS/COS root，或让多个 Agent 按约定共享同一个后端目录时，使用 `storageSources[]` + `volumeMounts[].storageSource/subPath`。详细示例见 [11. 显式声明 OpenClaw 的存储挂载](./11-use-explicit-agent-storage.md)。
-
-> 说明：当 `AgentTemplate` 和 `Agent` 同时声明 `env` 时，最终会按 `key` merge。
-> 这个例子里：
-> - 模板默认提供 `MODEL_API_KEY=sk-from-template` 和 `OPENCLAW_MODE=browser`
-> - `Agent` 再把 `MODEL_API_KEY` 覆盖成 `sk-override-from-agent`
-> - 同时新增 `OPENCLAW_DEBUG=true`
-> 所以最终内联到 `Agent.spec.env` 的结果会是：
-> - `MODEL_API_KEY=sk-override-from-agent`
-> - `OPENCLAW_MODE=browser`
-> - `OPENCLAW_DEBUG=true`
+模板统一提供 `MODEL_API_KEY` 和 `OPENCLAW_MODE=browser`；第三个 Agent 追加 `OPENCLAW_DEBUG=true`。如需按实例覆盖模型 Key，可在该 Agent 的 `env` 中设置同名 key。
 
 ---
 
@@ -145,17 +112,13 @@ YAML 内容以上文链接的 `manifests/` 文件为唯一事实来源，本文�
 
 > 这个 OpenClaw 作为“运行时”应该怎样启动、存活和对外提供访问。
 
-### 2. 给 OpenClaw 预装一组常用 Skill
+### 2. 安装 SkillHub 工具（可选技能另行启用）
 
-`bootstrapScripts + skillPacks` 一起完成了两件事：
-- 先安装 SkillHub
-- 再安装一组常用 Skill
-
-这让你的 OpenClaw 第一次起来时，就已经具备基础能力，而不是还要人工进入容器里补安装。
+`bootstrapScripts` 安装 SkillHub 并创建工作目录。`skillPacks` 保持注释，因此默认没有 Skill 安装任务；页面可访问不代表 Skill 可用。需要预装时，取消注释并确认所选技能存在、安装状态成功，再在实例内检查技能目录。
 
 ### 3. 给 OpenClaw 一个默认角色描述
 
-`fileInjects` 中写入 `AGENT.md`，本质上就是在给 OpenClaw 提供默认工作说明。
+`fileInjects` 中写入 `AGENTS.md`，本质上就是在给 OpenClaw 提供默认工作说明。
 
 这样做的意义是：
 - 不同业务团队可以给不同 OpenClaw 预设不同人格和任务边界
@@ -284,10 +247,10 @@ kubectl get apiservice v1alpha1.connect.agentway.io
 
 ### 2. 安装并使用 `kubectl agent exec` 进入 shell
 
-首次使用时，在仓库根目录执行：
+首次使用时，从 cookbook 目录进入第 00 章获取的固定版本源码：
 
 ```bash
-cd operator
+cd agentway-v1.0.15-d5afc116/operator
 go build -o ./bin/kubectl-agent ./cmd/kubectl-agent
 mkdir -p "$HOME/.local/bin"
 install -m 755 ./bin/kubectl-agent "$HOME/.local/bin/kubectl-agent"
@@ -333,10 +296,10 @@ kubectl agent exec -n default openclaw-browser-agent -- bash -lc 'id && pwd && l
 做完后，你应该看到：
 - `status.phase=Running`
 - `status.accessURL` 非空
-- bootstrap、skill、file inject 都有状态记录
+- bootstrap、file inject 有成功状态记录；默认未启用 skillPacks，不要求 Skill 安装成功状态
 - `kubectl agent exec` 能通过 `Agent` 名称直接进入实例 shell
 
-换句话说，你拿到的不只是一个“创建成功的对象”，而是一个已经具备初始业务能力的 OpenClaw。
+页面启动、模型调用和 Skill 安装需要分别验收，不能用 `Running` 或 URL 非空替代功能验证。
 
 ---
 
@@ -351,10 +314,14 @@ kubectl get agent openclaw-browser-agent -n default -o yaml
 - `status.message`
 - `status.accessURL`
 - `status.bootstrapStatus`
-- `status.skillStatus`
+- `status.skillStatus`（仅启用 `skillPacks` 时检查）
 - `status.fileInjectStatus`
 
 如果这些都正常，你就可以把 `status.accessURL` 复制到浏览器打开。
+
+真实模型 Key 配置后，在 OpenClaw 页面发送一条消息，确认收到模型回复且没有鉴权错误。未完成这一步，只能认定页面/实例启动成功。
+
+如果启用了 `skillPacks`，还需确认 `status.skillStatus` 成功，并进入 shell 检查 `/openclaw/.openclaw/workspace/skills` 下存在对应技能，再实际触发一次技能使用。
 
 如果你还想进一步确认实例内部状态，可以直接进入 shell：
 

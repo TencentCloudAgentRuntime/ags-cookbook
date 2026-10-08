@@ -6,23 +6,31 @@
 
 ## 这条主线能帮你完成什么
 
-按顺序完成本目录下的章节后，你可以做到：
+按顺序完成当前版本支持的章节，你可以：
 
-1. 准备好 Kubernetes 集群并部署 AgentWay Operator
-2. 让平台具备把 Agent 放到 Tencent Agent Runtime 上运行的能力
-3. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw
-4. 通过 `Agent` CR 名称直接进入对应 AGS 实例的 shell 做验证或排障
-5. 保护 OpenClaw 只访问你允许的目标
-6. 把常用技能、角色和启动配置打包复用
-7. 用 Tags 给不同业务线做分账归属
-8. 在不删除实例的前提下暂停与恢复 OpenClaw
-9. 为已经在运行的 OpenClaw 批量增加 Skill，或按批触发运行态重启
-10. 将 OpenClaw 发布为具备稳定入口和多副本能力的服务型 Agent
-11. 在完整控制面 Console 中初始化 AGS Provider，并在运行时/模板中选择 AGS 沙箱
-12. 将 OpenClaw 发布为具备稳定入口和多副本能力的服务型 Agent
-13. 使用 agentway-exporter 观测 AgentWay 资产
-14. 了解新的显式存储挂载模型（提案中）
-15. 为临时 OpenClaw 配置 AGS 原生运行时回收
+1. 部署 Operator 并准备 AGS Provider
+2. 启动带浏览器和角色设定的 OpenClaw，配置真实模型 Key 后验收模型调用
+3. 通过 `Agent` CR 名称进入 AGS shell
+4. 配置出站网络策略、复用技能/文件配置和 Tags
+5. 暂停与恢复实例，对存量 Agent 分批升级技能或镜像
+6. 使用 AgentReplicaSet 和 AgentService 创建多副本服务与稳定入口
+7. 接入 Console 或 exporter，管理和观测资产
+
+## 版本与能力边界
+
+本目录 operator-only 路径固定使用镜像 `v1.0.15-d5afc116`，配套源码和 CRD 来自完整 SHA `d5afc116883d3ffbf9041b09adda39d640e29eb1`，不是同名 Git tag。
+
+| 内容 | 固定版本状态 |
+|---|---|
+| `volumeMounts[].subpath`（小写） | 支持；省略时按 UID 隔离，填写时固定到文件系统内指定路径 |
+| 第 02 章模型调用 | 需要真实模型 Key；默认创建 3 个 AGS Agent，不预装 Skill |
+| 第 03 章 `accessPolicy` / `trustCARefs` | 不支持，仅规划 |
+| 第 07/08 章 `agentReplicaSetName` / `agentMetadataStrategicPatch` | 不支持，仅规划；现有 Agent 可用 selector rollout |
+| `agentServiceOldBackendDetachTiming` | 不支持，使用固定版本默认切换时序 |
+| 第 11 章显式多存储来源 | 不支持，仅规划 |
+| 第 12 章 `expireAfter` 自动回收 | 不支持，仅规划，当前版本需显式清理 |
+
+规划材料放在 `planned-examples/*.yaml.txt`，不能作为当前版本可执行步骤。`manifests/` 仅保留与固定 CRD 字段匹配的清单。字段兼容校验不等于真实集群端到端验证；请按各章验收步骤验证运行结果。
 
 ---
 
@@ -30,7 +38,7 @@
 
 在开始之前，请准备：
 
-- 一个可用的 Kubernetes 集群
+- 一个可用的 Kubernetes 集群，至少预留 16 CPU / 16Gi 给 2 个 Operator Pod（每个 8 CPU / 8Gi），另需系统组件容量
 - `kubectl` 命令行
 - 有权限部署 Operator 的集群账号
 - Tencent Agent Runtime 所需凭证
@@ -61,11 +69,11 @@
 ### 01. 准备 Tencent Agent Runtime 基础设施
 让后续的 Agent 可以真正运行到 Tencent Agent Runtime 上。
 
-### 02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw
-让业务负责人可以一次性把 OpenClaw 本体、常用 Skill、角色描述和模型配置准备好。
+### 02. 快速启动一个自带浏览器和角色设定的 OpenClaw
+准备 OpenClaw、角色描述和模型配置；默认不预装 Skill，模型调用验收需要真实 Key。
 
 ### 03. 保护 OpenClaw 只访问你允许的目标
-从域名白名单到审批式访问控制，逐步加固网络边界；如果目标是使用企业私有 CA 的内网 HTTPS 服务，本章也介绍 Trust CA 配置形态（提案中）。
+从域名白名单到审批式访问控制，逐步加固网络边界；如果目标是使用企业私有 CA 的内网 HTTPS 服务，本章将入站策略和 Trust CA 标为当前版本不支持的规划内容。
 
 ### 04. 把常用技能、角色和启动配置打包复用
 把高频重复内容抽出来，后续创建 OpenClaw 时只需要组合引用。
@@ -77,7 +85,7 @@
 让已经在运行的 OpenClaw 可以临时挂起，并在需要时恢复服务。
 
 ### 07. 为存量 OpenClaw 批量增加 Skill
-当已有多个 OpenClaw 在运行时，用 rollout 分批给它们升级能力；也可以用 `restart-key` 按批触发运行态重启。
+当已有多个 OpenClaw 在运行时，用 selector rollout 分批升级技能或镜像；批量写入 restart-key 的接口不受固定版本支持。
 
 ### 08. 使用 AgentReplicaSet 和 AgentService 发布服务型 Agent
 让 OpenClaw 从单实例变成具备稳定入口和多副本能力的服务。
@@ -88,11 +96,11 @@
 ### 10. 使用 agentway-exporter 观测 AgentWay 资产
 部署 exporter，接入 Prometheus，并查看常用指标。
 
-### 11. 显式声明 OpenClaw 的存储挂载
-了解如何通过 `storageSources[]` 和 `volumeMounts[].storageSource/subPath/subPathExpr` 声明显式存储来源，并按静态 `subPath` 共享目录，或按 downward API env 生成每个 Agent 的隔离目录。
+### 11. 显式多存储来源（规划）
+说明未来设计与当前 `subpath` 写法的区别，不提供当前版本部署步骤。
 
-### 12. 为临时 OpenClaw 配置 AGS 原生运行时回收
-只通过 Agent CR 的 `spec.expireAfter` 创建限时 AGS 运行环境，并理解 `status.expiresAt`、自动回收和数据保留边界。
+### 12. 限时运行与自动回收（规划）
+固定版本不支持 `expireAfter`；说明显式清理方式及未来版本的验收要求。
 
 ---
 
@@ -120,7 +128,7 @@
 
 - [`./manifests/`](./manifests/)
 
-以下命令均从 `examples/agentway-cookbook` 目录执行。文档里展示的 YAML 不只是示意，也可以直接使用这些文件：
+以下命令均从 `examples/agentway-cookbook` 目录执行；只应用当前章节明确支持的文件，不要批量应用整个目录：
 
 ```bash
 kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/<文件名>.yaml
@@ -132,8 +140,7 @@ kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/<文件名>.yaml
 kubectl apply -f ./openclaw-browser-on-TencentAGS/manifests/00-01-connect.yaml
 kubectl rollout status deployment/agent-way-connect -n agent-way-system
 
-git clone --depth 1 --branch v1.0.15-d5afc116 \
-  https://github.com/TencentCloudAgentRuntime/agentway.git agentway-v1.0.15-d5afc116
+# 复用第 00 章按完整 SHA 获取的源码目录。
 cd agentway-v1.0.15-d5afc116/operator
 go build -o ./bin/kubectl-agent ./cmd/kubectl-agent
 mkdir -p "$HOME/.local/bin"
@@ -151,8 +158,8 @@ kubectl agent exec -n default openclaw-browser-agent
 
 - [00. 准备集群环境并部署 Operator](./00-prepare-cluster-and-deploy-operator.md)
 - [01. 准备 Tencent Agent Runtime 基础设施](./01-prepare-tencent-agent-runtime.md)
-- [02. 快速启动一个自带浏览器、技能和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
-- [03. 保护 OpenClaw 只访问你允许的目标，或访问使用私有 CA 的内网 HTTPS 服务](./03-build-secure-network-access-policy.md)
+- [02. 快速启动一个自带浏览器和角色设定的 OpenClaw](./02-create-openclaw-browser-agent.md)
+- [03. 出站网络策略，以及入站/私有 CA 规划](./03-build-secure-network-access-policy.md)
 - [04. 把常用技能、角色和启动配置打包复用](./04-reduce-agent-config-with-external-references.md)
 - [05. 用 Tags 给不同业务线做分账归属](./05-use-tags-for-chargeback.md)
 - [06. 在不删除实例的前提下暂停与恢复你的 OpenClaw](./06-pause-and-resume-openclaw.md)
@@ -160,5 +167,5 @@ kubectl agent exec -n default openclaw-browser-agent
 - [08. 使用 AgentReplicaSet 和 AgentService 发布服务型 Agent](./08-publish-openclaw-service-with-agentreplicaset.md)
 - [09. 通过 Console 初始化 AGS Provider 并创建 AGS Agent](./09-console-init-ags-provider.md)
 - [10. 使用 agentway-exporter 观测 AgentWay 资产](./10-observe-agentway-assets-with-exporter.md)
-- [11. 显式声明 OpenClaw 的存储挂载（提案中）](./11-use-explicit-agent-storage.md)
-- [12. 为 OpenClaw 设置 AGS 原生运行时回收](./12-reclaim-timed-openclaw-runtime.md)
+- [11. 显式多存储来源（规划，当前版本不支持）](./11-use-explicit-agent-storage.md)
+- [12. 自动回收（规划，当前版本不支持）](./12-reclaim-timed-openclaw-runtime.md)

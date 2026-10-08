@@ -39,12 +39,12 @@ spec:
     # 注意：当前不支持 initialDelaySeconds / exec / tcpSocket / grpc / httpHeaders。
 
   # 为 Hermes 预留持久化数据目录，配置、会话、skills、dashboard 状态都落在这里。
-  # 显式固定 subPath，避免 delete + apply 后因 Agent UID 变化漂移到新后端路径。
-  # 如果需要换 namespace、换 Agent 名称或者多实例部署，请把 subPath 改成你自己的唯一值。
+  # 显式固定 subpath，避免 delete + apply 后因 Agent UID 变化漂移到新后端路径。
+  # 如果需要换 namespace、换 Agent 名称或者多实例部署，请把 subpath 改成你自己的唯一值。
   volumeMounts:
     - name: hermes-data
       mountPath: /opt/data
-      subPath: default/hermes-dashboard-agent/hermes-data
+      subpath: default/hermes-dashboard-agent/hermes-data
 
 ---
 apiVersion: agent.agentway.io/v1alpha1

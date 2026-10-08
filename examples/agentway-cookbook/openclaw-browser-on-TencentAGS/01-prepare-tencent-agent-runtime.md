@@ -227,7 +227,7 @@ cfsStorage:
 
 这样后面排查和清理都会更直观。
 
-未设置 `volumeMounts[].storageSource` 时，Operator 会沿用 AgentSandboxProvider 默认存储。`volumeMounts[].subPath` 显式填写时会作为 CFS/COS root 下的相对路径；省略或填空时就按空 `subPath` 处理，最终后端路径就是 AgentSandboxProvider 配置的 CFS `path` 或 COS `bucketPath`，不会自动追加 `<namespace>_<agent-name>_<agent-uid>/<mount-name>`。如需隔离目录或共享目录，请显式填写 `subPath`；如需为不同挂载指定不同 CFS/COS root，请使用第 11 章的 `storageSources[]` + `storageSource` 方案。
+固定版本 `d5afc116` 的挂载字段为小写 `volumeMounts[].subpath`，只支持 Provider 默认存储，不支持 `storageSource` / `storageSources`。省略 `subpath` 时，Operator 在 Provider 的 CFS `path` 或 COS `bucketPath` 下追加 `<namespace>_<agent-name>_<agent-uid>/<mount-name>`。显式填写 `subpath` 时，它就是文件系统内固定的后端路径，不再拼接 Provider root，也不随 Agent UID 变化；多个 Agent 使用相同值会共享目录。显式多存储来源仅为第 11 章的规划内容，不要在当前版本应用。
 
 ### 6. `logConfig`：给 AGS sandbox provider 补充 CLS 日志采集配置
 

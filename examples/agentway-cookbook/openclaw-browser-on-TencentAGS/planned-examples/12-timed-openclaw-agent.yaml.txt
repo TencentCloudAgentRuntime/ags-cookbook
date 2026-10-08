@@ -1,3 +1,5 @@
+# 规划示例：固定版本 v1.0.15-d5afc116 不支持，禁止用于该版本的 kubectl apply。
+# 尚未绑定可执行的已发布 Operator 镜像、源码 SHA 和 CRD 组合。
 # 创建前替换 namespace、sandboxProviderRef 和 image 为你环境中的可用值。
 # expireAfter 使用 AGS 接受的原始 timeout 字符串；示例为 2 小时。
 apiVersion: agent.agentway.io/v1alpha1
