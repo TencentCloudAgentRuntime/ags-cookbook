@@ -7,7 +7,7 @@ Examples, tutorials, and utilities for building on Tencent Cloud Agent Sandbox /
 - **Skills**: reference Agent Skill example for AGS; see [`skills/README.md`](./skills/README.md)
 - **Tutorials**: SDK and notebook-based onboarding
 - **Examples**: runnable browser, code, mobile, Go, and OSWorld demos
-- **Benchmarks**: k6 stress scripts
+- **Benchmarks**: [k6 stress scripts](./benchmarks/k6/README.md) and [Agent Cluster Pod startup tests](./benchmarks/agent-cluster/README.md)
 - **Utils**: debugging helpers and validated runtime source components such as envd
 
 ## Repository requirements

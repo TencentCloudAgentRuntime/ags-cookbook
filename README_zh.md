@@ -7,7 +7,7 @@
 - **skills/**：AGS 的参考 Agent Skill 示例；详见 [`skills/README.md`](./skills/README.md)
 - **tutorials/**：SDK / Notebook 教程
 - **examples/**：可运行的浏览器、代码、移动端、Go、OSWorld 示例
-- **benchmarks/**：k6 压测脚本
+- **benchmarks/**：[k6 压测脚本](./benchmarks/k6/README.md)与 [Agent Cluster Pod 启动性能测试](./benchmarks/agent-cluster/performance-test-sop.md)
 - **utils/**：调试辅助工具及经过验证的 envd 等运行时源码组件
 
 ## 环境要求
