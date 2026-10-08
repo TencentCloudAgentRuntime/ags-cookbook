@@ -1,0 +1,216 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cube-cri-load-00000
+  namespace: cube-cri-load
+  labels:
+    app: cube-cri-load
+    load-test-batch: batch-000
+  annotations:
+    agc.cloud.tencent.com/cube-template-mode: auto
+spec:
+  runtimeClassName: cube-load
+  serviceAccountName: cube-cri-load
+  automountServiceAccountToken: true
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 0
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: false
+  tolerations:
+    - key: cube-cri-load
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: cube-cri-load
+
+  initContainers:
+    - name: init-write
+      image: mirror.ccs.tencentyun.com/library/node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+      imagePullPolicy: IfNotPresent
+      command: ["node", "-e"]
+      args:
+        - 'require("fs").writeFileSync("/shared/init-written", "initialized\n");'
+      resources:
+        requests:
+          cpu: 10m
+          memory: "0"
+        limits:
+          cpu: 10m
+          memory: "0"
+      volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+
+    - name: init-check
+      image: mirror.ccs.tencentyun.com/library/node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+      imagePullPolicy: IfNotPresent
+      command: ["node", "-e"]
+      args:
+        - |
+          const fs = require("fs");
+          if (!fs.statSync("/shared/init-written").size || !fs.statSync("/projected/namespace").size) process.exit(1);
+          fs.writeFileSync("/shared/init-complete", "ready\n");
+      resources:
+        requests:
+          cpu: 10m
+          memory: "0"
+        limits:
+          cpu: 10m
+          memory: "0"
+      volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        - name: projected-data
+          mountPath: /projected
+          readOnly: true
+
+  containers:
+    - name: main
+      image: mirror.ccs.tencentyun.com/library/node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+      imagePullPolicy: IfNotPresent
+      command: ["node", "-e"]
+      args:
+        - |
+          const fs = require("fs");
+          const http = require("http");
+          if (!fs.statSync("/shared/init-complete").size) process.exit(1);
+          http.createServer((request, response) => {
+            if (request.url === "/healthz") {
+              response.writeHead(200, {"content-type": "text/plain"});
+              response.end("ok\n");
+              return;
+            }
+            response.writeHead(404, {"content-type": "text/plain"});
+            response.end("not found\n");
+          }).listen(8080, "0.0.0.0");
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+      startupProbe:
+        httpGet:
+          path: /healthz
+          port: http
+        periodSeconds: 1
+        failureThreshold: 30
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: http
+        periodSeconds: 1
+        failureThreshold: 3
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: http
+        periodSeconds: 10
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: 50m
+          memory: "0"
+          ephemeral-storage: 512Mi
+        limits:
+          cpu: 50m
+          memory: "0"
+          ephemeral-storage: 512Mi
+      volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        - name: projected-data
+          mountPath: /projected
+          readOnly: true
+
+    - name: sidecar
+      image: mirror.ccs.tencentyun.com/library/node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+      imagePullPolicy: IfNotPresent
+      command: ["node", "-e"]
+      args:
+        - |
+          const fs = require("fs");
+          const net = require("net");
+          if (!fs.statSync("/shared/init-complete").size) process.exit(1);
+          net.createServer((socket) => {
+            socket.on("error", (error) => {
+              if (error.code !== "ECONNRESET" && error.code !== "EPIPE") console.error(error);
+              socket.destroy();
+            });
+            socket.end("ready\n");
+          }).listen(8081, "0.0.0.0");
+      ports:
+        - name: sidecar
+          containerPort: 8081
+          protocol: TCP
+      readinessProbe:
+        tcpSocket:
+          port: sidecar
+        periodSeconds: 1
+        failureThreshold: 3
+      livenessProbe:
+        tcpSocket:
+          port: sidecar
+        periodSeconds: 10
+        failureThreshold: 3
+      resources:
+        requests:
+          cpu: 17m
+          memory: "0"
+        limits:
+          cpu: 17m
+          memory: "0"
+      volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+
+    - name: net-admin
+      image: mirror.ccs.tencentyun.com/library/node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+      imagePullPolicy: IfNotPresent
+      command: ["node", "-e"]
+      args:
+        - |
+          if (!require("fs").statSync("/projected/namespace").size) process.exit(1);
+          setInterval(() => {}, 3600000);
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+      resources:
+        requests:
+          cpu: 16m
+          memory: "0"
+        limits:
+          cpu: 16m
+          memory: "0"
+      volumeMounts:
+        - name: projected-data
+          mountPath: /projected
+          readOnly: true
+
+  volumes:
+    - name: shared-data
+      emptyDir:
+        sizeLimit: 512Mi
+    - name: projected-data
+      projected:
+        sources:
+          - serviceAccountToken:
+              audience: cube-cri-load
+              expirationSeconds: 3600
+              path: token
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
