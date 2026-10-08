@@ -12,6 +12,9 @@ It works by copying a small overlay into a local OSWorld checkout. The overlay a
 
 ## Before You Start
 
+To create an OSWorld-compatible Tool, see the
+[custom image example](../osworld-custom-image/README.md).
+
 You need:
 
 - `uv` (used to manage an isolated Python 3.12.12 environment)
