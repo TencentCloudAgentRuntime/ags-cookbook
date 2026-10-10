@@ -1,0 +1,6 @@
+.env
+.state/
+.claude-code-build/
+dist/
+__pycache__/
+*.pyc

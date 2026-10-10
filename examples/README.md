@@ -14,6 +14,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 
 - [`agent-registry-multi-agent`](./agent-registry-multi-agent/README.md) — discover five governed A2A agents through Agent Registry and invoke them from DeepSeek Harness
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
+- `local-service-tunnel` — custom sandbox workload accessing a user-managed local or private service through a WebSocket tunnel
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
 - `dind` — self-starting Docker-in-Docker Tool that runs a real Terminal-Bench Compose task with Harbor Oracle
@@ -47,6 +48,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 |---|---|---|---|---|
 | [`agent-registry-multi-agent`](./agent-registry-multi-agent/README.md) | advanced | Node.js + A2A + MCP + DSH | `make run`, then `make register` | Includes Registry discovery and collaboration-view DSH plugin source |
 | `browser-agent` | advanced | Python + browser sandbox + LLM | `make run` | Requires OpenAI-compatible LLM backend env vars |
+| `local-service-tunnel` | advanced | Go/Python + custom sandbox + image volume | `make run` | Keeps service credentials local and forwards sandbox workload traffic through a user-managed WebSocket tunnel |
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | [`deployment-cookbook`](./deployment-cookbook/README.md) | advanced | agr CLI + Markdown + Python | Follow a scenario README | Covers deployment, scaling, lifecycle, affinity, a native MCP server, and a persistent agent workspace |
