@@ -1,5 +1,7 @@
 # 将 DSH Brain 与 Hands 接入 Agent Runtime 云端 Session 服务
 
+> 仅需 DSH 接入 Session，无需独立工作区服务，请阅读 [DSH Session 基础教程](../../session-cookbook/deepseek-harness/README_zh.md)。本示例演示 Session 与工作区路由的组合。
+
 本教程通过一个可运行示例，演示如何将运行 DSH agent loop 的 DSH Deployment（Brain 角色）及其调用的 Workspace Deployment（Hands 角色）接入腾讯云 Agent Runtime Session。示例使用 Session 保存对话 Events 以及关联的 Deployment 和 affinity 信息，并据此回到原 Hands workspace。
 
 本文中的 Brain 和 Hands 表示 DSH 组件承担的角色，底层都使用 Agent Runtime Deployment：Brain 运行 agent loop，Hands 承载 workspace 文件操作。
@@ -18,7 +20,7 @@
 
 ## 前置条件
 
-- 已安装 `agr` v0.6.6 或更高版本，并配置腾讯云凭证。
+- 已安装 `agr` v0.7.0 或更高版本，并配置腾讯云凭证。本教程使用 `agr session` 命令管理 SessionSpace、Session 和 Events，该命令从 v0.7.0 起提供。
 - 已准备创建自定义 Sandbox Tool 所需的 CAM 角色 ARN。
 - 当前账号能够管理 SessionSpace、Session、Sandbox Tool 和 Deployment，并能追加和查询 Events。
 - 已准备 TokenHub API Key。本示例镜像已预置 TokenHub provider 和 `deepseek-v4-flash` 模型配置。
@@ -91,15 +93,13 @@ export SESSION_SPACE_ID='space-replace-me'
 
 ```bash
 SESSION_SPACE_ID="$(
-  agr api call CreateSessionSpace \
+  agr session space create \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{
-      "Name":"'$SESSION_SPACE_NAME'",
-      "Description":"DSH Brain conversations"
-    }' \
+    --name "$SESSION_SPACE_NAME" \
+    --description "DSH Brain conversations" \
     --output json \
-    --jq '.Data.Response.Response.SessionSpace.SpaceId'
+    --jq '.Data.SessionSpace.SpaceId'
 )"
 export SESSION_SPACE_ID
 export SESSION_SPACE_CREATED_BY_TUTORIAL=1
@@ -263,21 +263,15 @@ What is 37 + 58? Use hands_write_file to store the numerical answer in session-v
 
 ```bash
 DSH_SESSION_ID="$(
-  agr api call DescribeSessions \
+  agr session list \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{
-      "SpaceId":"'$SESSION_SPACE_ID'",
-      "UserIds":["'$SESSION_USER_ID'"],
-      "Filters":[{
-        "Name":"metadata:example.com/brain-deployment-id",
-        "Values":["'$DSH_DEPLOYMENT_ID'"]
-      }],
-      "Offset":0,
-      "Limit":100
-    }' \
+    --space-id "$SESSION_SPACE_ID" \
+    --user-ids "$SESSION_USER_ID" \
+    --filters '[{"Name":"metadata:example.com/brain-deployment-id","Values":["'"$DSH_DEPLOYMENT_ID"'"]}]' \
+    --limit 100 \
     --output json \
-    --jq '.Data.Response.Response.Sessions | max_by(.CreateTime) | .SessionId'
+    --jq '(.Data.Sessions // []) | max_by(.CreateTime) | .SessionId // empty'
 )"
 export DSH_SESSION_ID
 echo "$DSH_SESSION_ID"
@@ -287,24 +281,22 @@ echo "$DSH_SESSION_ID"
 
 ```bash
 DSH_SESSION_JSON="$(
-  agr api call DescribeSession \
+  agr session get \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{
-      "SpaceId":"'$SESSION_SPACE_ID'",
-      "UserId":"'$SESSION_USER_ID'",
-      "SessionId":"'$DSH_SESSION_ID'"
-    }' \
+    --space-id "$SESSION_SPACE_ID" \
+    --user-id "$SESSION_USER_ID" \
+    --session-id "$DSH_SESSION_ID" \
     --output json
 )"
 
 RESTORED_HANDS_DEPLOYMENT_ID="$(
-  jq -r '.Data.Response.Response.Session.Metadata[]
+  jq -r '(.Data.Session.Metadata // [])[]
     | select(.Name == "example.com/hands-deployment-id")
     | .Value' <<<"$DSH_SESSION_JSON"
 )"
 RESTORED_HANDS_AFFINITY_ID="$(
-  jq -r '.Data.Response.Response.Session.Metadata[]
+  jq -r '(.Data.Session.Metadata // [])[]
     | select(.Name == "example.com/hands-affinity-id")
     | .Value' <<<"$DSH_SESSION_JSON"
 )"
@@ -346,30 +338,21 @@ curl --fail-with-body \
 最后查看本次交互的 Events，并通过 Workspace Deployment ID 反向确认同一个 Session：
 
 ```bash
-agr api call DescribeEvents \
+agr session event list \
   --region "$AGR_REGION" \
   --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$DSH_SESSION_ID'",
-    "Offset":0,
-    "Limit":100
-  }' \
+  --space-id "$SESSION_SPACE_ID" \
+  --user-id "$SESSION_USER_ID" \
+  --session-id "$DSH_SESSION_ID" \
+  --limit 200 \
   --output json
 
-agr api call DescribeSessions \
+agr session list \
   --region "$AGR_REGION" \
   --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "Filters":[{
-      "Name":"metadata:example.com/hands-deployment-id",
-      "Values":["'$RESTORED_HANDS_DEPLOYMENT_ID'"]
-    }],
-    "Offset":0,
-    "Limit":20
-  }' \
+  --space-id "$SESSION_SPACE_ID" \
+  --filters '[{"Name":"metadata:example.com/hands-deployment-id","Values":["'"$RESTORED_HANDS_DEPLOYMENT_ID"'"]}]' \
+  --limit 20 \
   --output json
 ```
 
@@ -387,7 +370,7 @@ export DSH_DEPLOYMENT_ID='dpl-copy-from-dsh-response'
 export HANDS_DEPLOYMENT_ID='dpl-copy-from-workspace-response'
 ```
 
-其中 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT` 应与创建资源时的配置保持一致。`agr` 还需要使用本地已配置的腾讯云凭证调用控制面 API。设置完成后，在 `examples/deployment-cookbook/session` 目录运行：
+其中 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT` 应与创建资源时的配置保持一致。`agr` 还需要使用本地已配置的腾讯云凭证调用控制面 API。设置完成后，在 `examples/deployment-cookbook/session-workspace` 目录运行：
 
 ```bash
 python3 session_demo.py
@@ -437,16 +420,20 @@ Hands workspace 文件保存在 Hands Sandbox 中，不存储在 Agent Runtime S
 delete_sessions_for_deployment() {
   metadata_name="$1"
   deployment_id="$2"
-  agr api call DescribeSessions \
+  agr session list \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{"SpaceId":"'$SESSION_SPACE_ID'","Filters":[{"Name":"metadata:'"$metadata_name"'","Values":["'"$deployment_id"'"]}],"Offset":0,"Limit":100}' \
+    --space-id "$SESSION_SPACE_ID" \
+    --filters '[{"Name":"metadata:'"$metadata_name"'","Values":["'"$deployment_id"'"]}]' \
+    --limit 100 \
     --output json \
-    --jq '.Data.Response.Response.Sessions[].SessionId' | while read -r session_id; do
-      agr api call DeleteSession \
+    --jq '(.Data.Sessions // [])[].SessionId' | while read -r session_id; do
+      agr session delete \
         --region "$AGR_REGION" \
         --cloud-endpoint "$SESSION_API_ENDPOINT" \
-        --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'"$session_id"'"}' \
+        --space-id "$SESSION_SPACE_ID" \
+        --user-id "$SESSION_USER_ID" \
+        --session-id "$session_id" \
         --output json
     done
 }
@@ -496,10 +483,10 @@ agr tool delete "$HANDS_TOOL_ID" \
 
 ```bash
 if [ "${SESSION_SPACE_CREATED_BY_TUTORIAL:-0}" = 1 ]; then
-  agr api call DeleteSessionSpace \
+  agr session space delete \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
+    --space-id "$SESSION_SPACE_ID" \
     --output json
 fi
 ```

@@ -16,6 +16,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
+- [`session-cookbook`](./session-cookbook/README.md) — keep framework conversations in cloud Session and reload them in a fresh process
 - `dind` — self-starting Docker-in-Docker Tool that runs a real Terminal-Bench Compose task with Harbor Oracle
 - `envd-oci-env` — preserve OCI image environment variables when envd is PID 1
 - `github-actions-sandbox` — evaluate candidate code in AGS from GitHub Actions and collect test reports
@@ -50,6 +51,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | [`deployment-cookbook`](./deployment-cookbook/README.md) | advanced | agr CLI + Markdown + Python | Follow a scenario README | Covers deployment, scaling, lifecycle, affinity, a native MCP server, and a persistent agent workspace |
+| [`session-cookbook`](./session-cookbook/README.md) | advanced | Docker + Node.js + Python | Follow a framework README | Keep framework conversations in cloud Session and reload them in a fresh process |
 | `dind` | advanced | Docker + Compose + envd + Harbor + agr | `make run` | Creates a DinD Tool and runs a real Terminal-Bench Compose task with Harbor Oracle |
 | `envd-oci-env` | advanced | Bash + Docker + agr | `make run` | Reproduces and validates envd OCI environment inheritance |
 | `github-actions-sandbox` | advanced | Python + GitHub Actions + code sandbox | `make run` | Evaluate candidate code in AGS from GitHub Actions and collect test reports |

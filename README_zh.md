@@ -85,6 +85,7 @@ make example-run EXAMPLE=mini-rl
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
 | `data-analysis` | Python + 代码沙箱 | 多 Context 数据分析 |
 | `deployment-cookbook` | agr CLI + Markdown | Deployment、伸缩、生命周期、亲和性与长驻 Agent 工作区场景 |
+| [`session-cookbook`](./examples/session-cookbook/README_zh.md) | Docker + Node.js + Python | 把框架会话存到云端 Session，并在新进程恢复 |
 | `dind` | Docker + Compose + envd + Harbor + agr | 自启动 DinD 沙箱，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务 |
 | `envd-oci-env` | Bash + Docker + agr | envd 作为 PID 1 时保留 OCI 镜像环境变量 |
 | `github-actions-sandbox` | Python + GitHub Actions + 代码沙箱 | 从 GitHub Actions 调用 AGS 评测候选代码并回收测试报告 |
