@@ -370,7 +370,7 @@ export DSH_DEPLOYMENT_ID='dpl-copy-from-dsh-response'
 export HANDS_DEPLOYMENT_ID='dpl-copy-from-workspace-response'
 ```
 
-Keep `AGR_REGION`, `AGR_DOMAIN`, and `SESSION_API_ENDPOINT` consistent with the values used to create the resources. The `agr` client also needs locally configured Tencent Cloud credentials for control-plane API calls. Then run the command from `examples/deployment-cookbook/session-workspace`:
+Keep `AGR_REGION`, `AGR_DOMAIN`, and `SESSION_API_ENDPOINT` consistent with the values used to create the resources. The `agr` client also needs locally configured Tencent Cloud credentials for control-plane API calls. Then run the command from `examples/deployment-cookbook/brain-hands-session`:
 
 ```bash
 python3 session_demo.py

@@ -6,7 +6,7 @@ DeepSeek Harness（下文简称 DSH）默认将会话保存在本地磁盘的 JS
 
 本示例将 DSH 的会话持久化对接到云端的 Agent Runtime Session：与 DSH 完成一轮对话后删除容器，再启动全新的容器，即可从云端加载原会话并继续对话。
 
-本示例只涉及会话持久化。如需同时保留工作区文件，并将后续请求路由回原工作区，请参考 [Session 与工作区关联示例](../../deployment-cookbook/session-workspace/README_zh.md)。
+本示例只涉及会话持久化。如需同时保留工作区文件，并将后续请求路由回原工作区，请参考 [Session 与工作区关联示例](../../deployment-cookbook/brain-hands-session/README_zh.md)。
 
 **操作步骤**
 
@@ -247,7 +247,7 @@ DSH  →  持久化插件  →  SessionSpace  →  Session（会话元数据）+
 
 持久化插件注册为 DSH 的持久化后端，替代内置的 JSONL 实现。DSH 创建会话时，插件在云端创建对应的 `Session`，并将 header 写入其中；此后 DSH 每向会话日志追加一条记录，插件就将其转换为云端 `Event` 并追加到该 `Session`；DSH 再次打开该会话时，插件读回 header 和这些 Event，重建日志。
 
-插件通过 DSH 启动参数 `--patch` 加载 [Cordis 补丁](./dockerfiles/agent-runtime-session.cordis.yml)完成替换。本插件是 [Session 与工作区关联示例](../../deployment-cookbook/session-workspace/README_zh.md)的纯持久化版本，不注册工具，也不调用 Deployment API。
+插件通过 DSH 启动参数 `--patch` 加载 [Cordis 补丁](./dockerfiles/agent-runtime-session.cordis.yml)完成替换。本插件是 [Session 与工作区关联示例](../../deployment-cookbook/brain-hands-session/README_zh.md)的纯持久化版本，不注册工具，也不调用 Deployment API。
 
 ### 数据存储位置
 

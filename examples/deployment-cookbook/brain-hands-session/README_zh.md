@@ -370,7 +370,7 @@ export DSH_DEPLOYMENT_ID='dpl-copy-from-dsh-response'
 export HANDS_DEPLOYMENT_ID='dpl-copy-from-workspace-response'
 ```
 
-其中 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT` 应与创建资源时的配置保持一致。`agr` 还需要使用本地已配置的腾讯云凭证调用控制面 API。设置完成后，在 `examples/deployment-cookbook/session-workspace` 目录运行：
+其中 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT` 应与创建资源时的配置保持一致。`agr` 还需要使用本地已配置的腾讯云凭证调用控制面 API。设置完成后，在 `examples/deployment-cookbook/brain-hands-session` 目录运行：
 
 ```bash
 python3 session_demo.py

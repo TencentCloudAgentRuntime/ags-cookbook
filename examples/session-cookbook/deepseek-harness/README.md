@@ -6,7 +6,7 @@ DeepSeek Harness (DSH) writes conversations to a JSONL file on local disk. When 
 
 This example connects DSH's conversation persistence to Agent Runtime Session in the cloud. You have a conversation with DSH, delete the container, start a brand-new one, and load the same conversation from the cloud to continue where you left off.
 
-It covers conversation persistence only. To also keep workspace files and route later requests back to the same workspace, see [Session and workspace association](../../deployment-cookbook/session-workspace/README.md).
+It covers conversation persistence only. To also keep workspace files and route later requests back to the same workspace, see [Session and workspace association](../../deployment-cookbook/brain-hands-session/README.md).
 
 **Steps**
 
@@ -247,7 +247,7 @@ DSH  →  persistence plugin  →  SessionSpace  →  Session (conversation meta
 
 The persistence plugin registers itself as DSH's persistence backend and takes over from the built-in JSONL one. When DSH creates a conversation, the plugin creates a matching cloud `Session` and stores the header in it. From then on, whenever DSH appends to the conversation, the plugin turns that entry into a cloud `Event` and appends it to the `Session`. When DSH later reopens the conversation, the plugin reads back the header and the events and rebuilds the log.
 
-The swap is done by loading a [Cordis patch](./dockerfiles/agent-runtime-session.cordis.yml) through DSH's `--patch` startup flag. This plugin is the persistence-only version of the [Session and workspace association](../../deployment-cookbook/session-workspace/README.md) example: it registers no tools and makes no Deployment API calls.
+The swap is done by loading a [Cordis patch](./dockerfiles/agent-runtime-session.cordis.yml) through DSH's `--patch` startup flag. This plugin is the persistence-only version of the [Session and workspace association](../../deployment-cookbook/brain-hands-session/README.md) example: it registers no tools and makes no Deployment API calls.
 
 ### Where each piece of data lands
 
