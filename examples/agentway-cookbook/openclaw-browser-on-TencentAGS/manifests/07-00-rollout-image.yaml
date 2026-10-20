@@ -1,0 +1,17 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: openclaw-browser-image-rollout
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: openclaw-browser
+  agentSpecStrategicPatch:
+    profile:
+      image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12-rollout
+  strategy:
+    type: Rolling
+    batchSize: 20%
+    maxUnavailable: 1
+    intervalSeconds: 1

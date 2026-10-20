@@ -1,0 +1,87 @@
+# Chapter 08 single-Agent AgentService setup example.
+# Prerequisites:
+# - Chapter 01 has created SandboxProvider named openclaw-tencent-runtime.
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: claim-bot-primary
+  namespace: default
+  labels:
+    app: claim-bot-primary
+    service.agentway.io/name: claim-bot-primary
+spec:
+  sandboxProviderRef: openclaw-tencent-runtime
+  authMode: none
+  profile:
+    image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12
+    command: ["/init"]
+    ports:
+    - name: port-9000
+      port: 9000
+      protocol: TCP
+    - name: extra-9001
+      port: 9001
+      protocol: TCP
+    startupProbe:
+      httpGet:
+        path: /ping
+        port: 9000
+      timeoutSeconds: 2
+      periodSeconds: 5
+      successThreshold: 1
+      failureThreshold: 12
+    env:
+      - key: OPENCLAW_MODE
+        value: "browser"
+  bootstrapScripts:
+    - name: start-port-9001
+      interpreter: bash
+      script: |
+        cat >/tmp/agentservice_port9001.py <<'PY'
+        import json
+        import socket
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        INSTANCE_ID = socket.gethostname()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = json.dumps({
+                    "status": "ok",
+                    "port": 9001,
+                    "instance": INSTANCE_ID,
+                    "path": self.path,
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        ThreadingHTTPServer(("0.0.0.0", 9001), Handler).serve_forever()
+        PY
+        nohup python3 /tmp/agentservice_port9001.py >/tmp/agentservice_port9001.log 2>&1 &
+        sleep 1
+        curl -fsS http://127.0.0.1:9001/ping >/tmp/agentservice_port9001.ready
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentService
+metadata:
+  name: claim-bot-primary
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: claim-bot-primary
+      service.agentway.io/name: claim-bot-primary
+  ports:
+    - name: http-9000
+      protocol: HTTP
+      port: 9000
+    - name: http-9001
+      protocol: HTTP
+      port: 9001

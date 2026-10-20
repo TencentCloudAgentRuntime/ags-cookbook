@@ -1,0 +1,38 @@
+# 第七章联调：SkillPack v1 / v2 + 一个使用 skillPackRef 的测试 Agent。
+# 前置：已按 cookbook 02 应用 AgentProfile / AgentTemplate（openclaw-browser-template）与 01 的 Tencent Runtime（openclaw-tencent-runtime）。
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: SkillSource
+metadata:
+  name: tencent-skill-hub
+  namespace: default
+spec:
+  installCommand: "/root/.local/bin/skillhub --dir $AGENT_SKILL_DIR install {{name}} --force"
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: SkillPack
+metadata:
+  name: openclaw-browser-skills
+  namespace: default
+spec:
+  name: openclaw-browser-skills
+  source: tencent-skill-hub
+  skills:
+    - self-improving
+    - find-skills
+    - summarize
+    - github
+---
+# 实例级 skillPackRefs 会覆盖模板中的内联 skillPacks，便于只测「ref → v2 rollout」路径。
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-skills-ref-test
+  namespace: default
+  labels:
+    app: openclaw-browser-rollout
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  skillPackRefs:
+    - openclaw-browser-skills

@@ -1,0 +1,25 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: openclaw-browser-allow-one-host
+  namespace: default
+spec:
+  defaultDecision: deny
+  rules:
+    - name: allow-one-host
+      hosts:
+        - <YOUR_ALLOWED_HOST>
+      protocol: https
+      port: 443
+      method: GET,POST
+      action: allow
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-direct
+  namespace: default
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  netPolicyRef: openclaw-browser-allow-one-host

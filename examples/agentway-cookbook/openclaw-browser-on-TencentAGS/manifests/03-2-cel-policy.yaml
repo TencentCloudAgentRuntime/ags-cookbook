@@ -1,0 +1,28 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: openclaw-browser-cel-guard
+  namespace: default
+spec:
+  defaultDecision: allow
+  rules:
+    - name: deny-sensitive-write-actions
+      hosts:
+        - git.internal.company.com
+      protocol: https
+      port: 443
+      scriptDetector:
+        lang: cel
+        source: 'request.method in ["POST", "PUT", "DELETE"]'
+        failureAsMatch: false
+      action: deny
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: openclaw-browser-agent-cel
+  namespace: default
+spec:
+  templateRef: openclaw-browser-template
+  sandboxProviderRef: openclaw-tencent-runtime
+  netPolicyRef: openclaw-browser-cel-guard

@@ -1,0 +1,42 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: Agent
+metadata:
+  name: exporter-sample-agent
+  namespace: default
+spec:
+  sandboxProviderRef: default
+  tags:
+    - key: team.name/owner
+      value: ai-platform
+    - key: env
+      value: dev
+  resources:
+    cpu: "1"
+    memory: 2Gi
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentNetPolicy
+metadata:
+  name: exporter-sample-policy
+  namespace: default
+spec:
+  selector:
+    matchLabels: {}
+  defaultDecision: deny
+  rules:
+    - name: allow-example
+      action: allow
+      host: example.com
+      port: 443
+      protocol: https
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: exporter-sample-rollout
+  namespace: default
+spec:
+  templateRef: exporter-sample-template
+  selector:
+    matchLabels: {}
+  dryRun: true

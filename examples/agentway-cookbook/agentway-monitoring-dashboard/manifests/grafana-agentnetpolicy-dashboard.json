@@ -1,0 +1,563 @@
+{
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "uid": "agentway-agentnetpolicy-overview",
+  "title": "AgentWay AgentNetPolicy 监控",
+  "tags": [
+    "agentway",
+    "agentnetpolicy",
+    "exporter",
+    "dev"
+  ],
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Datasource",
+        "current": {
+          "text": "meta-agentway-cls-sh-public",
+          "value": "PB566E4C64303B1B0"
+        },
+        "options": [
+          {
+            "text": "meta-agentway-cls-sh-public",
+            "value": "PB566E4C64303B1B0",
+            "selected": true
+          }
+        ]
+      },
+      {
+        "name": "clusterID",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agentnetpolicy_info, clusterID)",
+        "label": "Cluster",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "cls-xxx",
+          "value": "cls-xxx"
+        }
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(agentway_agentnetpolicy_info{clusterID=~\"$clusterID\"}, namespace)",
+        "label": "Namespace",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "default",
+          "value": "default"
+        }
+      },
+      {
+        "name": "agentnetpolicy",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "query_result(label_replace(vector(1), \"agentnetpolicy\", \"__select_agentnetpolicy__\", \"agentnetpolicy\", \".*\") or agentway_agentnetpolicy_info{clusterID=~\"$clusterID\",namespace=~\"$namespace\"})",
+        "refresh": 1,
+        "label": "Policy",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "__select_agentnetpolicy__"
+          ],
+          "value": [
+            "__select_agentnetpolicy__"
+          ]
+        },
+        "regex": "/agentnetpolicy=\"([^\"]+)\"/"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "1. AgentNetPolicy 顶层结果",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Policies",
+      "description": "当前筛选条件下的 AgentNetPolicy 数量。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(agentway_agentnetpolicy_info{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"})",
+          "legendFormat": "policies",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Failed",
+      "description": "状态为 Failed 的 AgentNetPolicy 数量。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "(sum(agentway_agentnetpolicy_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\",phase=\"Failed\"} == 1)) or vector(0)",
+          "legendFormat": "failed",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Pending",
+      "description": "状态为 Pending 的 AgentNetPolicy 数量，表示策略尚未完成同步/收敛。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "(sum(agentway_agentnetpolicy_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\",phase=\"Pending\"} == 1)) or vector(0)",
+          "legendFormat": "pending",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 4
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Synced/Ready",
+      "description": "状态为 Synced 或 Ready 的 AgentNetPolicy 数量，表示策略已同步或已就绪。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "(sum(agentway_agentnetpolicy_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\",phase=~\"Synced|Ready\"} == 1)) or vector(0)",
+          "legendFormat": "ok",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "Sync Pending",
+      "type": "stat",
+      "description": "metadata.generation 大于 status.observedGeneration 的 AgentNetPolicy 数量。全量更新后这里会先升高，controller 处理完成后回到 0。",
+      "gridPos": {
+        "x": 19,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "(sum((agentway_agentnetpolicy_metadata_generation{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"} - agentway_agentnetpolicy_observed_generation{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"}) > 0)) or vector(0)",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "type": "row",
+      "title": "2. AgentNetPolicy 过程指标",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 6
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "策略状态",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "agentway_agentnetpolicy_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"} == 1",
+          "legendFormat": "{{namespace}}/{{agentnetpolicy}} {{phase}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "AgentNetPolicy 当前状态。legend 包含策略名和 phase；只展示值为 1 的当前状态线。"
+    },
+    {
+      "id": 11,
+      "title": "Generation 同步进度",
+      "type": "timeseries",
+      "description": "展示 metadata.generation 与 status.observedGeneration。spec 全量更新时 generation 会变化；reconcile 成功后 observedGeneration 追上。",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "agentway_agentnetpolicy_metadata_generation{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"}",
+          "legendFormat": "{{agentnetpolicy}} generation",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "agentway_agentnetpolicy_observed_generation{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"}",
+          "legendFormat": "{{agentnetpolicy}} observed",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Condition age（状态切换距今）",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "time() - agentway_agentnetpolicy_condition_last_transition_time_seconds{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\"}",
+          "legendFormat": "{{namespace}}/{{agentnetpolicy}} {{type}}={{status}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Ready/Failed 等 condition 上一次真正发生状态切换距现在多久；普通 spec 更新后仍为 Ready 时，这个值不会变化。"
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "策略异常",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "expr": "agentway_agentnetpolicy_condition{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\",status=\"False\"}",
+          "legendFormat": "{{namespace}}/{{agentnetpolicy}} {{type}}=False",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        },
+        {
+          "expr": "agentway_agentnetpolicy_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentnetpolicy=~\"$agentnetpolicy\",phase=\"Failed\"} == 1",
+          "legendFormat": "{{namespace}}/{{agentnetpolicy}} Failed",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": false
+            },
+            "renameByName": {
+              "Metric": "item",
+              "Value": "value"
+            }
+          }
+        }
+      ],
+      "description": "只列 AgentNetPolicy 异常对象，包括 Ready=False 或 phase=Failed 的策略。"
+    }
+  ]
+}

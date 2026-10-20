@@ -1,0 +1,79 @@
+# AgentWay Monitoring Dashboard - PromQL examples
+# Replace clusterID / namespace / object names according to your environment.
+
+# 1. Agent overall state distribution.
+sum by (clusterID, namespace, phase) (agentway_agent_phase{clusterID=~"$clusterID", namespace=~"$namespace"})
+
+# 2. Agents currently in a non-ready or failed-like phase.
+agentway_agent_phase{clusterID=~"$clusterID", namespace=~"$namespace", phase=~"Failed|Error|Unknown|Pending"} == 1
+
+# 3. Agent state timeline. Grafana legend should use {{namespace}}/{{agent}} {{phase}}.
+agentway_agent_phase{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"} == 1
+
+# 4. Filter Agents by Kubernetes label and Agent spec tag using kube-state-metrics style joins.
+agentway_agent_info{clusterID=~"$clusterID", namespace=~"$namespace"}
+  and on(namespace, agent) agentway_agent_labels{label_app=~"$labelValue"}
+  and on(namespace, agent) agentway_agent_tags{tag_env=~"$tagValue"}
+
+# 5. CPU usage ratio by Agent. Requires Barad usage data and CPU limit.
+100 * agentway_agent_cpu_usage_cores{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+  / clamp_min(agentway_agent_resource_limits_cpu_cores{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}, 0.001)
+
+# 6. Memory usage ratio by Agent. Requires Barad usage data and memory limit.
+100 * agentway_agent_memory_usage_bytes{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+  / clamp_min(agentway_agent_resource_limits_memory_bytes{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}, 1)
+
+# 7a. Sandbox liveness.
+agentway_agent_sandbox_alive{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 7b. Barad usage data availability.
+agentway_agent_sandbox_metrics_available{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 8. Usage data delay. Large values usually mean Barad has not returned fresh data.
+agentway_agent_sandbox_metrics_cache_age_seconds{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 9a. Skill applied count.
+agentway_agent_skill_applied_count{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 9b. Skill expected/total count.
+agentway_agent_skill_total_count{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 10a. Agent network policy stale state.
+agentway_agent_network_policy_stale{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 10b. Seconds since the Agent network policy was last synced.
+time() - agentway_agent_network_policy_last_sync_timestamp_seconds{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+
+# 11a. AgentNetPolicy state.
+agentway_agentnetpolicy_phase{clusterID=~"$clusterID", namespace=~"$namespace", agentnetpolicy=~"$agentnetpolicy"} == 1
+
+# 11b. Seconds since AgentNetPolicy condition last changed.
+time() - agentway_agentnetpolicy_condition_last_transition_time_seconds{clusterID=~"$clusterID", namespace=~"$namespace", agentnetpolicy=~"$agentnetpolicy"}
+
+# 12a. Rollout matched Agents.
+agentway_agentrollout_matched_agents{clusterID=~"$clusterID", namespace=~"$namespace", agentrollout=~"$agentrollout"}
+
+# 12b. Rollout updated Agents.
+agentway_agentrollout_updated_agents{clusterID=~"$clusterID", namespace=~"$namespace", agentrollout=~"$agentrollout"}
+
+# 12c. Rollout ready Agents.
+agentway_agentrollout_ready_agents{clusterID=~"$clusterID", namespace=~"$namespace", agentrollout=~"$agentrollout"}
+
+# 12d. Rollout failed Agents.
+agentway_agentrollout_failed_agents{clusterID=~"$clusterID", namespace=~"$namespace", agentrollout=~"$agentrollout"}
+
+# 13a. Exporter scrape health.
+up{job="agentway-exporter", clusterID=~"$clusterID"}
+
+# 13b. Barad usage cache entry count.
+agentway_exporter_runtime_metric_cache_entries{clusterID=~"$clusterID"}
+
+# 14. Runtime metrics from Barad / Cloud Monitor. These metric names are semantic and do not include the data-source name.
+agentway_agent_cpu_usage_percent{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_memory_usage_percent{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_disk_read_bytes_per_second{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_disk_write_bytes_per_second{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_filesystem_usage_percent{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_filesystem_used_bytes{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_network_receive_bytes_per_second{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}
+agentway_agent_network_transmit_bytes_per_second{clusterID=~"$clusterID", namespace=~"$namespace", agent=~"$agent"}

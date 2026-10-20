@@ -1,0 +1,409 @@
+{
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "uid": "agentway-rollout-overview",
+  "title": "AgentWay Rollout 监控",
+  "tags": [
+    "agentway",
+    "rollout",
+    "exporter",
+    "dev"
+  ],
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Datasource",
+        "current": {
+          "text": "meta-agentway-cls-sh-public",
+          "value": "PB566E4C64303B1B0"
+        },
+        "options": [
+          {
+            "text": "meta-agentway-cls-sh-public",
+            "value": "PB566E4C64303B1B0",
+            "selected": true
+          }
+        ]
+      },
+      {
+        "name": "clusterID",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PB566E4C64303B1B0"
+        },
+        "query": "label_values(agentway_agentrollout_info, clusterID)",
+        "label": "Cluster",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "cls-xxx",
+          "value": "cls-xxx"
+        }
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PB566E4C64303B1B0"
+        },
+        "query": "label_values(agentway_agentrollout_info{clusterID=~\"$clusterID\"}, namespace)",
+        "label": "Namespace",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "default",
+          "value": "default"
+        }
+      },
+      {
+        "name": "agentrollout",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "PB566E4C64303B1B0"
+        },
+        "query": "label_values(agentway_agentrollout_info{clusterID=~\"$clusterID\",namespace=~\"$namespace\"}, agentrollout)",
+        "label": "Rollout",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "1. Rollout 顶层结果",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Rollouts",
+      "description": "当前筛选条件下的 AgentRollout 数量。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PB566E4C64303B1B0"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(agentway_agentrollout_info{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"})",
+          "legendFormat": "rollouts",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "更新中",
+      "description": "仍处于 Pending/Running/Progressing/Paused 的 Rollout 数量。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PB566E4C64303B1B0"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "(sum(agentway_agentrollout_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\",phase=~\"Pending|Running|Progressing|Paused\"} == 1)) or vector(0)",
+          "legendFormat": "updating",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "失败",
+      "description": "Failed 或 Degraded 的 Rollout 数量。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PB566E4C64303B1B0"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "(sum(agentway_agentrollout_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\",phase=~\"Failed|Degraded\"} == 1)) or vector(0)",
+          "legendFormat": "bad",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 4
+    },
+    {
+      "type": "row",
+      "title": "2. Rollout 过程指标",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 5
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Rollout 状态",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PB566E4C64303B1B0"
+      },
+      "targets": [
+        {
+          "expr": "agentway_agentrollout_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"} == 1",
+          "legendFormat": "{{namespace}}/{{agentrollout}} {{phase}}",
+          "refId": "A",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "AgentRollout 当前状态。legend 包含 rollout 名和 phase；只展示值为 1 的当前状态线。"
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Rollout 进度",
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 16,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PB566E4C64303B1B0"
+      },
+      "targets": [
+        {
+          "expr": "agentway_agentrollout_matched_agents{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"}",
+          "legendFormat": "{{namespace}}/{{agentrollout}} matched",
+          "refId": "A",
+          "format": "time_series"
+        },
+        {
+          "expr": "agentway_agentrollout_planned_agents{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"}",
+          "legendFormat": "{{namespace}}/{{agentrollout}} planned",
+          "refId": "B",
+          "format": "time_series"
+        },
+        {
+          "expr": "agentway_agentrollout_updated_agents{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"}",
+          "legendFormat": "{{namespace}}/{{agentrollout}} updated",
+          "refId": "C",
+          "format": "time_series"
+        },
+        {
+          "expr": "agentway_agentrollout_ready_agents{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"}",
+          "legendFormat": "{{namespace}}/{{agentrollout}} ready",
+          "refId": "D",
+          "format": "time_series"
+        },
+        {
+          "expr": "agentway_agentrollout_failed_agents{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\"}",
+          "legendFormat": "{{namespace}}/{{agentrollout}} failed",
+          "refId": "E",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "AgentRollout 进度计数。legend 包含 rollout 名和计数类型，便于多选/全选时区分对象。"
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Rollout 异常",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PB566E4C64303B1B0"
+      },
+      "targets": [
+        {
+          "expr": "agentway_agentrollout_phase{clusterID=~\"$clusterID\",namespace=~\"$namespace\",agentrollout=~\"$agentrollout\",phase=~\"Failed|Degraded\"} == 1",
+          "legendFormat": "{{namespace}}/{{agentrollout}} {{phase}}",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "transformations": [
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": false
+            },
+            "renameByName": {
+              "Metric": "item",
+              "Value": "value"
+            }
+          }
+        }
+      ],
+      "description": "只列异常 Rollout。以 phase=Failed/Degraded 为主，避免 failed_agents 与 Failed phase 重复显示；进度里的 failed 数量请看“Rollout 进度”。"
+    }
+  ]
+}

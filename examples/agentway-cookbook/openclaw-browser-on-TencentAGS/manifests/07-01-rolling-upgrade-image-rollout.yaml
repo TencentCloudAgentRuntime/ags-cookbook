@@ -1,0 +1,60 @@
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: openclaw-browser-rolling-upgrade-image-rollout
+  namespace: default
+  # RollingUpgrade 批次失败后，AgentRollout 会暂停后续批次。
+  # 修复失败原因后，可取消下面注释并改成新的任意非空值触发失败批次重试：
+  # annotations:
+  #   agentway.io/retry-generation: "20260706190000"
+spec:
+  # This rollout expects selected Agents to use profile.volumeMounts[].mountPath=/mnt/persist.
+  # /openclaw is archived in preUpgrade and restored into the replacement sandbox in postUpgrade.
+  selector:
+    matchLabels:
+      app: openclaw-browser-rollout
+  agentSpecStrategicPatch:
+    profile:
+      image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12-rollout
+  strategy:
+    type: Rolling
+    updateMode: RollingUpgrade
+    batchSize: 20%
+    maxUnavailable: 1
+    intervalSeconds: 30
+  lifecycle:
+    preUpgrade:
+      exec:
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            persist=/mnt/persist
+            src=/openclaw
+            backup="$persist/openclaw-rolling-upgrade"
+            mkdir -p "$backup"
+            test -d "$src/.openclaw"
+            tar -C "$src" -czf "$backup/openclaw.tgz" .
+            (cd "$backup" && sha256sum openclaw.tgz > openclaw.tgz.sha256)
+            sync
+            cat "$backup/openclaw.tgz.sha256"
+      timeoutSeconds: 600
+    postUpgrade:
+      exec:
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            persist=/mnt/persist
+            dst=/openclaw
+            backup="$persist/openclaw-rolling-upgrade"
+            test -s "$backup/openclaw.tgz"
+            (cd "$backup" && sha256sum -c openclaw.tgz.sha256)
+            rm -rf "$dst"
+            mkdir -p "$dst"
+            tar -C "$dst" -xzf "$backup/openclaw.tgz"
+            test -d "$dst/.openclaw"
+            (cd "$backup" && cat openclaw.tgz.sha256)
+      timeoutSeconds: 600

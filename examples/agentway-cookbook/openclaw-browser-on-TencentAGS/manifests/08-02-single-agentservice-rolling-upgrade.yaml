@@ -1,0 +1,44 @@
+# Chapter 08 single-Agent AgentService RollingUpgrade rollout example.
+# Prerequisites:
+# - Apply 08-02-single-agentservice.yaml first.
+# - Wait until Agent claim-bot-primary is Running and AgentService claim-bot-primary is Ready.
+---
+apiVersion: agent.agentway.io/v1alpha1
+kind: AgentRollout
+metadata:
+  name: claim-bot-primary-detach-old-rollout
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: claim-bot-primary
+      service.agentway.io/name: claim-bot-primary
+  agentSpecStrategicPatch:
+    profile:
+      image: ccr.ccs.tencentyun.com/yaominxia/sandbox-openclaw-browser:v1.12-rollout
+  strategy:
+    type: Rolling
+    updateMode: RollingUpgrade
+    # d5afc116 keeps the old backend until promotion; configurable detach timing is unsupported.
+    batchSize: "1"
+    maxUnavailable: 0
+    intervalSeconds: 30
+  lifecycle:
+    preUpgrade:
+      exec:
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            echo "preUpgrade: flush or archive old instance state"
+      timeoutSeconds: 300
+    postUpgrade:
+      exec:
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            echo "postUpgrade: verify replacement instance state"
+      timeoutSeconds: 300
