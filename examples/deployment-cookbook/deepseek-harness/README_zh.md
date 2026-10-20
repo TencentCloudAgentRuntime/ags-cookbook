@@ -15,3 +15,5 @@
 - Alpine Hands：`ccr.ccs.tencentyun.com/ags.dev/deepseek-harness-hands-alpine:v0.6.13`
 
 两个拓扑均使用 `ap-shanghai` 和 OpenAI 兼容模型接口。每个目录都包含自己的 Dockerfile、部署步骤与可选构建说明。
+
+仅需将 DSH 会话持久化接入云端 Session，请阅读 [DSH Session 基础教程](../../session-cookbook/deepseek-harness/README_zh.md)，无需分离 Brain/Hands。需要演示 Brain/Hands 分离并由云端 Session 保存对话和 Hands 工作区路由，请阅读 [brain-hands-session](../brain-hands-session/README_zh.md)；它与本目录使用 MySQL 保存共享状态的 `brain-hands` 方案不同。

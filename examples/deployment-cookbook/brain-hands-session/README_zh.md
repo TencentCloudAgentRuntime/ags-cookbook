@@ -1,5 +1,7 @@
 # 将 DSH Brain 与 Hands 接入 Agent Runtime 云端 Session 服务
 
+> 仅需 DSH 接入 Session，无需独立工作区服务，请阅读 [DSH Session 基础教程](../../session-cookbook/deepseek-harness/README_zh.md)。本示例演示 Session 与工作区路由的组合。
+
 本教程通过一个可运行示例，演示如何将运行 DSH agent loop 的 DSH Deployment（Brain 角色）及其调用的 Workspace Deployment（Hands 角色）接入腾讯云 Agent Runtime Session。示例使用 Session 保存对话 Events 以及关联的 Deployment 和 affinity 信息，并据此回到原 Hands workspace。
 
 本文中的 Brain 和 Hands 表示 DSH 组件承担的角色，底层都使用 Agent Runtime Deployment：Brain 运行 agent loop，Hands 承载 workspace 文件操作。
@@ -18,7 +20,7 @@
 
 ## 前置条件
 
-- 已安装 `agr` v0.6.6 或更高版本，并配置腾讯云凭证。
+- 已安装 `agr` v0.7.0 或更高版本，并配置腾讯云凭证。本教程使用 `agr session` 命令管理 SessionSpace、Session 和 Events，该命令从 v0.7.0 起提供。
 - 已准备创建自定义 Sandbox Tool 所需的 CAM 角色 ARN。
 - 当前账号能够管理 SessionSpace、Session、Sandbox Tool 和 Deployment，并能追加和查询 Events。
 - 已准备 TokenHub API Key。本示例镜像已预置 TokenHub provider 和 `deepseek-v4-flash` 模型配置。
@@ -44,7 +46,7 @@ export SESSION_SPACE_NAME='dsh-brain-session-your-name'
 export SESSION_USER_ID='dsh-demo-user'
 export DSH_TOOL_NAME='dsh-brain-session-your-name'
 export DSH_DEPLOYMENT_NAME='dsh-brain-session-your-name'
-export DSH_SESSION_IMAGE='ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session.9'
+export DSH_SESSION_IMAGE='ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session.11'
 export HANDS_TOOL_NAME='dsh-hands-session-your-name'
 export HANDS_DEPLOYMENT_NAME='dsh-hands-session-your-name'
 export HANDS_SESSION_IMAGE='ccr.ccs.tencentyun.com/ags.dev/hands-session:v0.1.0'
@@ -81,25 +83,27 @@ agr status --cloud-endpoint "$SESSION_API_ENDPOINT"
 
 ## 2. 创建或复用 SessionSpace
 
-SessionSpace 是 Session 的隔离边界。已有可用的 SessionSpace 时直接设置：
+SessionSpace 是存放和管理会话数据的逻辑空间，不与 Agent 或运行实例一一对应。同一个 Agent 的多个实例、多个不同 Agent 都可以共用空间；按业务、环境和权限管理需求划分空间，而不是按 Agent 或实例数量划分。它不同于执行工作区（workspace），不会自动同步本地文件或解决并发执行冲突。
+
+本示例插件在启动时读取固定的 `SESSION_USER_ID`，没有接入登录用户身份，也不按 Agent 或 Brain Deployment ID 区分会话。不同 DSH 应用使用相同空间和 UserId 时，会列出同一批会话；需要在共用空间中区分时，请使用不同的 UserId 或不同的空间。
+
+本示例只需创建或复用一个空间；新增、重启或替换 Brain 运行实例时无需重新创建。已有可用空间时，直接设置 `SESSION_SPACE_ID`：
 
 ```bash
 export SESSION_SPACE_ID='space-replace-me'
 ```
 
-否则创建一个专用 SessionSpace：
+没有可复用空间时，为本次示例创建一个 SessionSpace：
 
 ```bash
 SESSION_SPACE_ID="$(
-  agr api call CreateSessionSpace \
+  agr session space create \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{
-      "Name":"'$SESSION_SPACE_NAME'",
-      "Description":"DSH Brain conversations"
-    }' \
+    --name "$SESSION_SPACE_NAME" \
+    --description "DSH Brain conversations" \
     --output json \
-    --jq '.Data.Response.Response.SessionSpace.SpaceId'
+    --jq '.Data.SessionSpace.SpaceId'
 )"
 export SESSION_SPACE_ID
 export SESSION_SPACE_CREATED_BY_TUTORIAL=1
@@ -117,42 +121,50 @@ echo "$SESSION_SPACE_ID"
 先创建承载 workspace 服务的 Hands Tool：
 
 ```bash
-agr tool create \
-  --region "$AGR_REGION" \
-  --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --tool-name "$HANDS_TOOL_NAME" \
-  --tool-type custom \
-  --persistent \
-  --role-arn "$AGR_ROLE_ARN" \
-  --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration '{
-    "Image":"'$HANDS_SESSION_IMAGE'",
-    "ImageRegistryType":"personal",
-    "Command":["python3","/opt/hands/workspace_server.py"],
-    "Args":[],
-    "Env":[],
-    "Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],
-    "Resources":{"CPU":"1","Memory":"1Gi"},
-    "Probe":{"HttpGet":{"Path":"/health","Port":8080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":3000,"SuccessThreshold":1,"FailureThreshold":10}
-  }' \
-  --wait
-
-export HANDS_TOOL_ID='sdt-copy-from-response'
+HANDS_TOOL_ID="$(
+  agr tool create \
+    --region "$AGR_REGION" \
+    --cloud-endpoint "$SESSION_API_ENDPOINT" \
+    --tool-name "$HANDS_TOOL_NAME" \
+    --tool-type custom \
+    --persistent \
+    --role-arn "$AGR_ROLE_ARN" \
+    --network-configuration '{"NetworkMode":"PUBLIC"}' \
+    --custom-configuration '{
+      "Image":"'$HANDS_SESSION_IMAGE'",
+      "ImageRegistryType":"personal",
+      "Command":["python3","/opt/hands/workspace_server.py"],
+      "Args":[],
+      "Env":[],
+      "Ports":[{"Name":"http","Port":8080,"Protocol":"TCP"}],
+      "Resources":{"CPU":"1","Memory":"1Gi"},
+      "Probe":{"HttpGet":{"Path":"/health","Port":8080,"Scheme":"HTTP"},"ReadyTimeoutMs":30000,"ProbeTimeoutMs":3000,"ProbePeriodMs":3000,"SuccessThreshold":1,"FailureThreshold":10}
+    }' \
+    --wait \
+    --output json \
+    --jq '.Data.ToolId'
+)"
+export HANDS_TOOL_ID
+echo "$HANDS_TOOL_ID"
 ```
 
 创建承担 Hands 角色的 Workspace Deployment。示例为每个 Session 保存不同的 `EXCLUSIVE` affinity，使其后续请求回到各自的 workspace；这不是用户或租户安全隔离机制：
 
 ```bash
-agr deployment create \
-  --region "$AGR_REGION" \
-  --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --deployment-name "$HANDS_DEPLOYMENT_NAME" \
-  --tool-id "$HANDS_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":1}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"PAUSE"}' \
-  --affinity-configuration '{"Mode":"EXCLUSIVE","HeaderName":"X-Tencent-Agr-Affinity-Id"}'
-
-export HANDS_DEPLOYMENT_ID='dpl-copy-from-response'
+HANDS_DEPLOYMENT_ID="$(
+  agr deployment create \
+    --region "$AGR_REGION" \
+    --cloud-endpoint "$SESSION_API_ENDPOINT" \
+    --deployment-name "$HANDS_DEPLOYMENT_NAME" \
+    --tool-id "$HANDS_TOOL_ID" \
+    --scaling-configuration '{"MinInstanceCount":0,"MaxInstanceCount":2,"MaxInstanceRequestConcurrency":1}' \
+    --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"PAUSE"}' \
+    --affinity-configuration '{"Mode":"EXCLUSIVE","HeaderName":"X-Tencent-Agr-Affinity-Id"}' \
+    --output json \
+    --jq '.Data.Deployment.DeploymentId'
+)"
+export HANDS_DEPLOYMENT_ID
+echo "$HANDS_DEPLOYMENT_ID"
 ```
 
 创建用于运行 DSH 的 Sandbox Tool：
@@ -196,32 +208,40 @@ export DSH_CUSTOM_CONFIGURATION="$(
     }'
 )"
 
-agr tool create \
-  --region "$AGR_REGION" \
-  --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --tool-name "$DSH_TOOL_NAME" \
-  --tool-type custom \
-  --persistent \
-  --role-arn "$AGR_ROLE_ARN" \
-  --network-configuration '{"NetworkMode":"PUBLIC"}' \
-  --custom-configuration "$DSH_CUSTOM_CONFIGURATION" \
-  --wait
-
-export DSH_TOOL_ID='sdt-copy-from-response'
+DSH_TOOL_ID="$(
+  agr tool create \
+    --region "$AGR_REGION" \
+    --cloud-endpoint "$SESSION_API_ENDPOINT" \
+    --tool-name "$DSH_TOOL_NAME" \
+    --tool-type custom \
+    --persistent \
+    --role-arn "$AGR_ROLE_ARN" \
+    --network-configuration '{"NetworkMode":"PUBLIC"}' \
+    --custom-configuration "$DSH_CUSTOM_CONFIGURATION" \
+    --wait \
+    --output json \
+    --jq '.Data.ToolId'
+)"
+export DSH_TOOL_ID
+echo "$DSH_TOOL_ID"
 ```
 
-创建承担 Brain 角色的无状态 DSH Deployment。它不使用 affinity；插件会根据已配置的 Deployment 名称查询其 ID，并写入 Session Metadata：
+创建承担 Brain 角色的 DSH Deployment，本示例运行一个 Brain 实例。它不使用 affinity；插件会根据已配置的 Deployment 名称查询其 ID，并写入 Session Metadata：
 
 ```bash
-agr deployment create \
-  --region "$AGR_REGION" \
-  --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --deployment-name "$DSH_DEPLOYMENT_NAME" \
-  --tool-id "$DSH_TOOL_ID" \
-  --scaling-configuration '{"MinInstanceCount":1,"MaxInstanceCount":4,"MaxInstanceRequestConcurrency":100}' \
-  --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}'
-
-export DSH_DEPLOYMENT_ID='dpl-copy-from-response'
+DSH_DEPLOYMENT_ID="$(
+  agr deployment create \
+    --region "$AGR_REGION" \
+    --cloud-endpoint "$SESSION_API_ENDPOINT" \
+    --deployment-name "$DSH_DEPLOYMENT_NAME" \
+    --tool-id "$DSH_TOOL_ID" \
+    --scaling-configuration '{"MinInstanceCount":1,"MaxInstanceCount":1,"MaxInstanceRequestConcurrency":100}' \
+    --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}' \
+    --output json \
+    --jq '.Data.Deployment.DeploymentId'
+)"
+export DSH_DEPLOYMENT_ID
+echo "$DSH_DEPLOYMENT_ID"
 ```
 
 DSH conversation 状态由 Agent Runtime Session 保存，DSH Deployment 不依赖 Brain affinity。
@@ -237,7 +257,7 @@ agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
   --cloud-endpoint "$SESSION_API_ENDPOINT"
 ```
 
-打开 <http://127.0.0.1:18080>，新建会话，并确认当前模型为 `tokenhub/deepseek-v4-flash`。TokenHub API Key 已通过 Tool 环境变量提供，因此所有 Brain 副本使用相同模型配置。此后无论通过 Web UI 还是示例脚本发起 DSH conversation，插件都会创建同 ID 的 Agent Runtime Session、写入 Events，并自动记录 Brain Deployment ID。
+打开 <http://127.0.0.1:18080>，新建会话，并确认当前模型为 `tokenhub/deepseek-v4-flash`。TokenHub API Key 已通过 Tool 环境变量提供。此后无论通过 Web UI 还是示例脚本发起 DSH conversation，插件都会创建同 ID 的 Agent Runtime Session、写入 Events，并自动记录 Brain Deployment ID。
 
 ## 6. 验证 Session 关联并恢复 Hands workspace
 
@@ -263,21 +283,15 @@ What is 37 + 58? Use hands_write_file to store the numerical answer in session-v
 
 ```bash
 DSH_SESSION_ID="$(
-  agr api call DescribeSessions \
+  agr session list \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{
-      "SpaceId":"'$SESSION_SPACE_ID'",
-      "UserIds":["'$SESSION_USER_ID'"],
-      "Filters":[{
-        "Name":"metadata:example.com/brain-deployment-id",
-        "Values":["'$DSH_DEPLOYMENT_ID'"]
-      }],
-      "Offset":0,
-      "Limit":100
-    }' \
+    --space-id "$SESSION_SPACE_ID" \
+    --user-ids "$SESSION_USER_ID" \
+    --filters '[{"Name":"metadata:example.com/brain-deployment-id","Values":["'"$DSH_DEPLOYMENT_ID"'"]}]' \
+    --limit 100 \
     --output json \
-    --jq '.Data.Response.Response.Sessions | max_by(.CreateTime) | .SessionId'
+    --jq '(.Data.Sessions // []) | max_by(.CreateTime) | .SessionId // empty'
 )"
 export DSH_SESSION_ID
 echo "$DSH_SESSION_ID"
@@ -287,24 +301,22 @@ echo "$DSH_SESSION_ID"
 
 ```bash
 DSH_SESSION_JSON="$(
-  agr api call DescribeSession \
+  agr session get \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{
-      "SpaceId":"'$SESSION_SPACE_ID'",
-      "UserId":"'$SESSION_USER_ID'",
-      "SessionId":"'$DSH_SESSION_ID'"
-    }' \
+    --space-id "$SESSION_SPACE_ID" \
+    --user-id "$SESSION_USER_ID" \
+    --session-id "$DSH_SESSION_ID" \
     --output json
 )"
 
 RESTORED_HANDS_DEPLOYMENT_ID="$(
-  jq -r '.Data.Response.Response.Session.Metadata[]
+  jq -r '(.Data.Session.Metadata // [])[]
     | select(.Name == "example.com/hands-deployment-id")
     | .Value' <<<"$DSH_SESSION_JSON"
 )"
 RESTORED_HANDS_AFFINITY_ID="$(
-  jq -r '.Data.Response.Response.Session.Metadata[]
+  jq -r '(.Data.Session.Metadata // [])[]
     | select(.Name == "example.com/hands-affinity-id")
     | .Value' <<<"$DSH_SESSION_JSON"
 )"
@@ -346,30 +358,21 @@ curl --fail-with-body \
 最后查看本次交互的 Events，并通过 Workspace Deployment ID 反向确认同一个 Session：
 
 ```bash
-agr api call DescribeEvents \
+agr session event list \
   --region "$AGR_REGION" \
   --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "UserId":"'$SESSION_USER_ID'",
-    "SessionId":"'$DSH_SESSION_ID'",
-    "Offset":0,
-    "Limit":100
-  }' \
+  --space-id "$SESSION_SPACE_ID" \
+  --user-id "$SESSION_USER_ID" \
+  --session-id "$DSH_SESSION_ID" \
+  --limit 200 \
   --output json
 
-agr api call DescribeSessions \
+agr session list \
   --region "$AGR_REGION" \
   --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --request '{
-    "SpaceId":"'$SESSION_SPACE_ID'",
-    "Filters":[{
-      "Name":"metadata:example.com/hands-deployment-id",
-      "Values":["'$RESTORED_HANDS_DEPLOYMENT_ID'"]
-    }],
-    "Offset":0,
-    "Limit":20
-  }' \
+  --space-id "$SESSION_SPACE_ID" \
+  --filters '[{"Name":"metadata:example.com/hands-deployment-id","Values":["'"$RESTORED_HANDS_DEPLOYMENT_ID"'"]}]' \
+  --limit 20 \
   --output json
 ```
 
@@ -387,7 +390,7 @@ export DSH_DEPLOYMENT_ID='dpl-copy-from-dsh-response'
 export HANDS_DEPLOYMENT_ID='dpl-copy-from-workspace-response'
 ```
 
-其中 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT` 应与创建资源时的配置保持一致。`agr` 还需要使用本地已配置的腾讯云凭证调用控制面 API。设置完成后，在 `examples/deployment-cookbook/session` 目录运行：
+其中 `AGR_REGION`、`AGR_DOMAIN` 和 `SESSION_API_ENDPOINT` 应与创建资源时的配置保持一致。`agr` 还需要使用本地已配置的腾讯云凭证调用控制面 API。设置完成后，在 `examples/deployment-cookbook/brain-hands-session` 目录运行：
 
 ```bash
 python3 session_demo.py
@@ -437,16 +440,20 @@ Hands workspace 文件保存在 Hands Sandbox 中，不存储在 Agent Runtime S
 delete_sessions_for_deployment() {
   metadata_name="$1"
   deployment_id="$2"
-  agr api call DescribeSessions \
+  agr session list \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{"SpaceId":"'$SESSION_SPACE_ID'","Filters":[{"Name":"metadata:'"$metadata_name"'","Values":["'"$deployment_id"'"]}],"Offset":0,"Limit":100}' \
+    --space-id "$SESSION_SPACE_ID" \
+    --filters '[{"Name":"metadata:'"$metadata_name"'","Values":["'"$deployment_id"'"]}]' \
+    --limit 100 \
     --output json \
-    --jq '.Data.Response.Response.Sessions[].SessionId' | while read -r session_id; do
-      agr api call DeleteSession \
+    --jq '(.Data.Sessions // [])[].SessionId' | while read -r session_id; do
+      agr session delete \
         --region "$AGR_REGION" \
         --cloud-endpoint "$SESSION_API_ENDPOINT" \
-        --request '{"SpaceId":"'$SESSION_SPACE_ID'","UserId":"'$SESSION_USER_ID'","SessionId":"'"$session_id"'"}' \
+        --space-id "$SESSION_SPACE_ID" \
+        --user-id "$SESSION_USER_ID" \
+        --session-id "$session_id" \
         --output json
     done
 }
@@ -470,7 +477,7 @@ for tool_id in "$DSH_TOOL_ID" "$HANDS_TOOL_ID"; do
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
     --output json \
-    --jq '.Data.Items[].InstanceId' | while read -r instance_id; do
+    --jq '(.Data.Items // [])[] | select(.Status != "STOPPED") | .InstanceId' | while read -r instance_id; do
       agr instance delete "$instance_id" \
         --region "$AGR_REGION" \
         --cloud-endpoint "$SESSION_API_ENDPOINT" \
@@ -496,10 +503,10 @@ agr tool delete "$HANDS_TOOL_ID" \
 
 ```bash
 if [ "${SESSION_SPACE_CREATED_BY_TUTORIAL:-0}" = 1 ]; then
-  agr api call DeleteSessionSpace \
+  agr session space delete \
     --region "$AGR_REGION" \
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
-    --request '{"SpaceId":"'$SESSION_SPACE_ID'"}' \
+    --space-id "$SESSION_SPACE_ID" \
     --output json
 fi
 ```

@@ -351,3 +351,63 @@ test('listSnapshots does not hide revision lookup failures', async () => {
     /Session API unavailable/,
   )
 })
+
+test('list reads DSH headers through DescribeSession because DescribeSessions omits State', async () => {
+  const header = { version: 0, id: 'session-dsh', createdAt: 1 }
+  const stateById = {
+    'session-dsh': { CustomState: JSON.stringify({ dshHeader: header }) },
+    'session-other': { CustomState: JSON.stringify({ owner: 'another-application' }) },
+  }
+  const persistence = backend(async (action, payload) => {
+    if (action === 'DescribeSessions') {
+      return { Sessions: Object.keys(stateById).map(SessionId => ({ SessionId })), TotalCount: 2 }
+    }
+    if (action === 'DescribeSession') {
+      return { Session: { SessionId: payload.SessionId, State: stateById[payload.SessionId] } }
+    }
+    if (action === 'DescribeEvents') return { Events: [], TotalCount: 0 }
+    throw new Error(`unexpected ${action}`)
+  })
+
+  assert.deepEqual(await persistence.list(new AbortController().signal), [header])
+  const snapshots = await persistence.listSnapshots(new AbortController().signal)
+  assert.deepEqual(snapshots.map(snapshot => snapshot.header), [header])
+})
+
+test('headers are read once per Session so listing stays under the API rate limit', async () => {
+  const header = { version: 0, id: 'session-dsh', createdAt: 1 }
+  const calls = []
+  const persistence = backend(async (action, payload) => {
+    calls.push(action)
+    if (action === 'DescribeSessions') return { Sessions: [{ SessionId: 'session-dsh' }], TotalCount: 1 }
+    if (action === 'DescribeSession') {
+      return { Session: { SessionId: payload.SessionId, State: { CustomState: JSON.stringify({ dshHeader: header }) } } }
+    }
+    if (action === 'DescribeEvents') return { Events: [], TotalCount: 3 }
+    throw new Error(`unexpected ${action}`)
+  })
+
+  await persistence.list()
+  await persistence.list()
+  const [snapshot] = await persistence.listSnapshots()
+  assert.equal(calls.filter(action => action === 'DescribeSession').length, 1)
+  assert.equal(snapshot.revision, 'agent-runtime:session-dsh:3')
+})
+
+test('request retries Session API calls rejected by the rate limit', async () => {
+  const persistence = Object.create(AgentRuntimeSessionPersistence.prototype)
+  persistence.retryDelayMs = () => 0
+  let attempts = 0
+  persistence.client = {
+    request: async () => {
+      attempts += 1
+      if (attempts < 3) throw Object.assign(new Error('frequency limit'), { code: 'RequestLimitExceeded' })
+      return { ok: true }
+    },
+  }
+  assert.deepEqual(await persistence.request('DescribeSession', {}), { ok: true })
+  assert.equal(attempts, 3)
+
+  persistence.client = { request: async () => { throw Object.assign(new Error('denied'), { code: 'AuthFailure' }) } }
+  await assert.rejects(persistence.request('DescribeSession', {}), /denied/)
+})

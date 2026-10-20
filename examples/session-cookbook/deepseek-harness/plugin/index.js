@@ -4,7 +4,6 @@ import {
   SessionPersistence,
   SessionPersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
-import { defineTool } from '@deepseek-ai/dsh-tools'
 import TencentCloudSdk from 'tencentcloud-sdk-nodejs-ags'
 
 const { Client } = TencentCloudSdk.ags.v20250920
@@ -24,6 +23,15 @@ function headerFromSession(session) {
   const state = parseJson(session?.State?.CustomState)
   if (!state.dshHeader) throw new Error(`Session ${session?.SessionId ?? '<unknown>'} has no DSH header`)
   return state.dshHeader
+}
+
+function optionalHeaderFromSession(session) {
+  try {
+    return headerFromSession(session)
+  } catch {
+    // A SessionSpace can contain Sessions created by other applications.
+    return undefined
+  }
 }
 
 function eventFromSummary(summary) {
@@ -215,26 +223,23 @@ function isSessionNotFound(error) {
   return error?.code === 'ResourceNotFound.SessionNotExist'
 }
 
-const BRAIN_DEPLOYMENT_METADATA = 'example.com/brain-deployment-id'
-const HANDS_DEPLOYMENT_METADATA = 'example.com/hands-deployment-id'
-const HANDS_AFFINITY_METADATA = 'example.com/hands-affinity-id'
-const AFFINITY_HEADER = 'X-Tencent-Agr-Affinity-Id'
+export const AGENT_METADATA_KEY = 'example.com/dsh-agent-id'
 
-function metadataMap(session) {
-  return Object.fromEntries((session?.Metadata ?? []).map(item => [item.Name, item.Value]))
+const MAX_RATE_LIMIT_RETRIES = 5
+
+function isRateLimited(error) {
+  return String(error?.code ?? '').startsWith('RequestLimitExceeded')
 }
 
 export class AgentRuntimeSessionPersistence extends SessionPersistence {
-  static inject = ['sessions', 'tools']
+  static inject = ['sessions']
 
   static Config = z.object({
     region: z.string().required(),
-    domain: z.string().required(),
     endpoint: z.string(),
     spaceId: z.string().required(),
     userId: z.string().required(),
-    brainDeploymentName: z.string().required(),
-    handsDeploymentId: z.string(),
+    agentId: z.string(),
     secretId: z.string().required(),
     secretKey: z.string().required(),
     sessionToken: z.string(),
@@ -260,21 +265,37 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     this.client = new Client(clientConfig)
     this.spaceId = required(config.spaceId, 'SESSION_SPACE_ID')
     this.userId = required(config.userId, 'SESSION_USER_ID')
-    this.brainDeploymentName = required(config.brainDeploymentName, 'DSH_DEPLOYMENT_NAME')
-    this.brainDeploymentIdPromise = undefined
-    this.handsDeploymentId = config.handsDeploymentId?.trim()
+    this.agentId = config.agentId?.trim() || undefined
     this.coordinator = new PersistenceCoordinator(this.ctx, this)
-    if (this.handsDeploymentId) this.registerHandsTools()
   }
 
   locate() {
     return undefined
   }
 
-  request(action, payload) {
+  async request(action, payload) {
     // Session actions may be newer than the generated SDK surface. AbstractClient's
     // public request path still supplies TC3 signing, retries, and endpoint handling.
-    return this.client.request(action, payload)
+    // Rate-limited calls were not executed, so retrying them is safe; AppendEvent is
+    // also idempotent through its stable EventId.
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.client.request(action, payload)
+      } catch (error) {
+        if (!isRateLimited(error) || attempt >= MAX_RATE_LIMIT_RETRIES) throw error
+        await new Promise(resolve => setTimeout(resolve, this.retryDelayMs(attempt)))
+      }
+    }
+  }
+
+  retryDelayMs(attempt) {
+    return 200 * 2 ** attempt + Math.random() * 100
+  }
+
+  // Headers are immutable, so each process reads a Session's header at most once.
+  headerCache() {
+    this.headers ??= new Map()
+    return this.headers
   }
 
   sessionRequest(sessionId, extra = {}) {
@@ -286,117 +307,13 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     }
   }
 
-  async resolveBrainDeploymentId() {
-    if (!this.brainDeploymentIdPromise) {
-      this.brainDeploymentIdPromise = this.request('DescribeDeploymentList', {
-        Filters: [{ Name: 'deployment-name', Values: [this.brainDeploymentName] }],
-        Offset: 0,
-        Limit: 2,
-      }).then(response => {
-        const deployments = response.DeploymentSet ?? []
-        if (deployments.length !== 1 || !deployments[0].DeploymentId) {
-          throw new Error(
-            `Expected exactly one Deployment named ${this.brainDeploymentName}, found ${deployments.length}`,
-          )
-        }
-        return deployments[0].DeploymentId
-      }).catch(error => {
-        this.brainDeploymentIdPromise = undefined
-        throw error
-      })
-    }
-    return this.brainDeploymentIdPromise
+  // With SESSION_AGENT_ID set, Sessions are tagged with it on creation and listed by it.
+  agentFilters() {
+    return this.agentId ? { Filters: [{ Name: `metadata:${AGENT_METADATA_KEY}`, Values: [this.agentId] }] } : {}
   }
 
-  registerHandsTools() {
-    const output = {
-      schema: {
-        type: 'object',
-        additionalProperties: true,
-        properties: {
-          sessionId: { type: 'string', required: true },
-          path: { type: 'string' },
-          content: { type: 'string' },
-          exists: { type: 'boolean' },
-        },
-      },
-      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
-    }
-    this.ctx.tools.register(defineTool({
-      name: 'hands_write_file',
-      description: 'Write a UTF-8 text file in the Hands workspace associated with this conversation.',
-      parameters: {
-        path: { type: 'string', required: true, description: 'Workspace-relative file path.' },
-        content: { type: 'string', required: true, description: 'Complete text to write.' },
-      },
-      output,
-      isConcurrencySafe: () => false,
-      execute: (args, exec) => this.executeHands('workspace.write_file', args, exec),
-    }))
-    this.ctx.tools.register(defineTool({
-      name: 'hands_read_file',
-      description: 'Read a UTF-8 text file from the Hands workspace associated with this conversation.',
-      parameters: {
-        path: { type: 'string', required: true, description: 'Workspace-relative file path.' },
-      },
-      output,
-      isConcurrencySafe: () => false,
-      execute: (args, exec) => this.executeHands('workspace.read_file', args, exec),
-    }))
-  }
-
-  async acquireHandsToken() {
-    const response = await this.request('AcquireDeploymentToken', {
-      DeploymentId: this.handsDeploymentId,
-    })
-    if (!response.Token) throw new Error('AcquireDeploymentToken did not return a Token')
-    return response.Token
-  }
-
-  async invokeHands(operation, args, affinityId, signal) {
-    const isWrite = operation === 'workspace.write_file'
-    const query = new URLSearchParams({ path: args.path })
-    const url = `https://8080-${this.handsDeploymentId}.${this.config.region}.agents.${this.config.domain}`
-    const headers = { 'X-Access-Token': await this.acquireHandsToken() }
-    if (affinityId) headers[AFFINITY_HEADER] = affinityId
-    if (isWrite) headers['Content-Type'] = 'application/json'
-    const response = await fetch(`${url}${isWrite ? '/files/write' : `/files/read?${query}`}`, {
-      method: isWrite ? 'POST' : 'GET',
-      headers,
-      body: isWrite ? JSON.stringify({ path: args.path, content: args.content }) : undefined,
-      signal,
-    })
-    if (!response.ok) throw new Error(`Hands returned HTTP ${response.status}: ${await response.text()}`)
-    const returnedAffinity = response.headers.get(AFFINITY_HEADER)
-    if (!returnedAffinity) throw new Error(`Hands response did not include ${AFFINITY_HEADER}`)
-    return { result: await response.json(), affinityId: returnedAffinity }
-  }
-
-  async executeHands(operation, args, exec) {
-    const brainSessionId = exec.agent?.session?.header?.id
-    if (!brainSessionId) throw new Error('Hands tools require a DSH conversation Session')
-    const session = await this.describeSession(brainSessionId)
-    const metadata = metadataMap(session)
-    const storedAffinity = metadata[HANDS_DEPLOYMENT_METADATA] === this.handsDeploymentId
-      ? metadata[HANDS_AFFINITY_METADATA]
-      : undefined
-    const { result, affinityId } = await this.invokeHands(
-      operation,
-      args,
-      storedAffinity,
-      exec.signal,
-    )
-    const sessionId = brainSessionId
-    if (affinityId !== storedAffinity || metadata[HANDS_DEPLOYMENT_METADATA] !== this.handsDeploymentId) {
-      metadata[HANDS_DEPLOYMENT_METADATA] = this.handsDeploymentId
-      metadata[HANDS_AFFINITY_METADATA] = affinityId
-      await this.request('ModifySession', this.sessionRequest(sessionId, {
-        Metadata: Object.entries(metadata).map(([Name, Value]) => ({ Name, Value })),
-      }))
-    }
-    const output = { sessionId, ...result }
-    if (output.content === null) delete output.content
-    return output
+  ownsSession(session) {
+    return !this.agentId || session.Metadata?.some(item => item.Name === AGENT_METADATA_KEY && item.Value === this.agentId)
   }
 
   create(meta) {
@@ -445,14 +362,11 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
 
   async appendBatch(meta, events, isMaterialized) {
     if (!isMaterialized) {
-      const brainDeploymentId = await this.resolveBrainDeploymentId()
       await this.request('CreateSession', this.sessionRequest(meta.id, {
         State: { CustomState: JSON.stringify({ dshHeader: meta }) },
-        Metadata: [{
-          Name: BRAIN_DEPLOYMENT_METADATA,
-          Value: brainDeploymentId,
-        }],
+        ...(this.agentId ? { Metadata: [{ Name: AGENT_METADATA_KEY, Value: this.agentId }] } : {}),
       }))
+      this.headerCache().set(meta.id, meta)
     }
     await this.appendEvents(meta.id, events)
   }
@@ -495,6 +409,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
         this.describeSession(id),
         this.describeEvents(id, signal),
       ])
+      if (!this.ownsSession(session)) throw new Error(`Session ${id} belongs to another SESSION_AGENT_ID`)
       return {
         meta: headerFromSession(session),
         events,
@@ -528,6 +443,30 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     await this.appendEvents(meta.id, closers)
   }
 
+  async storedHeader(summary) {
+    const cache = this.headerCache()
+    if (summary.State === undefined && cache.has(summary.SessionId)) return cache.get(summary.SessionId)
+    // DescribeSessions rows carry no State, so the DSH header has to come from DescribeSession.
+    const session = summary.State === undefined ? await this.describeSession(summary.SessionId) : summary
+    const header = optionalHeaderFromSession(session)
+    cache.set(summary.SessionId, header)
+    return header
+  }
+
+  async revisionFromEventCount(id, signal) {
+    signal?.throwIfAborted()
+    try {
+      const response = await this.request('DescribeEvents', this.sessionRequest(id, {
+        Offset: 0,
+        Limit: 1,
+      }))
+      return revisionFromSession({ SessionId: id }, Number(response.TotalCount ?? 0))
+    } catch (error) {
+      if (isSessionNotFound(error)) return undefined
+      throw error
+    }
+  }
+
   async list(signal) {
     const headers = []
     for (let offset = 0; ; offset += 100) {
@@ -535,16 +474,14 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       const response = await this.request('DescribeSessions', {
         SpaceId: this.spaceId,
         UserIds: [this.userId],
+        ...this.agentFilters(),
         Offset: offset,
         Limit: 100,
       })
       const page = response.Sessions ?? []
       for (const session of page) {
-        try {
-          headers.push(headerFromSession(session))
-        } catch {
-          // A SessionSpace can contain Sessions created by other applications.
-        }
+        const header = await this.storedHeader(session)
+        if (header) headers.push(header)
       }
       if (offset + page.length >= Number(response.TotalCount ?? 0) || page.length === 0) break
     }
@@ -558,21 +495,17 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       const response = await this.request('DescribeSessions', {
         SpaceId: this.spaceId,
         UserIds: [this.userId],
+        ...this.agentFilters(),
         Offset: offset,
         Limit: 100,
       })
       const page = response.Sessions ?? []
       for (const session of page) {
-        let header
-        try {
-          header = headerFromSession(session)
-        } catch {
-          // The SessionSpace can also contain Sessions created by other applications.
-          continue
-        }
+        const header = await this.storedHeader(session)
+        if (!header) continue
         snapshots.push({
           header,
-          revision: await this.readStoredRevision(session.SessionId, signal),
+          revision: await this.revisionFromEventCount(session.SessionId, signal),
         })
       }
       if (offset + page.length >= Number(response.TotalCount ?? 0) || page.length === 0) break
