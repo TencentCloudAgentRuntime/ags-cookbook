@@ -15,6 +15,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - [`agent-registry-multi-agent`](./agent-registry-multi-agent/README.md) — discover five governed A2A agents through Agent Registry and invoke them from DeepSeek Harness
 - [`agentway-cookbook`](./agentway-cookbook/README.md) — deploy, operate, and observe AgentWay through scenario-oriented Tencent AGS and TKE guides
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
+- `local-service-tunnel` — custom sandbox workload accessing a user-managed local or private service through a WebSocket tunnel
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
 - [`session-cookbook`](./session-cookbook/README.md) — keep framework conversations in cloud Session and reload them in a fresh process
@@ -50,6 +51,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | [`agent-registry-multi-agent`](./agent-registry-multi-agent/README.md) | advanced | Node.js + A2A + MCP + DSH | `make run`, then `make register` | Includes Registry discovery and collaboration-view DSH plugin source |
 | [`agentway-cookbook`](./agentway-cookbook/README.md) | advanced | Kubernetes + Helm + Markdown | `make run` | Scenario guides for AgentWay on Tencent AGS and TKE; detailed guides are in Chinese |
 | `browser-agent` | advanced | Python + browser sandbox + LLM | `make run` | Requires OpenAI-compatible LLM backend env vars |
+| `local-service-tunnel` | advanced | Go/Python + custom sandbox + image volume | `make run` | Keeps service credentials local and forwards sandbox workload traffic through a user-managed WebSocket tunnel |
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | [`deployment-cookbook`](./deployment-cookbook/README.md) | advanced | agr CLI + Markdown + Python | Follow a scenario README | Covers deployment, scaling, lifecycle, affinity, a native MCP server, and a persistent agent workspace |

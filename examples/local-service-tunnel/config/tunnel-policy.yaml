@@ -1,0 +1,15 @@
+upstream_base: "https://api.deepseek.com/anthropic"
+allow_insecure_upstream: false
+allowed_upstream_hosts:
+  - "api.deepseek.com"
+allowed_upstream_ports:
+  - 443
+allowed_ip_cidrs: []
+allowed_paths:
+  - "/v1/messages"
+  - "/v1/messages/count_tokens"
+  - "/v1/models"
+allowed_path_prefixes: []
+allowed_methods:
+  - "POST"
+  - "GET"

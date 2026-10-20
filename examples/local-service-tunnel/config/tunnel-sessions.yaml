@@ -1,0 +1,11 @@
+# Optional session file for running one local client against multiple sandboxes.
+# The allowlist remains in config/tunnel-policy.yaml.
+#
+# sessions:
+#   - name: "train-a"
+#     instance_id: "sandbox-instance-a"
+#     remote_port: 18081
+#   - name: "train-b"
+#     instance_id: "sandbox-instance-b"
+#     remote_port: 18081
+sessions: []
