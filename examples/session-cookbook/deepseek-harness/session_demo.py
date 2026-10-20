@@ -36,22 +36,37 @@ def completed_turn(events, after_seq):
     return end["seq"], text
 
 
+class CloudError(RuntimeError):
+    def __init__(self, action, failure):
+        failure = failure or {}
+        self.code = failure.get("Code", "")
+        self.retryable = bool(failure.get("Retryable")) or self.code.startswith("RequestLimitExceeded")
+        super().__init__(f"{action} failed: {failure}")
+
+
 class Demo:
     def __init__(self):
         self.key = {"SpaceId": os.environ["SESSION_SPACE_ID"], "UserId": os.environ["SESSION_USER_ID"]}
         self.url = os.environ.get("DSH_BASE_URL", "http://127.0.0.1:18080").rstrip("/")
 
-    def cloud(self, action, **payload):
-        result = subprocess.run([
-            "agr", "api", "call", action,
-            "--region", os.environ.get("AGR_REGION", "ap-shanghai"),
-            "--cloud-endpoint", os.environ.get("SESSION_API_ENDPOINT", "ags.tencentcloudapi.com"),
-            "--request", json.dumps(payload), "--output", "json",
-        ], check=True, capture_output=True, text=True, timeout=90)
-        response = json.loads(result.stdout)
-        if response.get("Status") != "succeeded":
-            raise RuntimeError(f"{action} failed: {response.get('Failure')}")
-        return response["Data"]["Response"]["Response"]
+    def cloud(self, action, retries=5, **payload):
+        for attempt in range(retries + 1):
+            result = subprocess.run([
+                "agr", "api", "call", action,
+                "--region", os.environ.get("AGR_REGION", "ap-shanghai"),
+                "--cloud-endpoint", os.environ.get("SESSION_API_ENDPOINT") or "ags.tencentcloudapi.com",
+                "--request", json.dumps(payload), "--output", "json",
+            ], capture_output=True, text=True, timeout=90)
+            try:
+                response = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                raise RuntimeError(f"agr {action} failed: {(result.stderr or result.stdout).strip()}") from None
+            if response.get("Status") == "succeeded":
+                return response["Data"]["Response"]["Response"]
+            error = CloudError(action, response.get("Failure"))
+            if not error.retryable or attempt == retries:
+                raise error
+            time.sleep(0.5 * 2 ** attempt)
 
     def rpc(self, method, payload):
         rpc_id = str(uuid.uuid4())
@@ -81,7 +96,12 @@ class Demo:
     def wait_turn(self, session_id, after_seq):
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
-            events = self.events(session_id)
+            try:
+                events = self.events(session_id)
+            except CloudError as error:
+                if error.code != "ResourceNotFound.SessionNotExist":
+                    raise
+                events = []  # DSH has not created the cloud Session yet
             result = completed_turn(events, after_seq)
             if result is not None:
                 return result

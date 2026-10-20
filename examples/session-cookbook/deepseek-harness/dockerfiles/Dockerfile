@@ -19,7 +19,7 @@ RUN npm install --global pnpm@11.19.0 \
     && rm -rf /root/.npm /root/.local/share/pnpm/store
 
 COPY dockerfiles/agent-runtime-session.cordis.yml /opt/dsh/agent-runtime-session.cordis.yml
-COPY dockerfiles/settings.yaml /root/.dsh/settings.yaml
+COPY dockerfiles/configure-model.mjs /opt/dsh/configure-model.mjs
 COPY dockerfiles/entrypoint.sh /opt/dsh/entrypoint.sh
 
 RUN chmod 0755 /opt/dsh/entrypoint.sh

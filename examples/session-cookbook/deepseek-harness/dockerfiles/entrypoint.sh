@@ -10,6 +10,9 @@ ln -sfn \
   /usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence \
   "$profile_modules/ags-dsh-session-persistence"
 
+# Write the model section of settings.yaml from LLM_BASE_URL, LLM_MODEL and LLM_API_KEY.
+node /opt/dsh/configure-model.mjs
+
 exec node --expose-internals \
   /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js \
   web \
