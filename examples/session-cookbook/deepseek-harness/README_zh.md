@@ -36,7 +36,7 @@ make resume                     # 新容器加载历史，模型答出标识即�
 
 ### 接入点
 
-DSH 通过 **SessionPersistence 扩展点**决定会话保存在哪里，内置实现是写本地文件的 `session-persistence-jsonl` 插件。本示例提供实现同一扩展点的插件 `@tencentcloud/ags-dsh-session-persistence`，并在 DSH 启动时通过 Cordis 补丁禁用 JSONL 插件、启用本插件。DSH 的其他部分，包括模型调用、工具执行和 Web UI，都不需要修改。
+DSH 通过 **SessionPersistence 扩展点**决定会话保存在哪里，内置实现是写本地文件的 `session-persistence-jsonl` 插件。本示例提供实现同一扩展点的插件 `@tencentcloud/ags-dsh-session-persistence`，并在 DSH 启动时通过 Cordis 补丁禁用 JSONL 插件、启用本插件。Cordis 是 DSH 的插件框架，补丁是一个 YAML 配置文件，用于在不修改 DSH 代码的情况下调整加载哪些插件。DSH 的其他部分，包括模型调用、工具执行和 Web UI，都不需要修改。
 
 ```text
 DSH 产生会话记录  →  持久化插件写入云端  →  SessionSpace 中的 Session 和 Events
@@ -50,7 +50,7 @@ DSH 产生会话记录  →  持久化插件写入云端  →  SessionSpace 中�
 | --- | --- |
 | 开始保存 | 在新会话中发送第一条消息后，插件沿用 DSH 会话 ID 作为 Session ID，调用 `CreateSession` 在云端创建对应的 Session，并将 DSH 的会话元数据（header）写入其中。只新建、未发送消息的会话不会写入云端。 |
 | 后续写入 | DSH 每向会话日志追加记录，插件就将其转换为 Event，通过 `AppendEvent` 追加到该 Session。 |
-| 新进程列出会话 | DSH 启动后列出会话时，插件查询该用户在 SessionSpace 中的 Session，只返回带有 DSH header 的会话。Web UI 侧边栏中的会话列表即来源于此。 |
+| 新进程列出会话 | DSH 启动后列出会话时，插件查询该用户在 SessionSpace 中的 Session，只返回带有 DSH header 的会话；设置了 `SESSION_AGENT_ID` 时，只返回该 Agent 的会话。Web UI 侧边栏中的会话列表即来源于此。 |
 | 打开原会话 | 插件读回 header 和全部 Event，按序号排序并检查连续性后，交给 DSH 重建会话。 |
 
 云端 Session 由插件在写入时创建，不需要手动创建。
@@ -75,7 +75,7 @@ DSH 产生会话记录  →  持久化插件写入云端  →  SessionSpace 中�
 以下几点会影响接入后现有会话的行为，详细说明见[第 7 节](#7-限制与边界)：
 
 - **本地已有的 JSONL 历史不会迁移到云端。** 启用插件后，DSH 只能看到云端的会话。
-- **每个会话只应有一个 DSH 实例写入。** 插件不协调多个实例同时写入同一会话。
+- **同一个会话不要同时由多个 DSH 实例写入。** 多个实例可以共用一个空间、各自处理不同的会话，但插件不协调多个实例同时写入同一个会话。
 - **只恢复会话，不恢复工作环境。** 文件、运行中的进程和模型长连接都不会恢复；一轮对话进行中时实例退出，这一轮需要重新发起。
 
 ## 2. 准备工具与云端资源
@@ -91,12 +91,13 @@ DSH 产生会话记录  →  持久化插件写入云端  →  SessionSpace 中�
 
 | 标识 | 由谁提供 | 作用 |
 | --- | --- | --- |
-| 地域 `AGR_REGION` | 用户配置 | SessionSpace 所在地域，插件和 `agr` 必须使用同一地域 |
-| SessionSpace `SESSION_SPACE_ID` | 用户预先创建或选择 | Session 的隔离边界，插件将会话保存在该空间中 |
-| 用户 `SESSION_USER_ID` | 用户配置 | 应用自定义的业务用户标识，与腾讯云账号无关。本示例为所有会话固定使用同一值 |
+| 地域 `AGR_REGION` | 自行配置 | SessionSpace 所在地域，插件和 `agr` 必须使用同一地域 |
+| SessionSpace `SESSION_SPACE_ID` | 用户预先创建或选择 | 会话数据的逻辑管理空间 |
+| 用户 `SESSION_USER_ID` | 自行配置 | 应用自定义的业务用户标识，与腾讯云账号无关。插件启动时读取一次，此后该实例的所有会话都使用这个值。如需按业务用户区分会话，见[按业务用户区分会话](#按业务用户区分会话) |
 | Session ID | 沿用 DSH 会话 ID | 由插件在写入时创建对应的云端 Session，无需手动创建 |
+| Agent ID `SESSION_AGENT_ID` | 自行定义，可选 | 业务自定义的 Agent 标识。多个 Agent 共用一个空间时，用于区分各 Agent 的会话；不设置时不区分，见[多个 Agent 共用空间](#多个-agent-共用空间) |
 
-新进程恢复会话时，必须访问**同一地域、同一 SessionSpace、同一用户**下的原会话，并具备读取权限。任一项不同，新进程都看不到原会话。
+新进程恢复会话时，必须访问**同一地域、同一 SessionSpace、同一用户**下的原会话，并具备读取权限；设置了 `SESSION_AGENT_ID` 时，还需使用相同的值。任一项不同，新进程都看不到原会话。
 
 ### 凭证
 
@@ -132,18 +133,23 @@ Docker 读取 `--env-file` 时不解析引号和表达式，因此 `.env` 只能
 
 | 变量 | 是否必填 | 使用者 | 说明 |
 | --- | --- | --- | --- |
-| `AGR_REGION` | 是 | 插件、`agr` | 见上文「云端资源和会话身份」，示例默认为上海 |
-| `SESSION_SPACE_ID` | 是 | 插件、`agr` | 在下一小节中获取 |
-| `SESSION_USER_ID` | 是 | 插件、`agr` | 恢复和清理时必须保持一致 |
-| `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY` | 是 | 插件 | 见上文「凭证」 |
+| `AGR_REGION` | 是 | 插件、`agr` | SessionSpace 所在地域，示例默认为上海 `ap-shanghai`。见[云端资源和会话身份](#云端资源和会话身份) |
+| `SESSION_SPACE_ID` | 是 | 插件、`agr` | 会话保存在哪个 SessionSpace，获取方法见[创建或复用 SessionSpace](#创建或复用-sessionspace) |
+| `SESSION_USER_ID` | 是 | 插件、`agr` | 业务自定义的用户 ID，本示例可保持默认值 `dsh-demo-user`。恢复和清理时必须保持一致。一个 DSH 实例只对应一个用户 ID，见[按业务用户区分会话](#按业务用户区分会话) |
+| `SESSION_AGENT_ID` | 否 | 插件、验证脚本 | 业务自定义的 Agent ID，用于标识会话属于哪个 Agent，与腾讯云账号或资源 ID 无关。多个 Agent 共用一个空间时，各 Agent 只看到自己的会话；同一 Agent 的所有容器使用相同的 ID。见[多个 Agent 共用空间](#多个-agent-共用空间) |
+| `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY` | 是 | 插件 | 插件读写 Session 使用的云 API 凭证，见[凭证](#凭证) |
 | `TENCENTCLOUD_SESSION_TOKEN` | 使用临时凭证时必填 | 插件 | 临时凭证对应的 Token，过期后需更新并重启容器 |
 | `SESSION_API_ENDPOINT` | 否 | 插件、`agr` | 云 API 域名，默认为 `ags.tencentcloudapi.com`，仅在访问其他环境时需要修改 |
 | `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY` | 是 | 示例镜像 | DSH 调用的模型服务，默认使用 TokenHub 的 `deepseek-v4-flash`，见[更换模型服务](#更换模型服务)。仅本示例的镜像使用，集成到自有 DSH 时可沿用原有的模型配置 |
-| `AGR_DOMAIN` | 在云上运行时必填 | 示例镜像 | 仅在第 5 节中使用，本地运行保持默认值 `tencentags.com` 即可 |
+| `AGR_DOMAIN` | 在云上运行时必填 | 示例镜像 | 仅在[在云上运行](#在云上运行)时使用，本地运行保持默认值 `tencentags.com` 即可 |
 
 ### 创建或复用 SessionSpace
 
-已有可用的测试 SessionSpace 时，将其 ID 填入 `.env` 的 `SESSION_SPACE_ID` 即可。否则，创建专用的 SessionSpace：
+SessionSpace 是存放和管理会话数据的逻辑空间，不与 Agent 或运行实例一一对应。同一个 Agent 的多个运行实例、多个不同 Agent 都可以共用一个空间。是否拆分空间，取决于业务、环境和权限管理需求，而不是 Agent 或实例数量；例如需要独立管理的测试和生产环境可分别创建空间。
+
+SessionSpace 不是执行工作区（workspace），不会在实例之间共享本地文件。多个 Agent 共用空间时如何区分会话，见[多个 Agent 共用空间](#多个-agent-共用空间)。
+
+本示例只需创建或复用一个空间。新增、重启或替换运行实例时无需重新创建。已有可用空间时，填写 `.env` 中的 `SESSION_SPACE_ID`；没有时，执行以下命令为本次示例创建空间：
 
 ```bash
 agr session space create \
@@ -173,10 +179,10 @@ set +a
 | --- | --- | --- | --- |
 | 1. 安装插件 | 将本仓库的 `plugin` 目录（`index.js`、`package.json`、`pnpm-lock.yaml`）复制到镜像中，执行 `pnpm install --prod --frozen-lockfile`，放到 Node.js 全局模块目录下的 `@tencentcloud/ags-dsh-session-persistence` | 构建镜像时 | 见下方「构建后检查」 |
 | 2. 与 DSH 共用模块 | 删除插件 `node_modules` 下的 `@deepseek-ai` 目录，将 `cordis`、`dsh-session`、`dsh-session-persistence`、`schemastery` 符号链接到 DSH 的实际安装位置，使插件和 DSH 使用同一份模块 | 构建镜像时 | 见下方「构建后检查」 |
-| 3. 在 Web profile 中注册插件 | 启动 DSH 前，将插件链接到 `$DSH_HOME/profiles/web/node_modules/@tencentcloud/ags-dsh-session-persistence`，DSH 从这里按名称加载插件 | 容器启动时 | 该路径存在，且指向步骤 1 的安装目录 |
+| 3. 在 Web profile 中注册插件 | Web profile 是 DSH 以 Web 方式运行时加载插件的目录。启动 DSH 前，将插件链接到 `$DSH_HOME/profiles/web/node_modules/@tencentcloud/ags-dsh-session-persistence`，DSH 从这里按名称加载插件 | 容器启动时 | 该路径存在，且指向步骤 1 的安装目录 |
 | 4. 启用插件 | 将 [Cordis 补丁](./dockerfiles/agent-runtime-session.cordis.yml)复制到镜像中，在启动 `dsh web` 的命令中加上 `--patch <补丁路径>`，并为容器提供插件所需的环境变量 | 容器启动时 | 见下方「启动后检查」 |
 
-步骤 4 中，插件所需的环境变量为 `AGR_REGION`、`SESSION_SPACE_ID`、`SESSION_USER_ID`、`TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY`，以及可选的 `TENCENTCLOUD_SESSION_TOKEN` 和 `SESSION_API_ENDPOINT`，含义见[第 2 节](#2-准备工具与云端资源)。
+步骤 4 中，插件所需的环境变量为 `AGR_REGION`、`SESSION_SPACE_ID`、`SESSION_USER_ID`、`TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY`，以及可选的 `TENCENTCLOUD_SESSION_TOKEN`、`SESSION_API_ENDPOINT` 和 `SESSION_AGENT_ID`，含义见[第 2 节](#2-准备工具与云端资源)。
 
 ### Cordis 补丁
 
@@ -192,6 +198,7 @@ set +a
         endpoint: !!js process.env.SESSION_API_ENDPOINT
         spaceId: !!js process.env.SESSION_SPACE_ID
         userId: !!js process.env.SESSION_USER_ID
+        agentId: !!js process.env.SESSION_AGENT_ID
         secretId: !!js process.env.TENCENTCLOUD_SECRET_ID
         secretKey: !!js process.env.TENCENTCLOUD_SECRET_KEY
         sessionToken: !!js process.env.TENCENTCLOUD_SESSION_TOKEN
@@ -199,7 +206,7 @@ set +a
 
 - 第一项按 `id` 禁用 DSH 内置的 JSONL 持久化插件。
 - `insert` 加入本插件：`name` 是插件的包名，DSH 按此名称在 Web profile 的 `node_modules` 中查找插件，因此须与步骤 3 的注册路径一致。
-- `config` 中的 `!!js process.env.*` 表示在 DSH 启动时从环境变量读取配置，凭证不会写入镜像或补丁文件。
+- `config` 中的 `!!js process.env.*` 表示在 DSH 启动时从环境变量读取配置，凭证不会写入镜像或补丁文件。`agentId` 为可选项，见[多个 Agent 共用空间](#多个-agent-共用空间)。
 
 `config` 下的配置项名称（`region`、`spaceId`、`userId` 等）由插件定义，不能修改；右侧的环境变量名称可以按需调整。
 
@@ -250,7 +257,7 @@ export DSH_SESSION_IMAGE=your-registry/your-dsh:version-session-persistence
 make build DSH_IMAGE=your-registry/your-dsh:version
 ```
 
-构建产物建议沿用基础镜像的仓库和版本，并在标签后加上 `-session-persistence`，以便区分原镜像与加装了插件的镜像。本示例的预集成镜像也采用这一命名，即 `deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.3`，末尾的 `.3` 为插件的发布序号。
+构建产物建议沿用基础镜像的仓库和版本，并在标签后加上 `-session-persistence`，以便区分原镜像与加装了插件的镜像。本示例的预集成镜像也采用这一命名，即 `deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.4`，末尾的 `.4` 为插件的发布序号。
 
 本示例的 Dockerfile 除了完成四个步骤，还会使用本示例的 [entrypoint.sh](./dockerfiles/entrypoint.sh) 作为启动命令。按「必需项与示例选择」，如自有镜像有自己的启动参数或模型配置：
 
@@ -367,7 +374,7 @@ agr session get \
 
 本节命令通过 `DSH_SESSION_IMAGE` 指定镜像，启动、重建和检查需使用同一镜像：
 
-- **使用预集成镜像**：无需设置，默认为 `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.3`。
+- **使用预集成镜像**：无需设置，默认为 `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.4`。
 - **使用自建镜像**：在执行本节命令的终端中先导出镜像名，例如 `export DSH_SESSION_IMAGE=your-registry/your-dsh:version-session-persistence`。`make start` 和 `make check-image` 都会使用它。
 
 启动 DSH：
@@ -384,7 +391,7 @@ docker inspect --format '{{.Config.Image}}' dsh-session-demo
 
 ### 通过 Web UI 验证
 
-**保存会话。** 在浏览器中打开 <http://127.0.0.1:18080>，确认输入框下方显示的模型与预期一致，然后新建会话，发送：
+**保存会话。** 在浏览器中打开 <http://127.0.0.1:18080>，确认输入框下方显示的模型与 `.env` 中的 `LLM_MODEL` 一致，然后新建会话，发送：
 
 ```text
 请记住这个标识：blue-falcon-42。只回复"已记住"，不要使用工具。
@@ -537,14 +544,71 @@ make start DSH_SESSION_IMAGE=dsh-session:local
 
 不指定镜像名时，`make build` 输出本地镜像 `dsh-session:local`，不会覆盖预集成镜像。
 
+### 多个 Agent 共用空间
+
+这里的 Agent 指一个独立的 DSH 应用，例如一个客服助手和一个代码助手，它们有各自的用途和配置。同一个 Agent 可以同时运行多个容器或副本，它们仍属于同一个 Agent。
+
+**默认情况下，共用空间的 Agent 会看到彼此的会话。** 插件只按 SessionSpace 和 `SESSION_USER_ID` 查找会话。如果客服助手和代码助手使用同一个空间和同一个 UserId，打开任意一个助手的 Web UI，侧边栏都会同时列出两边的会话，也能打开并继续另一个助手的会话。
+
+有两种方式让各 Agent 只看到自己的会话：
+
+- **为每个 Agent 使用不同的 SessionSpace。** 为每个 Agent 创建一个空间，分别填入各自 `.env` 的 `SESSION_SPACE_ID`。最简单，不需要额外配置。
+- **共用一个空间，用 `SESSION_AGENT_ID` 区分。** 适合希望把会话数据集中在一个空间里管理的场景，设置方法见下文。
+
+#### 使用 SESSION_AGENT_ID
+
+`SESSION_AGENT_ID` 是由业务自行定义的 Agent ID，与腾讯云账号或资源 ID 无关，只需在同一空间内唯一且保持不变。可以直接使用业务系统中已有的 Agent ID，也可以按以下示例自行分配，填入各 Agent 的 `.env`：
+
+| Agent | `.env` 中的设置 |
+| --- | --- |
+| 客服助手（无论运行几个容器） | `SESSION_AGENT_ID=agt-10001` |
+| 代码助手 | `SESSION_AGENT_ID=agt-10002` |
+
+同一个 Agent 的所有容器或副本必须使用相同的 ID，否则替换容器后找不到原来的会话。修改 `.env` 后，执行 `make stop` 和 `make start` 重启容器生效。
+
+设置后的效果：
+
+- 每个 Agent 的侧边栏只列出自己创建的会话；
+- 即使知道其他 Agent 的会话 ID，通过 DSH 接口直接访问也无法打开，DSH 会提示会话不存在；
+- 设置 `SESSION_AGENT_ID` 之前创建的会话不再显示。这些会话仍保存在云端，并没有被删除；清空该变量并重启容器后可以重新看到。
+
+**实现方式。** 插件新建会话时，会把 Agent ID 写入 Session 的 Metadata。Metadata 是 Session 上的一组自定义键值对，查询会话时可以作为过滤条件；插件列出会话时，就是按这个键值对筛选出当前 Agent 的会话。本示例使用的 key 是 `example.com/dsh-agent-id`。如需改用其他 key，例如与业务系统已有的命名保持一致，请同时修改 [plugin/index.js](./plugin/index.js) 和 [session_demo.py](./session_demo.py) 中的 `AGENT_METADATA_KEY`，再按[更换模型服务](#更换模型服务)末尾的方法重新构建镜像。改用新 key 后，按原 key 记录的会话不再显示。
+
+除 Agent ID 外，Metadata 也可以记录租户、业务线、渠道等其他业务标识，用于归类和查询会话。本示例的插件只写入 Agent ID；如需记录其他标识，请修改 [plugin/index.js](./plugin/index.js) 中的 `appendBatch`，在创建 Session 时补充相应的 Metadata，并重新构建镜像。
+
+#### 验证
+
+1. 在 `.env` 中设置 `SESSION_AGENT_ID=agt-10001`，执行 `make stop` 和 `make start` 重启容器，按[第 4 节](#4-验证接入)保存一轮会话。
+2. 将其改为 `agt-10002` 并重启容器，再保存一轮会话。此时侧边栏中只有这一步的会话，看不到第 1 步的会话。
+3. 改回 `agt-10001` 并重启容器。第 1 步的会话重新出现在侧边栏中，并且可以打开。
+
+使用脚本验证时，每次 `seed` 都需要一个新的 state 文件，请为每个 Agent 指定不同的路径，例如 `python3 session_demo.py seed --state .local/agt-10001.json`，`resume` 时使用相同的路径。
+
+### 按业务用户区分会话
+
+**Session 服务本身支持按用户隔离会话。** 每个会话属于创建时指定的 UserId；列出、读取、追加 Event 和删除会话时都需要传入 UserId，只能访问该 UserId 下的会话，使用其他 UserId 访问时，服务返回会话不存在。UserId 由调用方传入，Session 服务不会校验调用方是否就是该用户，持有云 API 凭证的程序可以使用任意 UserId，因此应由应用确保传入正确的用户 ID。
+
+**本示例的插件只使用一个固定的 UserId。** 插件在启动时从 `SESSION_USER_ID` 读取一个用户 ID，这个 DSH 实例创建和查询的所有会话都使用这个值。插件无法区分实例中的不同使用者：DSH 交给插件的读写请求只包含会话 ID，不包含"当前是哪个用户在操作"，本示例的 DSH Web UI 也没有用户登录。因此，**一个 DSH 实例只对应一个用户 ID**，使用同一个实例的所有人会看到同一批会话。
+
+如需让每个业务用户只看到自己的会话，请为每个业务用户使用独立的 DSH 实例：为每个用户启动一个 DSH 容器或沙箱，启动时将该用户在业务系统中的用户 ID 填入 `SESSION_USER_ID`。
+
+| 业务用户 | 该用户实例的 `.env` 中的设置 |
+| --- | --- |
+| 用户 A，业务系统中的用户 ID 为 `u-1001` | `SESSION_USER_ID=u-1001` |
+| 用户 B，业务系统中的用户 ID 为 `u-1002` | `SESSION_USER_ID=u-1002` |
+
+用户 A 之后再次使用时，为其启动新实例并使用相同的 `SESSION_USER_ID=u-1001`，即可加载之前的会话；用户 B 的实例看不到用户 A 的会话。这种方式不需要修改插件。
+
+本示例不支持多个业务用户共用一个 DSH 实例。这一限制来自 DSH 和本示例的插件，而不是 Session 服务：本示例验证的 DSH 版本（0.1.1-rc.2）没有用户身份的概念，插件拿不到当前用户的信息，无法为每个请求选择对应的 UserId。
+
 ### 在云上运行
 
-本地验证通过后，可以将同一镜像放到云上运行：直接在 AGS 沙箱中运行，或托管到 Deployment。两种方式使用相同的镜像和沙箱工具。
+本地验证通过后，可以将同一镜像放到云上运行：直接在 AGS 沙箱中运行，或托管到 Deployment。两种方式都基于同一个沙箱工具创建，沙箱工具定义了沙箱使用的镜像、环境变量和资源规格。
 
 **准备镜像和沙箱工具。** 默认使用预集成镜像。使用自建镜像时，需先推送到账号可拉取的仓库，例如 `docker push your-registry/your-dsh:version-session-persistence`；Makefile 不会执行推送。此外，需按[自定义 Sandbox CAM 角色](https://cloud.tencent.com/document/product/1814/129691)准备 `AGR_ROLE_ARN`，并为操作者授予 `cam:PassRole`，以及创建沙箱工具、沙箱实例或 Deployment 和获取访问 Token 的权限。
 
 ```bash
-export DSH_SESSION_IMAGE="${DSH_SESSION_IMAGE:-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.3}"
+export DSH_SESSION_IMAGE="${DSH_SESSION_IMAGE:-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.4}"
 export AGR_ROLE_ARN='qcs::cam::uin/replace-me:roleName/replace-me'
 mkdir -p .local
 umask 077
@@ -660,36 +724,18 @@ agr deployment proxy "$DSH_DEPLOYMENT_ID" 18081:3080 \
 
 ## 6. 清理
 
-停止本地容器，并删除 `SESSION_USER_ID` 在该 SessionSpace 中的全部 Session。这样可以同时清理通过 Web UI 和脚本创建的会话：
+停止本地容器，先预览清理范围，再删除：
 
 ```bash
 make stop
-
-agr session list \
-  --region "$AGR_REGION" \
-  --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --space-id "$SESSION_SPACE_ID" \
-  --user-ids "$SESSION_USER_ID" \
-  --limit 100 \
-  --output json \
-  --jq '(.Data.Sessions // [])[].SessionId' | while read -r session_id; do
-    delete_status="$(
-      agr session delete \
-        --region "$AGR_REGION" \
-        --cloud-endpoint "$SESSION_API_ENDPOINT" \
-        --space-id "$SESSION_SPACE_ID" \
-        --user-id "$SESSION_USER_ID" \
-        --session-id "$session_id" \
-        --output json \
-        --jq '.Status'
-    )"
-    echo "$session_id: $delete_status"
-  done
+python3 session_demo.py cleanup
+# 核对预览结果后删除：
+python3 session_demo.py cleanup --delete
 ```
 
-若该 SessionSpace 为共用空间，且其他人也使用相同的 `SESSION_USER_ID`，上述命令会删除他们的 Session。此时请先单独执行 `agr session list` 核对列表，只删除本示例创建的 Session。
+不带 `--delete` 时，脚本只列出将要删除的会话。设置了 `SESSION_AGENT_ID` 时，只包含该 Agent 的会话；未设置时，包含该 UserId 在空间中的全部会话。共用空间时，请先核对预览结果再删除。
 
-确认每一行输出均为 `succeeded` 后，再删除本地 state 文件：
+确认每个会话均输出 `deleted` 后，再删除本地 state 文件：
 
 ```bash
 rm -rf .local
@@ -758,9 +804,9 @@ agr tool delete "$DSH_TOOL_ID" \
 - **连接被拒绝**：等待服务启动完成，并查看容器日志。如修改了 `PORT`，需同步修改脚本使用的 `DSH_BASE_URL`。
 - **模型调用报错**：核对 `.env` 中的 `LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`，以及账号的模型权限。容器日志中的 `configure-model:` 一行会显示实际使用的模型和地址。Session 凭证不包含模型权限。
 - **更换模型后旧会话报错 `UNKNOWN_MODEL`**：DSH 为每个会话记录了所使用的模型，旧会话仍指向原模型。请在 Web UI 输入框下方切换为当前配置的模型，见[更换模型服务](#更换模型服务)。
-- **新容器看不到原会话**：确认新容器的 `AGR_REGION`、`SESSION_SPACE_ID`、`SESSION_USER_ID` 与写入时一致，并用 `docker inspect --format '{{.Config.Image}}' dsh-session-demo` 确认使用的是已集成插件的镜像。
+- **新容器看不到原会话**：确认新容器的 `AGR_REGION`、`SESSION_SPACE_ID`、`SESSION_USER_ID`、`SESSION_AGENT_ID` 与写入时一致，并用 `docker inspect --format '{{.Config.Image}}' dsh-session-demo` 确认使用的是已集成插件的镜像。
 - **历史序号不连续**（`non-contiguous DSH event log`）：先停止写入，再排查未完整写入的事件，不要通过删除事件来掩盖报错。
-- **多用户场景**：固定的 `SESSION_USER_ID` 仅用于演示。生产环境需接入可信身份并进行归属校验，不能按请求修改共享插件的 UserId。
+- **多用户场景**：本示例的所有会话都使用同一个 `SESSION_USER_ID`。如需按业务用户区分会话，见[按业务用户区分会话](#按业务用户区分会话)。
 
 ## 附录：本地单元测试
 

@@ -36,7 +36,7 @@ The readiness check retries for about 2 minutes and prints the last 20 lines of 
 
 ### Integration point
 
-DSH decides where conversations are stored through its **SessionPersistence extension point**; the built-in implementation is the `session-persistence-jsonl` plugin, which writes local files. This example provides a plugin for the same extension point, `@tencentcloud/ags-dsh-session-persistence`, and at DSH startup a Cordis patch disables the JSONL plugin and enables this one. The rest of DSH — model calls, tool execution and the Web UI — needs no changes.
+DSH decides where conversations are stored through its **SessionPersistence extension point**; the built-in implementation is the `session-persistence-jsonl` plugin, which writes local files. This example provides a plugin for the same extension point, `@tencentcloud/ags-dsh-session-persistence`, and at DSH startup a Cordis patch disables the JSONL plugin and enables this one. Cordis is DSH's plugin framework; a patch is a YAML file that changes which plugins load without modifying DSH's code. The rest of DSH — model calls, tool execution and the Web UI — needs no changes.
 
 ```text
 DSH writes conversation records  →  the plugin writes them to the cloud  →  Session and Events in the SessionSpace
@@ -50,7 +50,7 @@ A new DSH process  ←  the plugin reads the history back  ←──────
 | --- | --- |
 | Saving starts | After the first message in a new conversation, the plugin creates the matching cloud Session with `CreateSession`, using the DSH conversation ID as the Session ID, and stores the DSH conversation metadata (the header) in it. A conversation that is created but never sent a message is not written to the cloud. |
 | Later writes | Each time DSH appends to the conversation log, the plugin turns the entry into an Event and appends it to that Session with `AppendEvent`. |
-| A new process lists conversations | When DSH lists conversations after starting, the plugin queries this user's Sessions in the SessionSpace and returns only those with a DSH header. The conversation list in the Web UI sidebar comes from here. |
+| A new process lists conversations | When DSH lists conversations after starting, the plugin queries this user's Sessions in the SessionSpace and returns only those with a DSH header; with `SESSION_AGENT_ID` set, only that Agent's. The conversation list in the Web UI sidebar comes from here. |
 | Opening an existing conversation | The plugin reads back the header and every Event, sorts them by sequence number, checks that the sequence is contiguous, and hands them to DSH to rebuild the conversation. |
 
 The plugin creates the cloud Session when it first writes; you do not create it by hand.
@@ -75,7 +75,7 @@ Besides the standard Session fields, the plugin uses these custom fields to stor
 These points affect how existing conversations behave once the plugin is enabled; [section 7](#7-limits) has the details:
 
 - **Existing local JSONL history is not migrated to the cloud.** With the plugin enabled, DSH sees only cloud conversations.
-- **Each conversation should have only one DSH instance writing to it.** The plugin does not coordinate several instances writing the same conversation.
+- **Do not let several DSH instances write the same conversation at once.** Several instances can share a space and each handle different conversations, but the plugin does not coordinate concurrent writes to one conversation.
 - **Conversations are restored, working environments are not.** Files, running processes and live model connections are not restored; if an instance exits mid-turn, that turn has to be sent again.
 
 ## 2. Prepare tools and cloud resources
@@ -91,12 +91,13 @@ The plugin uses these identifiers to decide where each conversation is stored:
 
 | Identifier | Provided by | Role |
 | --- | --- | --- |
-| Region `AGR_REGION` | You | Region of the SessionSpace; the plugin and `agr` must use the same one |
-| SessionSpace `SESSION_SPACE_ID` | You, created or chosen in advance | Isolation boundary for Sessions; the plugin stores conversations in it |
-| User `SESSION_USER_ID` | You | An application-defined user ID, unrelated to Tencent Cloud accounts. This example uses one fixed value for every conversation |
+| Region `AGR_REGION` | Your configuration | Region of the SessionSpace; the plugin and `agr` must use the same one |
+| SessionSpace `SESSION_SPACE_ID` | You, created or chosen in advance | Logical space for storing and managing Sessions |
+| User `SESSION_USER_ID` | Your configuration | An application-defined user ID, unrelated to Tencent Cloud accounts. The plugin reads it once at startup and uses it for every conversation of that instance. To separate conversations by business user, see [Separating conversations by business user](#separating-conversations-by-business-user) |
 | Session ID | The DSH conversation ID | The plugin creates the matching cloud Session when it writes; no manual creation needed |
+| Agent ID `SESSION_AGENT_ID` | Defined by you, optional | A business-defined Agent identifier. Tells Agents apart when several share one space; not set means no distinction. See [Multiple Agents in one space](#multiple-agents-in-one-space) |
 
-To restore a conversation, the new process must access it in **the same region, SessionSpace and user**, with read permission. If any of these differ, the new process cannot see the conversation.
+To restore a conversation, the new process must access it in **the same region, SessionSpace and user**, with read permission, and with the same `SESSION_AGENT_ID` if one is set. If any of these differ, the new process cannot see the conversation.
 
 ### Credentials
 
@@ -132,18 +133,23 @@ Docker reads `--env-file` without parsing quotes or expressions, so keep `.env` 
 
 | Variable | Required | Used by | Description |
 | --- | --- | --- | --- |
-| `AGR_REGION` | Yes | Plugin, `agr` | See "Cloud resources and conversation identity" above; defaults to Shanghai |
-| `SESSION_SPACE_ID` | Yes | Plugin, `agr` | Obtained in the next subsection |
-| `SESSION_USER_ID` | Yes | Plugin, `agr` | Must stay the same for restore and cleanup |
-| `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` | Yes | Plugin | See "Credentials" above |
+| `AGR_REGION` | Yes | Plugin, `agr` | Region of the SessionSpace; defaults to Shanghai, `ap-shanghai`. See [Cloud resources and conversation identity](#cloud-resources-and-conversation-identity) |
+| `SESSION_SPACE_ID` | Yes | Plugin, `agr` | The SessionSpace that stores conversations; see [Create or reuse a SessionSpace](#create-or-reuse-a-sessionspace) |
+| `SESSION_USER_ID` | Yes | Plugin, `agr` | A business-defined user ID; the default `dsh-demo-user` is fine for this example. Must stay the same for restore and cleanup. One DSH instance maps to one user ID; see [Separating conversations by business user](#separating-conversations-by-business-user) |
+| `SESSION_AGENT_ID` | No | Plugin, verification script | A business-defined Agent ID that marks which Agent a conversation belongs to, unrelated to Tencent Cloud accounts or resource IDs. When several Agents share a space, each Agent sees only its own conversations; all containers of one Agent use the same ID. See [Multiple Agents in one space](#multiple-agents-in-one-space) |
+| `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY` | Yes | Plugin | Cloud API credentials the plugin uses to read and write Sessions; see [Credentials](#credentials) |
 | `TENCENTCLOUD_SESSION_TOKEN` | With temporary credentials | Plugin | Token for temporary credentials; refresh it and restart the container when it expires |
 | `SESSION_API_ENDPOINT` | No | Plugin, `agr` | Cloud API endpoint; defaults to `ags.tencentcloudapi.com`. Change it only to reach another environment |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | Yes | Example image | The model service DSH calls; TokenHub's `deepseek-v4-flash` by default, see [Changing the model service](#changing-the-model-service). Used only by this example's image; when integrating into your own DSH you can keep its existing model configuration |
-| `AGR_DOMAIN` | When running in the cloud | Example image | Used only in section 5; leave the default `tencentags.com` for local runs |
+| `AGR_DOMAIN` | When running in the cloud | Example image | Used only for [Running in the cloud](#running-in-the-cloud); leave the default `tencentags.com` for local runs |
 
 ### Create or reuse a SessionSpace
 
-If you already have a test SessionSpace, put its ID in `SESSION_SPACE_ID` in `.env`. Otherwise, create a dedicated one:
+A SessionSpace is a logical space for storing and managing Sessions, not a one-to-one binding to an Agent or runtime instance. Multiple instances of one Agent, and multiple different Agents, can share a space. Split spaces according to business, environment and access-management requirements, not Agent or instance counts; for example, manage test and production environments in separate spaces.
+
+A SessionSpace is not an execution workspace and does not share local files between instances. To keep Agents apart within a shared space, see [Multiple Agents in one space](#multiple-agents-in-one-space).
+
+Create or reuse one space for this example. Adding, restarting or replacing runtime instances does not require another space. Put an existing space's ID in `SESSION_SPACE_ID` in `.env`, or run the following command to create a space for this example:
 
 ```bash
 agr session space create \
@@ -173,10 +179,10 @@ Integrating Session takes these four changes:
 | --- | --- | --- | --- |
 | 1. Install the plugin | Copy this repository's `plugin` directory (`index.js`, `package.json`, `pnpm-lock.yaml`) into the image, run `pnpm install --prod --frozen-lockfile`, and place it under `@tencentcloud/ags-dsh-session-persistence` in the Node.js global modules directory | Image build | See "Post-build check" below |
 | 2. Share modules with DSH | Delete the `@deepseek-ai` directory under the plugin's `node_modules` and symlink `cordis`, `dsh-session`, `dsh-session-persistence` and `schemastery` to where DSH is actually installed, so the plugin and DSH use the same modules | Image build | See "Post-build check" below |
-| 3. Register the plugin in the Web profile | Before DSH starts, link the plugin to `$DSH_HOME/profiles/web/node_modules/@tencentcloud/ags-dsh-session-persistence`; DSH loads it from there by name | Container start | The path exists and points to the step 1 install directory |
+| 3. Register the plugin in the Web profile | The Web profile is the directory DSH loads plugins from when it runs in Web mode. Before DSH starts, link the plugin to `$DSH_HOME/profiles/web/node_modules/@tencentcloud/ags-dsh-session-persistence`; DSH loads it from there by name | Container start | The path exists and points to the step 1 install directory |
 | 4. Enable the plugin | Copy the [Cordis patch](./dockerfiles/agent-runtime-session.cordis.yml) into the image, add `--patch <patch path>` to the `dsh web` start command, and give the container the environment variables the plugin needs | Container start | See "Post-start check" below |
 
-For step 4, the plugin needs `AGR_REGION`, `SESSION_SPACE_ID`, `SESSION_USER_ID`, `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY`, plus the optional `TENCENTCLOUD_SESSION_TOKEN` and `SESSION_API_ENDPOINT`; see [section 2](#2-prepare-tools-and-cloud-resources).
+For step 4, the plugin needs `AGR_REGION`, `SESSION_SPACE_ID`, `SESSION_USER_ID`, `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY`, plus the optional `TENCENTCLOUD_SESSION_TOKEN`, `SESSION_API_ENDPOINT` and `SESSION_AGENT_ID`; see [section 2](#2-prepare-tools-and-cloud-resources).
 
 ### Cordis patch
 
@@ -192,6 +198,7 @@ For step 4, the plugin needs `AGR_REGION`, `SESSION_SPACE_ID`, `SESSION_USER_ID`
         endpoint: !!js process.env.SESSION_API_ENDPOINT
         spaceId: !!js process.env.SESSION_SPACE_ID
         userId: !!js process.env.SESSION_USER_ID
+        agentId: !!js process.env.SESSION_AGENT_ID
         secretId: !!js process.env.TENCENTCLOUD_SECRET_ID
         secretKey: !!js process.env.TENCENTCLOUD_SECRET_KEY
         sessionToken: !!js process.env.TENCENTCLOUD_SESSION_TOKEN
@@ -199,7 +206,7 @@ For step 4, the plugin needs `AGR_REGION`, `SESSION_SPACE_ID`, `SESSION_USER_ID`
 
 - The first entry disables DSH's built-in JSONL persistence plugin by `id`.
 - `insert` adds this plugin. `name` is the plugin's package name; DSH looks for it by this name in the Web profile's `node_modules`, so it must match the registration path in step 3.
-- `!!js process.env.*` in `config` reads each value from an environment variable when DSH starts, so credentials are never written into the image or the patch.
+- `!!js process.env.*` in `config` reads each value from an environment variable when DSH starts, so credentials are never written into the image or the patch. `agentId` is optional; see [Multiple Agents in one space](#multiple-agents-in-one-space).
 
 The keys under `config` (`region`, `spaceId`, `userId` and so on) are defined by the plugin and cannot be renamed; the environment variable names on the right can be changed as needed.
 
@@ -250,7 +257,7 @@ export DSH_SESSION_IMAGE=your-registry/your-dsh:version-session-persistence
 make build DSH_IMAGE=your-registry/your-dsh:version
 ```
 
-Name the output after its base image — same repository and version, with `-session-persistence` appended to the tag — so the original image and the one with the plugin are easy to tell apart. This example's pre-built image follows the same convention: `deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.3`, where the trailing `.3` is the plugin's release number.
+Name the output after its base image — same repository and version, with `-session-persistence` appended to the tag — so the original image and the one with the plugin are easy to tell apart. This example's pre-built image follows the same convention: `deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.4`, where the trailing `.4` is the plugin's release number.
 
 Besides the four steps, this example's Dockerfile uses this example's [entrypoint.sh](./dockerfiles/entrypoint.sh) as the start command. Following "Required versus example choices", if your image has its own start arguments or model configuration:
 
@@ -367,7 +374,7 @@ You can verify by hand in the Web UI or automatically with a script; both check 
 
 The commands in this section pick the image through `DSH_SESSION_IMAGE`. Use the same image to start, recreate and check:
 
-- **Pre-built image** — nothing to set; the default is `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.3`.
+- **Pre-built image** — nothing to set; the default is `ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.4`.
 - **Your own image** — export its name first in the terminal where you run this section, for example `export DSH_SESSION_IMAGE=your-registry/your-dsh:version-session-persistence`. Both `make start` and `make check-image` use it.
 
 Start DSH:
@@ -384,7 +391,7 @@ If your own image uses different start arguments, start the container your own w
 
 ### Verify in the Web UI
 
-**Save a conversation.** Open <http://127.0.0.1:18080> in a browser, confirm the model shown below the input box is the one you expect, start a new conversation, and send:
+**Save a conversation.** Open <http://127.0.0.1:18080> in a browser, confirm the model shown below the input box matches `LLM_MODEL` in `.env`, start a new conversation, and send:
 
 ```text
 Remember this marker: blue-falcon-42. Reply with only "Noted". Do not use tools.
@@ -537,14 +544,71 @@ make start DSH_SESSION_IMAGE=dsh-session:local
 
 Without an image name, `make build` writes the local image `dsh-session:local` and does not overwrite the pre-built image.
 
+### Multiple Agents in one space
+
+An Agent here means one standalone DSH application — say, a support assistant and a coding assistant, each with its own purpose and configuration. One Agent can run several containers or replicas at once; they all still belong to the same Agent.
+
+**By default, Agents that share a space see each other's conversations.** The plugin finds conversations by SessionSpace and `SESSION_USER_ID` only. If the support assistant and the coding assistant use the same space and the same UserId, the sidebar in either assistant's Web UI lists the conversations of both, and either one can open and continue the other's conversations.
+
+There are two ways to let each Agent see only its own conversations:
+
+- **Give each Agent its own SessionSpace.** Create one space per Agent and put each space's ID in `SESSION_SPACE_ID` in that Agent's `.env`. The simplest option; nothing else to configure.
+- **Share one space and tell Agents apart with `SESSION_AGENT_ID`.** Useful when you want all conversation data managed in one space; set it up as described below.
+
+#### Using SESSION_AGENT_ID
+
+`SESSION_AGENT_ID` is an Agent ID that your business defines. It is unrelated to Tencent Cloud accounts or resource IDs; it only has to be unique within the space and stay the same over time. You can reuse an Agent ID that already exists in your business system, or assign one as in the example below, and put it in each Agent's `.env`:
+
+| Agent | Setting in `.env` |
+| --- | --- |
+| Support assistant (however many containers it runs) | `SESSION_AGENT_ID=agt-10001` |
+| Coding assistant | `SESSION_AGENT_ID=agt-10002` |
+
+All containers or replicas of one Agent must use the same ID; otherwise a replaced container cannot find the earlier conversations. After editing `.env`, run `make stop` and `make start` to apply it.
+
+With it set:
+
+- each Agent's sidebar lists only the conversations it created;
+- even with another Agent's conversation ID, accessing it directly through the DSH API fails; DSH reports it as not found;
+- conversations created before you set `SESSION_AGENT_ID` are no longer listed. They are still stored in the cloud, not deleted; clear the variable and restart the container to see them again.
+
+**How it works.** When the plugin creates a conversation, it writes the Agent ID into the Session's Metadata. Metadata is a set of custom key-value pairs on a Session that can be used as filters when querying Sessions; when listing conversations, the plugin filters on this key-value pair to find the current Agent's conversations. This example uses the key `example.com/dsh-agent-id`. To use a different key, for example to match naming already used in your business system, change `AGENT_METADATA_KEY` in both [plugin/index.js](./plugin/index.js) and [session_demo.py](./session_demo.py), then rebuild the image as described at the end of [Changing the model service](#changing-the-model-service). After switching keys, conversations recorded under the old key are no longer listed.
+
+Besides the Agent ID, Metadata can hold other business identifiers such as tenant, business line or channel, for grouping and querying conversations. This example's plugin writes only the Agent ID; to record other identifiers, modify `appendBatch` in [plugin/index.js](./plugin/index.js) to add the corresponding Metadata when the Session is created, then rebuild the image.
+
+#### Verify
+
+1. Set `SESSION_AGENT_ID=agt-10001` in `.env`, run `make stop` and `make start` to restart the container, and save a conversation as in [section 4](#4-verify-the-integration).
+2. Change it to `agt-10002`, restart the container, and save another conversation. The sidebar now shows only this conversation, not the one from step 1.
+3. Change it back to `agt-10001` and restart the container. The conversation from step 1 reappears in the sidebar and opens.
+
+When verifying with the script, each `seed` needs a new state file, so give each Agent its own path, for example `python3 session_demo.py seed --state .local/agt-10001.json`, and use the same path for `resume`.
+
+### Separating conversations by business user
+
+**The Session service itself isolates conversations by user.** Each conversation belongs to the UserId given when it was created; listing, reading, appending Events and deleting all take a UserId and only reach conversations under it, and the service reports conversations as not found when accessed with another UserId. The UserId is supplied by the caller and the Session service does not check that the caller is that user: a program holding the cloud API credentials can pass any UserId, so your application is responsible for passing the right user ID.
+
+**This example's plugin uses one fixed UserId.** At startup the plugin reads one user ID from `SESSION_USER_ID`, and every conversation that DSH instance creates or queries uses it. The plugin cannot tell the people using an instance apart: the reads and writes DSH hands to the plugin carry only a conversation ID, not who is acting, and the DSH Web UI in this example has no user login. So **one DSH instance maps to one user ID**, and everyone using the same instance sees the same conversations.
+
+To let each business user see only their own conversations, give each business user their own DSH instance: start a DSH container or sandbox per user, setting `SESSION_USER_ID` to that user's ID from your business system.
+
+| Business user | Setting in that user's instance `.env` |
+| --- | --- |
+| User A, whose business-system user ID is `u-1001` | `SESSION_USER_ID=u-1001` |
+| User B, whose business-system user ID is `u-1002` | `SESSION_USER_ID=u-1002` |
+
+When user A comes back later, start a new instance with the same `SESSION_USER_ID=u-1001` and their earlier conversations load; user B's instance cannot see user A's conversations. No plugin changes are needed.
+
+This example does not support several business users sharing one DSH instance. The limitation comes from DSH and this example's plugin, not from the Session service: the DSH version this example was verified with (0.1.1-rc.2) has no notion of user identity, so the plugin cannot see who the current user is and cannot pick the matching UserId for each request.
+
 ### Running in the cloud
 
-Once local verification passes, you can run the same image in the cloud, either directly in an AGS sandbox or hosted in a Deployment. Both use the same image and sandbox tool.
+Once local verification passes, you can run the same image in the cloud, either directly in an AGS sandbox or hosted in a Deployment. Both are created from the same sandbox tool, which defines the image, environment variables and resources a sandbox uses.
 
 **Prepare the image and sandbox tool.** The pre-built image is used by default. To use your own image, push it to a registry your account can pull from first, for example `docker push your-registry/your-dsh:version-session-persistence`; the Makefile does not push. You also need `AGR_ROLE_ARN` from the [custom Sandbox role guide](https://cloud.tencent.com/document/product/1814/129691), `cam:PassRole` for the operator, and permission to create sandbox tools, sandbox instances or Deployments, and to obtain access tokens.
 
 ```bash
-export DSH_SESSION_IMAGE="${DSH_SESSION_IMAGE:-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.3}"
+export DSH_SESSION_IMAGE="${DSH_SESSION_IMAGE:-ccr.ccs.tencentyun.com/ags.dev/deepseek-harness:v0.1.1-rc.2-ags.4-session-persistence.4}"
 export AGR_ROLE_ARN='qcs::cam::uin/replace-me:roleName/replace-me'
 mkdir -p .local
 umask 077
@@ -660,36 +724,18 @@ This verifies that conversations survive deleting and recreating DSH's Deploymen
 
 ## 6. Clean up
 
-Stop the local container and delete every Session that `SESSION_USER_ID` owns in the SessionSpace. This covers conversations created both in the Web UI and by the script:
+Stop the local container, preview the cleanup scope, then delete:
 
 ```bash
 make stop
-
-agr session list \
-  --region "$AGR_REGION" \
-  --cloud-endpoint "$SESSION_API_ENDPOINT" \
-  --space-id "$SESSION_SPACE_ID" \
-  --user-ids "$SESSION_USER_ID" \
-  --limit 100 \
-  --output json \
-  --jq '(.Data.Sessions // [])[].SessionId' | while read -r session_id; do
-    delete_status="$(
-      agr session delete \
-        --region "$AGR_REGION" \
-        --cloud-endpoint "$SESSION_API_ENDPOINT" \
-        --space-id "$SESSION_SPACE_ID" \
-        --user-id "$SESSION_USER_ID" \
-        --session-id "$session_id" \
-        --output json \
-        --jq '.Status'
-    )"
-    echo "$session_id: $delete_status"
-  done
+python3 session_demo.py cleanup
+# delete after reviewing the preview:
+python3 session_demo.py cleanup --delete
 ```
 
-If the SessionSpace is shared and other people use the same `SESSION_USER_ID`, this deletes their Sessions too. In that case run `agr session list` on its own first, check the list, and delete only the Sessions this example created.
+Without `--delete`, the script only lists the conversations it would delete: with `SESSION_AGENT_ID` set, only that Agent's; without it, every conversation of that UserId in the space. Review the preview before deleting in a shared space.
 
-Once every line reads `succeeded`, remove the local state files:
+Once every conversation reports `deleted`, remove the local state files:
 
 ```bash
 rm -rf .local
@@ -758,9 +804,9 @@ Before using this plugin in production, or letting several DSH instances write t
 - **Connection refused** — wait for startup and check the container log. If you override `PORT`, update `DSH_BASE_URL` for the script too.
 - **Model errors** — check `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` in `.env`, and your account's model access. The `configure-model:` line in the container log shows the model and address actually in use. Session credentials do not grant model access.
 - **`UNKNOWN_MODEL` in an old conversation after changing models** — DSH records the model each conversation uses, and old conversations still point at the old model. Switch to the configured model below the input box in the Web UI; see [Changing the model service](#changing-the-model-service).
-- **The new container cannot see the original conversation** — confirm that `AGR_REGION`, `SESSION_SPACE_ID` and `SESSION_USER_ID` match those used when writing, and run `docker inspect --format '{{.Config.Image}}' dsh-session-demo` to confirm the container runs an image with the plugin.
+- **The new container cannot see the original conversation** — confirm that `AGR_REGION`, `SESSION_SPACE_ID`, `SESSION_USER_ID` and `SESSION_AGENT_ID` match those used when writing, and run `docker inspect --format '{{.Config.Image}}' dsh-session-demo` to confirm the container runs an image with the plugin.
 - **Non-contiguous history** (`non-contiguous DSH event log`) — stop writing and inspect the incomplete history. Do not delete events to make the error go away.
-- **Serving multiple users** — the fixed `SESSION_USER_ID` is for the demo only. In production, use trusted identity and ownership checks, and never change a shared plugin's UserId per request.
+- **Serving multiple users** — every conversation in this example uses the same `SESSION_USER_ID`. To separate conversations by business user, see [Separating conversations by business user](#separating-conversations-by-business-user).
 
 ## Appendix: local unit tests
 

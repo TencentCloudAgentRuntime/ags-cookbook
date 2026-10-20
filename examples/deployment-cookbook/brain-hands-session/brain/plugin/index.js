@@ -26,6 +26,15 @@ function headerFromSession(session) {
   return state.dshHeader
 }
 
+function optionalHeaderFromSession(session) {
+  try {
+    return headerFromSession(session)
+  } catch {
+    // A SessionSpace can contain Sessions created by other applications.
+    return undefined
+  }
+}
+
 function eventFromSummary(summary) {
   const extensions = parseJson(summary.Extensions)
   return extensions.dshEvent
@@ -215,6 +224,12 @@ function isSessionNotFound(error) {
   return error?.code === 'ResourceNotFound.SessionNotExist'
 }
 
+const MAX_RATE_LIMIT_RETRIES = 5
+
+function isRateLimited(error) {
+  return String(error?.code ?? '').startsWith('RequestLimitExceeded')
+}
+
 const BRAIN_DEPLOYMENT_METADATA = 'example.com/brain-deployment-id'
 const HANDS_DEPLOYMENT_METADATA = 'example.com/hands-deployment-id'
 const HANDS_AFFINITY_METADATA = 'example.com/hands-affinity-id'
@@ -271,10 +286,29 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     return undefined
   }
 
-  request(action, payload) {
+  async request(action, payload) {
     // Session actions may be newer than the generated SDK surface. AbstractClient's
     // public request path still supplies TC3 signing, retries, and endpoint handling.
-    return this.client.request(action, payload)
+    // Rate-limited calls were not executed, so retrying them is safe; AppendEvent is
+    // also idempotent through its stable EventId.
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.client.request(action, payload)
+      } catch (error) {
+        if (!isRateLimited(error) || attempt >= MAX_RATE_LIMIT_RETRIES) throw error
+        await new Promise(resolve => setTimeout(resolve, this.retryDelayMs(attempt)))
+      }
+    }
+  }
+
+  retryDelayMs(attempt) {
+    return 200 * 2 ** attempt + Math.random() * 100
+  }
+
+  // Headers are immutable, so each process reads a Session's header at most once.
+  headerCache() {
+    this.headers ??= new Map()
+    return this.headers
   }
 
   sessionRequest(sessionId, extra = {}) {
@@ -453,6 +487,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
           Value: brainDeploymentId,
         }],
       }))
+      this.headerCache().set(meta.id, meta)
     }
     await this.appendEvents(meta.id, events)
   }
@@ -528,6 +563,30 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     await this.appendEvents(meta.id, closers)
   }
 
+  async storedHeader(summary) {
+    const cache = this.headerCache()
+    if (summary.State === undefined && cache.has(summary.SessionId)) return cache.get(summary.SessionId)
+    // DescribeSessions rows carry no State, so the DSH header has to come from DescribeSession.
+    const session = summary.State === undefined ? await this.describeSession(summary.SessionId) : summary
+    const header = optionalHeaderFromSession(session)
+    cache.set(summary.SessionId, header)
+    return header
+  }
+
+  async revisionFromEventCount(id, signal) {
+    signal?.throwIfAborted()
+    try {
+      const response = await this.request('DescribeEvents', this.sessionRequest(id, {
+        Offset: 0,
+        Limit: 1,
+      }))
+      return revisionFromSession({ SessionId: id }, Number(response.TotalCount ?? 0))
+    } catch (error) {
+      if (isSessionNotFound(error)) return undefined
+      throw error
+    }
+  }
+
   async list(signal) {
     const headers = []
     for (let offset = 0; ; offset += 100) {
@@ -540,11 +599,8 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       })
       const page = response.Sessions ?? []
       for (const session of page) {
-        try {
-          headers.push(headerFromSession(session))
-        } catch {
-          // A SessionSpace can contain Sessions created by other applications.
-        }
+        const header = await this.storedHeader(session)
+        if (header) headers.push(header)
       }
       if (offset + page.length >= Number(response.TotalCount ?? 0) || page.length === 0) break
     }
@@ -563,16 +619,11 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       })
       const page = response.Sessions ?? []
       for (const session of page) {
-        let header
-        try {
-          header = headerFromSession(session)
-        } catch {
-          // The SessionSpace can also contain Sessions created by other applications.
-          continue
-        }
+        const header = await this.storedHeader(session)
+        if (!header) continue
         snapshots.push({
           header,
-          revision: await this.readStoredRevision(session.SessionId, signal),
+          revision: await this.revisionFromEventCount(session.SessionId, signal),
         })
       }
       if (offset + page.length >= Number(response.TotalCount ?? 0) || page.length === 0) break

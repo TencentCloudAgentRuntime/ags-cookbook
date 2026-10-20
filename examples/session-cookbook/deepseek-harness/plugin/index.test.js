@@ -303,3 +303,65 @@ test('a failed append is surfaced and does not silently skip to the next event',
     [0, 1, 2].map(seq => ({ type: 'turn/start', seq, data: {} })), true), /write interrupted/)
   assert.deepEqual(calls, ['dsh-session-test-0', 'dsh-session-test-1'])
 })
+
+// A shared store deliberately returns all rows, even when Filters are supplied:
+// local ownership checks must still prevent another application's data leaking.
+function sharedAgentStore() {
+  const sessions = new Map()
+  const calls = []
+  // Mirrors the Session API: DescribeSessions applies metadata filters on the server side.
+  const request = async (action, payload) => {
+    calls.push({ action, payload })
+    const row = sessions.get(payload.SessionId)
+    if (action === 'DescribeSessions') {
+      const filter = payload.Filters?.[0]
+      const key = filter?.Name.replace(/^metadata:/, '')
+      const rows = [...sessions.values()].filter(session => !filter
+        || session.Metadata?.some(item => item.Name === key && filter.Values.includes(item.Value)))
+      return { Sessions: rows.map(({ SessionId, Metadata }) => ({ SessionId, Metadata })), TotalCount: rows.length }
+    }
+    if (action === 'CreateSession') {
+      sessions.set(payload.SessionId, { ...payload, events: [] })
+      return {}
+    }
+    if (!row) throw Object.assign(new Error('missing'), { code: 'ResourceNotFound.SessionNotExist' })
+    if (action === 'DescribeSession') return { Session: row }
+    if (action === 'AppendEvent') { row.events.push(payload.Event); return {} }
+    if (action === 'DescribeEvents') return { Events: row.events, TotalCount: row.events.length }
+    throw new Error(`unexpected ${action}`)
+  }
+  const agent = id => Object.assign(backend(request), { agentId: id })
+  return { sessions, calls, agent }
+}
+
+test('SESSION_AGENT_ID tags new Sessions and scopes the list to them', async () => {
+  const store = sharedAgentStore()
+  for (const id of ['a', 'b']) {
+    await store.agent(id).appendBatch({ id, version: 0, createdAt: 1 }, [{ seq: 0, type: 'turn/start', data: {} }], false)
+  }
+  await store.agent(undefined).appendBatch({ id: 'legacy', version: 0, createdAt: 1 }, [], false)
+
+  assert.deepEqual(store.sessions.get('a').Metadata, [{ Name: 'example.com/dsh-agent-id', Value: 'a' }])
+  assert.equal(store.sessions.get('legacy').Metadata, undefined)
+  assert.deepEqual((await store.agent('a').list()).map(header => header.id), ['a'])
+  assert.deepEqual((await store.agent('b').listSnapshots()).map(snapshot => snapshot.header.id), ['b'])
+  assert.deepEqual((await store.agent(undefined).list()).map(header => header.id), ['a', 'b', 'legacy'])
+  assert.equal((await store.agent('a').loadStored('a')).events.length, 1)
+})
+
+test('SESSION_AGENT_ID adds no API calls when writing events', async () => {
+  const store = sharedAgentStore()
+  const a = store.agent('a')
+  await a.appendBatch({ id: 'a', version: 0, createdAt: 1 }, [{ seq: 0, type: 'turn/start', data: {} }], false)
+  await a.appendEvents('a', [{ seq: 1, type: 'turn/end', data: {} }])
+  assert.deepEqual(store.calls.map(call => call.action), ['CreateSession', 'AppendEvent', 'AppendEvent'])
+})
+
+test('loadStored refuses a Session that belongs to another Agent', async () => {
+  const store = sharedAgentStore()
+  await store.agent('b').appendBatch({ id: 'b', version: 0, createdAt: 1 }, [], false)
+  await store.agent(undefined).appendBatch({ id: 'legacy', version: 0, createdAt: 1 }, [], false)
+  for (const id of ['b', 'legacy']) {
+    await assert.rejects(store.agent('a').loadStored(id), /belongs to another SESSION_AGENT_ID/)
+  }
+})

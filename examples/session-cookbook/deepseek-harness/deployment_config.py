@@ -6,7 +6,7 @@ REQUIRED = ["AGR_REGION", "AGR_DOMAIN", "SESSION_SPACE_ID", "SESSION_USER_ID",
             "TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY",
             "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"]
 # Passed through when set; empty values fall back to each client's own default.
-OPTIONAL = ["SESSION_API_ENDPOINT", "TENCENTCLOUD_SESSION_TOKEN"]
+OPTIONAL = ["SESSION_AGENT_ID", "SESSION_API_ENDPOINT", "TENCENTCLOUD_SESSION_TOKEN"]
 
 def main():
     values = {key: os.environ[key] for key in REQUIRED}

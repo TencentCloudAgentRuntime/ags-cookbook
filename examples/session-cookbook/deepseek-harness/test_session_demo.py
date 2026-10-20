@@ -43,6 +43,29 @@ class CloudCallTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
 
 
+@mock.patch.dict(os.environ, {"SESSION_SPACE_ID": "space-test", "SESSION_USER_ID": "user-test", "SESSION_AGENT_ID": "a"})
+class CleanupTests(unittest.TestCase):
+    def test_cleanup_filters_by_agent_and_collects_all_pages(self):
+        demo = Demo()
+        pages = [{"Sessions": [{"SessionId": "a1"}], "TotalCount": 2}, {"Sessions": [{"SessionId": "a2"}], "TotalCount": 2}]
+        calls = []
+        def cloud(action, **payload):
+            calls.append((action, payload))
+            return pages.pop(0) if action == "DescribeSessions" else {}
+        demo.cloud = cloud
+        with mock.patch("builtins.print"):
+            demo.cleanup(delete=True)
+        self.assertEqual(calls[0][1]["Filters"], [{"Name": "metadata:example.com/dsh-agent-id", "Values": ["a"]}])
+        self.assertEqual([p["SessionId"] for a, p in calls if a == "DeleteSession"], ["a1", "a2"])
+
+    def test_cleanup_preview_does_not_delete(self):
+        demo = Demo()
+        demo.cloud = mock.Mock(return_value={"Sessions": [{"SessionId": "a1"}], "TotalCount": 1})
+        with mock.patch("builtins.print"):
+            demo.cleanup()
+        self.assertEqual([c.args[0] for c in demo.cloud.call_args_list], ["DescribeSessions"])
+
+
 class RecoveryEvidenceTests(unittest.TestCase):
     def test_chunks_do_not_count_as_a_completed_persisted_turn(self):
         self.assertIsNone(completed_turn([{"seq": 0, "type": "assistant/chunk"}], -1))

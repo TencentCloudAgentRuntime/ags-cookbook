@@ -12,6 +12,9 @@ import urllib.request
 import uuid
 
 
+AGENT_METADATA_KEY = "example.com/dsh-agent-id"
+
+
 def json_object(value):
     return json.loads(value) if isinstance(value, str) else (value or {})
 
@@ -47,6 +50,7 @@ class CloudError(RuntimeError):
 class Demo:
     def __init__(self):
         self.key = {"SpaceId": os.environ["SESSION_SPACE_ID"], "UserId": os.environ["SESSION_USER_ID"]}
+        self.agent_id = os.environ.get("SESSION_AGENT_ID", "").strip()
         self.url = os.environ.get("DSH_BASE_URL", "http://127.0.0.1:18080").rstrip("/")
 
     def cloud(self, action, retries=5, **payload):
@@ -80,6 +84,32 @@ class Demo:
         if envelope.get("rpcId") != rpc_id or not envelope.get("result", {}).get("ok"):
             raise RuntimeError(f"DSH {method} failed: {envelope.get('result')}")
         return envelope["result"]["value"]
+
+    def owns_session(self, session):
+        return not self.agent_id or any(
+            item.get("Name") == AGENT_METADATA_KEY and item.get("Value") == self.agent_id
+            for item in session.get("Metadata", [])
+        )
+
+    def cleanup(self, delete=False):
+        """List this user's Sessions (only this Agent's when SESSION_AGENT_ID is set), then delete them."""
+        query = {"SpaceId": self.key["SpaceId"], "UserIds": [self.key["UserId"]]}
+        if self.agent_id:
+            query["Filters"] = [{"Name": f"metadata:{AGENT_METADATA_KEY}", "Values": [self.agent_id]}]
+        ids = []
+        while True:
+            response = self.cloud("DescribeSessions", **query, Offset=len(ids), Limit=100)
+            page = response.get("Sessions", [])
+            ids.extend(row["SessionId"] for row in page)
+            if not page or len(ids) >= int(response.get("TotalCount", len(ids))):
+                break
+        print(f"SpaceId: {self.key['SpaceId']}  UserId: {self.key['UserId']}  AgentId: {self.agent_id or '(not set)'}")
+        for session_id in ids:
+            if delete:
+                self.cloud("DeleteSession", **self.key, SessionId=session_id)
+            print(f"{session_id}: {'deleted' if delete else 'to delete'}")
+        if not delete:
+            print("Preview only. Run again with --delete to delete these Sessions.")
 
     def events(self, session_id):
         rows = []
@@ -118,7 +148,7 @@ class Demo:
         marker = "session-proof-" + uuid.uuid4().hex
         # Save identifiers before remote creation so interrupted runs remain inspectable.
         path.parent.mkdir(parents=True, exist_ok=True)
-        state = {**self.key, "sessionId": session_id, "marker": marker}
+        state = {**self.key, "agentId": self.agent_id, "sessionId": session_id, "marker": marker}
         path.write_text(json.dumps(state, indent=2))
         created = self.rpc("session.create", {"sessionId": session_id})
         if created.get("sessionId") != session_id:
@@ -126,6 +156,8 @@ class Demo:
         self.prompt(session_id, f"Remember this marker for our next turn: {marker}. Reply with only ACK. Do not use tools.")
         seq, _ = self.wait_turn(session_id, -1)
         response = self.cloud("DescribeSession", **self.key, SessionId=session_id)
+        if not self.owns_session(response["Session"]):
+            raise RuntimeError("Cloud Session is not tagged with SESSION_AGENT_ID; check the image version")
         header = json_object(response["Session"]["State"]["CustomState"]).get("dshHeader", {})
         if header.get("id") != session_id:
             raise RuntimeError("Cloud Session is missing the matching DSH header")
@@ -138,6 +170,8 @@ class Demo:
         state = json.loads(path.read_text())
         if any(state[k] != v for k, v in self.key.items()):
             raise RuntimeError("SpaceId/UserId differ from the seed run")
+        if state.get("agentId", "") != self.agent_id:
+            raise RuntimeError("AgentId differs from the seed run")
         if "completedSeq" not in state:
             raise RuntimeError("Seed did not finish; inspect the recorded Session before retrying")
         session_id = state["sessionId"]
@@ -155,9 +189,15 @@ class Demo:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=["seed", "resume"])
+    parser.add_argument("phase", choices=["seed", "resume", "cleanup"])
     parser.add_argument("--state", type=Path, default=Path(".local/session.json"))
+    parser.add_argument("--delete", action="store_true", help="Delete Sessions instead of previewing cleanup")
     args = parser.parse_args()
+    if args.phase == "cleanup":
+        Demo().cleanup(delete=args.delete)
+        return
+    if args.delete:
+        parser.error("--delete is only valid with cleanup")
     getattr(Demo(), args.phase)(args.state)
 
 

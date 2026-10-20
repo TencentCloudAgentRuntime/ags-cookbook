@@ -223,6 +223,8 @@ function isSessionNotFound(error) {
   return error?.code === 'ResourceNotFound.SessionNotExist'
 }
 
+export const AGENT_METADATA_KEY = 'example.com/dsh-agent-id'
+
 const MAX_RATE_LIMIT_RETRIES = 5
 
 function isRateLimited(error) {
@@ -237,6 +239,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     endpoint: z.string(),
     spaceId: z.string().required(),
     userId: z.string().required(),
+    agentId: z.string(),
     secretId: z.string().required(),
     secretKey: z.string().required(),
     sessionToken: z.string(),
@@ -262,6 +265,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     this.client = new Client(clientConfig)
     this.spaceId = required(config.spaceId, 'SESSION_SPACE_ID')
     this.userId = required(config.userId, 'SESSION_USER_ID')
+    this.agentId = config.agentId?.trim() || undefined
     this.coordinator = new PersistenceCoordinator(this.ctx, this)
   }
 
@@ -301,6 +305,15 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       SessionId: sessionId,
       ...extra,
     }
+  }
+
+  // With SESSION_AGENT_ID set, Sessions are tagged with it on creation and listed by it.
+  agentFilters() {
+    return this.agentId ? { Filters: [{ Name: `metadata:${AGENT_METADATA_KEY}`, Values: [this.agentId] }] } : {}
+  }
+
+  ownsSession(session) {
+    return !this.agentId || session.Metadata?.some(item => item.Name === AGENT_METADATA_KEY && item.Value === this.agentId)
   }
 
   create(meta) {
@@ -351,6 +364,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     if (!isMaterialized) {
       await this.request('CreateSession', this.sessionRequest(meta.id, {
         State: { CustomState: JSON.stringify({ dshHeader: meta }) },
+        ...(this.agentId ? { Metadata: [{ Name: AGENT_METADATA_KEY, Value: this.agentId }] } : {}),
       }))
       this.headerCache().set(meta.id, meta)
     }
@@ -395,6 +409,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
         this.describeSession(id),
         this.describeEvents(id, signal),
       ])
+      if (!this.ownsSession(session)) throw new Error(`Session ${id} belongs to another SESSION_AGENT_ID`)
       return {
         meta: headerFromSession(session),
         events,
@@ -459,6 +474,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       const response = await this.request('DescribeSessions', {
         SpaceId: this.spaceId,
         UserIds: [this.userId],
+        ...this.agentFilters(),
         Offset: offset,
         Limit: 100,
       })
@@ -479,6 +495,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       const response = await this.request('DescribeSessions', {
         SpaceId: this.spaceId,
         UserIds: [this.userId],
+        ...this.agentFilters(),
         Offset: offset,
         Limit: 100,
       })
