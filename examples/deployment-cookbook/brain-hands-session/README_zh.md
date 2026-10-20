@@ -226,7 +226,7 @@ export DSH_TOOL_ID
 echo "$DSH_TOOL_ID"
 ```
 
-创建承担 Brain 角色的无状态 DSH Deployment。它不使用 affinity；插件会根据已配置的 Deployment 名称查询其 ID，并写入 Session Metadata：
+创建承担 Brain 角色的 DSH Deployment，本示例运行一个 Brain 实例。它不使用 affinity；插件会根据已配置的 Deployment 名称查询其 ID，并写入 Session Metadata：
 
 ```bash
 DSH_DEPLOYMENT_ID="$(
@@ -235,7 +235,7 @@ DSH_DEPLOYMENT_ID="$(
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
     --deployment-name "$DSH_DEPLOYMENT_NAME" \
     --tool-id "$DSH_TOOL_ID" \
-    --scaling-configuration '{"MinInstanceCount":1,"MaxInstanceCount":4,"MaxInstanceRequestConcurrency":100}' \
+    --scaling-configuration '{"MinInstanceCount":1,"MaxInstanceCount":1,"MaxInstanceRequestConcurrency":100}' \
     --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}' \
     --output json \
     --jq '.Data.Deployment.DeploymentId'
@@ -257,7 +257,7 @@ agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
   --cloud-endpoint "$SESSION_API_ENDPOINT"
 ```
 
-打开 <http://127.0.0.1:18080>，新建会话，并确认当前模型为 `tokenhub/deepseek-v4-flash`。TokenHub API Key 已通过 Tool 环境变量提供，因此所有 Brain 副本使用相同模型配置。此后无论通过 Web UI 还是示例脚本发起 DSH conversation，插件都会创建同 ID 的 Agent Runtime Session、写入 Events，并自动记录 Brain Deployment ID。
+打开 <http://127.0.0.1:18080>，新建会话，并确认当前模型为 `tokenhub/deepseek-v4-flash`。TokenHub API Key 已通过 Tool 环境变量提供。此后无论通过 Web UI 还是示例脚本发起 DSH conversation，插件都会创建同 ID 的 Agent Runtime Session、写入 Events，并自动记录 Brain Deployment ID。
 
 ## 6. 验证 Session 关联并恢复 Hands workspace
 

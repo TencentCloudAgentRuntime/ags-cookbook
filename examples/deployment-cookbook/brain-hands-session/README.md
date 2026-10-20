@@ -226,7 +226,7 @@ export DSH_TOOL_ID
 echo "$DSH_TOOL_ID"
 ```
 
-Create the stateless DSH Deployment for the Brain role. It does not use affinity; the plugin resolves its ID from the configured Deployment name and writes it to Session Metadata:
+Create the DSH Deployment for the Brain role with one instance. It does not use affinity; the plugin resolves its ID from the configured Deployment name and writes it to Session Metadata:
 
 ```bash
 DSH_DEPLOYMENT_ID="$(
@@ -235,7 +235,7 @@ DSH_DEPLOYMENT_ID="$(
     --cloud-endpoint "$SESSION_API_ENDPOINT" \
     --deployment-name "$DSH_DEPLOYMENT_NAME" \
     --tool-id "$DSH_TOOL_ID" \
-    --scaling-configuration '{"MinInstanceCount":1,"MaxInstanceCount":4,"MaxInstanceRequestConcurrency":100}' \
+    --scaling-configuration '{"MinInstanceCount":1,"MaxInstanceCount":1,"MaxInstanceRequestConcurrency":100}' \
     --lifecycle-configuration '{"IdleTimeoutSeconds":600,"IdleAction":"STOP"}' \
     --output json \
     --jq '.Data.Deployment.DeploymentId'
@@ -257,7 +257,7 @@ agr deployment proxy "$DSH_DEPLOYMENT_ID" 18080:3080 \
   --cloud-endpoint "$SESSION_API_ENDPOINT"
 ```
 
-Open <http://127.0.0.1:18080>, start a new conversation, and confirm that the selected model is `tokenhub/deepseek-v4-flash`. The TokenHub API key is provided through the Tool environment, so every Brain replica uses the same model configuration. From this point on, every DSH conversation created through either the Web UI or the example script creates an Agent Runtime Session with the same ID, writes Events, and records the Brain Deployment ID automatically.
+Open <http://127.0.0.1:18080>, start a new conversation, and confirm that the selected model is `tokenhub/deepseek-v4-flash`. The TokenHub API key is provided through the Tool environment. From this point on, every DSH conversation created through either the Web UI or the example script creates an Agent Runtime Session with the same ID, writes Events, and records the Brain Deployment ID automatically.
 
 ## 6. Validate Session association and Hands workspace recovery
 
