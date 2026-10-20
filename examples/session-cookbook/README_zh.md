@@ -2,13 +2,13 @@
 
 [English](./README.md)
 
-把框架的会话历史从本地磁盘迁移到 Agent Runtime Session，使会话不再随进程一起消失。
+本目录演示如何将 Agent 应用的会话持久化接入 Agent Runtime Session，使应用在运行实例替换后能够加载已保存的对话历史。
 
 每个示例均自包含，覆盖配置、构建、验证和清理，且都不需要独立的工作区服务。
 
-| 框架 | 示例内容 |
+| 接入对象 | 示例内容 |
 | --- | --- |
-| DeepSeek Harness | 将 DSH 的会话持久化对接到云端 Session，删除容器后在新容器中加载同一会话并继续对话 —— [deepseek-harness](./deepseek-harness/README_zh.md) |
+| DeepSeek Harness（DSH） | 将 DSH 的会话持久化对接到云端 Session，删除容器后在新容器中加载同一会话并继续对话 —— [deepseek-harness](./deepseek-harness/README_zh.md) |
 
 `make run` 显示导航。
 

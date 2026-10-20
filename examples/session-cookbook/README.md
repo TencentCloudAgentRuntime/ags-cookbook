@@ -2,13 +2,13 @@
 
 [中文](./README_zh.md)
 
-How to move a framework's conversation history off local disk and into Agent Runtime Session, so a conversation outlives the process that started it.
+This directory demonstrates how to integrate an agent application's conversation persistence with Agent Runtime Session, so the application can load saved conversation history after its running instance is replaced.
 
 Each example stands on its own and walks through configuration, build, verification and cleanup. None of them needs a separate workspace service.
 
-| Framework | What the example shows |
+| Integration target | What the example shows |
 | --- | --- |
-| DeepSeek Harness | Connect DSH's conversation persistence to cloud Session, delete the container, then reload the same conversation in a fresh one and keep talking — [deepseek-harness](./deepseek-harness/README.md) |
+| DeepSeek Harness (DSH) | Connect DSH's conversation persistence to cloud Session, delete the container, then reload the same conversation in a fresh one and keep talking — [deepseek-harness](./deepseek-harness/README.md) |
 
 `make run` prints navigation.
 
