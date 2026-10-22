@@ -8,6 +8,7 @@ RUN npm install --global pnpm@11.19.0 \
     && cd /tmp/ags-dsh-session-persistence \
     && pnpm install --prod --frozen-lockfile \
     && mkdir -p /usr/local/lib/node_modules/@tencentcloud \
+    && rm -rf /usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence \
     && mv /tmp/ags-dsh-session-persistence \
       /usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence \
     && plugin_modules=/usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence/node_modules \
