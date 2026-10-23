@@ -1,0 +1,16 @@
+ARG OSWORLD_BASE_IMAGE
+FROM ${OSWORLD_BASE_IMAGE}
+USER root
+RUN curl -fLsS --retry 3 --connect-timeout 15 --max-time 300 \
+      https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.153.tgz \
+      -o /tmp/claude.tgz \
+    && echo '688991df39754588560306501dfc4883af150d6ff7f0baf2b40e0ce340853205  /tmp/claude.tgz' | sha256sum -c - \
+    && mkdir /tmp/claude-install \
+    && tar xzf /tmp/claude.tgz -C /tmp/claude-install \
+    && install -m 0755 /tmp/claude-install/package/claude /usr/local/bin/claude \
+    && mkdir -p /usr/share/doc/claude-code \
+    && cp /tmp/claude-install/package/LICENSE.md /usr/share/doc/claude-code/LICENSE.md \
+    && rm -rf /tmp/claude.tgz /tmp/claude-install \
+    && claude --version
+# Inherit /sbin/init, the desktop user and OSWorld services from the base.
+# Credentials are uploaded to each running instance, never baked here.

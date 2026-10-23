@@ -1,0 +1,5 @@
+.env
+.state/
+.venv*/
+__pycache__/
+reports/
