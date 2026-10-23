@@ -1,0 +1,33 @@
+- id: session-persistence-jsonl
+  disabled: true
+
+- insert:
+    - id: session-persistence-agent-runtime
+      name: '@tencentcloud/ags-dsh-session-persistence'
+      config:
+        region: !!js process.env.AGR_REGION
+        endpoint: !!js process.env.SESSION_API_ENDPOINT
+        spaceId: !!js process.env.SESSION_SPACE_ID
+        userId: !!js process.env.SESSION_USER_ID
+        agentId: !!js process.env.SESSION_AGENT_ID
+        secretId: !!js process.env.TENCENTCLOUD_SECRET_ID
+        secretKey: !!js process.env.TENCENTCLOUD_SECRET_KEY
+        sessionToken: !!js process.env.TENCENTCLOUD_SESSION_TOKEN
+
+# DSH 0.2 reads model configuration from the profile patch, not settings.yaml.
+# The API key is not written here: DSH reads LLM_API_KEY at runtime.
+- id: llm-pi-ai
+  config:
+    providers:
+      custom:
+        displayName: Configured Model Service
+        apiKeyEnv: LLM_API_KEY
+        api: openai-completions
+        baseURL: !!js process.env.LLM_BASE_URL
+        models:
+          - id: !!js process.env.LLM_MODEL
+
+- id: agent-default-model
+  config:
+    provider: custom
+    model: !!js process.env.LLM_MODEL

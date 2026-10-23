@@ -12,6 +12,6 @@ Each example stands on its own and walks through configuration, build, verificat
 
 `make run` prints navigation.
 
-One thing worth saying up front: Session stores your history, but it does not decide who gets to write it. Several instances writing to one conversation, or an in-progress turn that another instance has to carry on, need extra coordination — see [Limits](./deepseek-harness/README.md#7-limits).
+One thing worth saying up front: Session stores your history, but it does not decide who gets to write it. Several instances writing to one conversation, or an in-progress turn that another instance has to carry on, need extra coordination — see [Limits](./deepseek-harness/dsh-0.2.1-rc.2/README.md#8-limits).
 
 For scaling, affinity and workspace association, see the [Deployment Cookbook](../deployment-cookbook/README.md). For a split Brain/Hands example that stores conversations and Hands workspace routing in cloud Session, see [brain-hands-session](../deployment-cookbook/brain-hands-session/README.md).
