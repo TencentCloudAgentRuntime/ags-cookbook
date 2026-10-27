@@ -9,6 +9,7 @@
 | 接入对象 | 示例内容 |
 | --- | --- |
 | DeepSeek Harness（DSH） | 将 DSH 的会话持久化对接到云端 Session，删除容器后在新容器中加载同一会话并继续对话 —— [deepseek-harness](./deepseek-harness/README_zh.md) |
+| pi | 用 pi 扩展把会话的每个条目复制到云端 Session，删除容器后在新容器中用官方 `pi` 可执行文件重新打开同一会话，`/fork` 和 `switch_session` 也可用；另有一个最小的内存方案 —— [pi](./pi/README_zh.md) |
 
 `make run` 显示导航。
 
