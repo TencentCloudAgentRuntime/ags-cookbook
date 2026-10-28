@@ -47,7 +47,7 @@ python scripts/cleanup.py
 
 | 变量 | 获取方式 |
 |---|---|
-| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [访问管理 API 密钥](https://console.cloud.tencent.com/cam/capi)。该身份需要有 AGS 的 `CreateVolumeTemplate`、`CreateSandboxTool`、`DescribeVolumeList` 及对应删除接口的权限 |
+| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [访问管理 API 密钥](https://console.cloud.tencent.com/cam/capi)。该身份需要有以下 AGS 接口权限：`make run` 需要 `CreateVolumeTemplate`、`DescribeVolumeTemplateList`、`CreateSandboxTool`、`DescribeSandboxToolList`、`DescribeVolumeList`；`make cleanup` 需要 `DeleteSandboxTool`、`DeleteVolume`、`DeleteVolumeTemplate` |
 | `TENCENTCLOUD_REGION` | AGS 地域，默认 `ap-guangzhou` |
 | `E2B_API_KEY` | Agent Runtime 控制台中的 API Key，以 `ark_` 开头，不是 SecretId/SecretKey |
 | `ROLE_ARN` | AGS 拉取镜像时扮演的 CAM 角色。按[创建自定义沙箱](https://cloud.tencent.com/document/product/1814/129691)第二、三步创建：以 Agent Runtime 为载体、有 CCR 拉取权限的角色，并给调用方授予该角色的 `cam:PassRole` 权限 |
@@ -173,7 +173,7 @@ make cleanup
 | `... is not set; fill it in .env` | 把 `.env.example` 复制为 `.env`，并填写必填项 |
 | `Invalid API key format: expected "e2b_"...` | 本地 `e2b` 版本在 2.25～2.45 之间，这些版本不接受 AGS 的 Key（`ark_` 开头）。执行 `pip install -U "e2b>=2.55.1" "e2b-code-interpreter>=2.11.5"` 升级 |
 | `AuthFailure...` / `UnauthorizedOperation` | 检查 SecretId/SecretKey 是否正确，以及是否有 AGS 相关接口权限 |
-| `MissingParameter.RoleArn`，或者 Tool 拉取镜像失败 | 检查 `ROLE_ARN` 是否填写、该角色是否有 CCR 拉取权限、调用方是否有该角色的 `cam:PassRole` 权限 |
+| `MissingParameter.RoleArn`，或者 Tool 拉取镜像失败 | 检查 `ROLE_ARN` 是否填写、该角色是否有 CCR 拉取权限、调用方是否有该角色的 `cam:PassRole` 权限，修正后重新执行 `make run`。处于 `FAILED` 状态的 Tool 会被自动替换，存储模板和 Volume 保持不变 |
 | 启动时报 `ResourceInUse` | Volume 是 `ReadWriteOnce`，仍被另一个使用相同 `reuse_key` 的运行中沙箱占用。先销毁那个沙箱，或者换一个 `SESSION_ID` |
 | `UnsupportedOperation.SandboxInstance: AgentCBS Volume requires metadata x-ags-agent-cbs-system-disk=true` | 启动沙箱时在 metadata 中加上该项 |
 | 使用 `code-interpreter-v1` 等内置模板时报 `FailedOperation.ImagePrepare` | 内置模板无法挂载 AgentCBS，请像本示例一样使用 `custom` Tool |

@@ -20,6 +20,7 @@ from importlib.metadata import version
 from typing import Any
 
 from e2b_code_interpreter import Sandbox
+from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
 
 from common import (
     ags_client,
@@ -90,7 +91,17 @@ def tool_status(client, tool_id: str) -> str:
 
 def ensure_tool(client, template_name: str) -> str:
     tool_id = read_state("tool_id")
-    if tool_id and tool_status(client, tool_id):
+    status = tool_status(client, tool_id) if tool_id else ""
+    if status == "FAILED":
+        # For example, the image could not be pulled. Replace only the Tool so
+        # that a corrected ROLE_ARN or image takes effect; the template and its
+        # Volumes (and their data) are kept.
+        print(f"SandboxTool {tool_id} is FAILED; creating a new one")
+        try:
+            call(client, "DeleteSandboxTool", {"ToolId": tool_id})
+        except TencentCloudSDKException as exc:
+            print(f"Could not delete the failed Tool {tool_id}: {exc.code}")
+    if status and status not in {"FAILED", "DELETING", "DELETED"}:
         print(f"Reusing SandboxTool {tool_id}")
     else:
         name = f"agentcbs-code-{time.strftime('%m%d%H%M%S')}"

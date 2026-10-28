@@ -57,7 +57,7 @@ python scripts/cleanup.py
 
 | Variable | Where to get it |
 |---|---|
-| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [CAM API keys](https://console.cloud.tencent.com/cam/capi). The identity must be allowed to call AGS `CreateVolumeTemplate`, `CreateSandboxTool`, `DescribeVolumeList`, and the matching Delete APIs. |
+| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [CAM API keys](https://console.cloud.tencent.com/cam/capi). The identity must be allowed to call these AGS APIs: `CreateVolumeTemplate`, `DescribeVolumeTemplateList`, `CreateSandboxTool`, `DescribeSandboxToolList`, and `DescribeVolumeList` for `make run`; `DeleteSandboxTool`, `DeleteVolume`, and `DeleteVolumeTemplate` for `make cleanup`. |
 | `TENCENTCLOUD_REGION` | AGS region, default `ap-guangzhou`. |
 | `E2B_API_KEY` | AGS API Key from the Agent Runtime console. It starts with `ark_` and is different from the SecretId/SecretKey. |
 | `ROLE_ARN` | CAM role that AGS assumes to pull the image. Create it as described in steps 2 and 3 of [Create a custom sandbox](https://cloud.tencent.com/document/product/1814/129691): a role for the Agent Runtime service with CCR pull permission, plus `cam:PassRole` on that role for the caller. |
@@ -193,7 +193,7 @@ as soon as the request is accepted, and the disk is released in the background.
 | `... is not set; fill it in .env` | Copy `.env.example` to `.env` and fill in the required values. |
 | `Invalid API key format: expected "e2b_"...` | The installed `e2b` 2.25–2.45 rejects AGS keys (`ark_...`). Run `pip install -U "e2b>=2.55.1" "e2b-code-interpreter>=2.11.5"`. |
 | `AuthFailure...` / `UnauthorizedOperation` | Check the SecretId/SecretKey and their AGS permissions. |
-| `MissingParameter.RoleArn`, or the Tool fails to pull the image | Check `ROLE_ARN`, its CCR permission, and the caller's `cam:PassRole` on it. |
+| `MissingParameter.RoleArn`, or the Tool fails to pull the image | Check `ROLE_ARN`, its CCR permission, and the caller's `cam:PassRole` on it, then run `make run` again. A Tool in `FAILED` status is replaced automatically; the template and Volumes are kept. |
 | `ResourceInUse` on start | The Volume is `ReadWriteOnce`, and another running sandbox with the same `reuse_key` still holds it. Kill that sandbox, or use a different `SESSION_ID`. |
 | `UnsupportedOperation.SandboxInstance: AgentCBS Volume requires metadata x-ags-agent-cbs-system-disk=true` | Add the metadata entry when you start the sandbox. |
 | `FailedOperation.ImagePrepare` with a built-in template such as `code-interpreter-v1` | Built-in templates cannot mount AgentCBS. Use a `custom` Tool, as this example does. |
