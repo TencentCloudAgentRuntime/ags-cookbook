@@ -88,6 +88,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | Example | Stack | Notes |
 |---|---|---|
 | [`agent-registry-multi-agent`](./examples/agent-registry-multi-agent/README.md) | Node.js + A2A + MCP + DSH | Discover five governed agents through Agent Registry and run an observable multi-agent delivery loop |
+| [`agentcbs-volume`](./examples/agentcbs-volume/README.md) | Python + code interpreter image + AgentCBS VolumeTemplate | Start a sandbox with an AgentCBS disk mounted through a VolumeTemplate |
 | [`agentway-cookbook`](./examples/agentway-cookbook/README.md) | Kubernetes + Helm + Markdown | Deploy, operate, and observe AgentWay on Tencent AGS and TKE |
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |

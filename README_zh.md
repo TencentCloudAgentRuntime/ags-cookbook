@@ -81,6 +81,7 @@ make example-run EXAMPLE=mini-rl
 | 示例 | 技术栈 | 说明 |
 |---|---|---|
 | [`agent-registry-multi-agent`](./examples/agent-registry-multi-agent/README_zh.md) | Node.js + A2A + MCP + DSH | 通过注册中心发现五个受治理 Agent，并运行可观察的多 Agent 交付闭环 |
+| [`agentcbs-volume`](./examples/agentcbs-volume/README_zh.md) | Python + 代码解释器镜像 + AgentCBS 存储模板 | 通过存储模板为沙箱挂载 AgentCBS 持久化磁盘 |
 | [`agentway-cookbook`](./examples/agentway-cookbook/README_zh.md) | Kubernetes + Helm + Markdown | 在 Tencent AGS 与 TKE 上部署、运维和观测 AgentWay |
 | `browser-agent` | Python + 浏览器沙箱 + LLM | 浏览器自动化 Agent |
 | `custom-image-go-sdk` | Go | 自定义镜像 / 自定义工具启动 |
