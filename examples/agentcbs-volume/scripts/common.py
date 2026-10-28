@@ -56,6 +56,7 @@ def e2b_domain() -> str:
 
 
 def ags_client() -> CommonClient:
+    check_state_region()
     cred = credential.Credential(need("TENCENTCLOUD_SECRET_ID"), need("TENCENTCLOUD_SECRET_KEY"))
     http_profile = HttpProfile()
     http_profile.endpoint = "ags.tencentcloudapi.com"
@@ -69,6 +70,7 @@ def call(client: CommonClient, action: str, params: dict[str, Any]) -> dict[str,
 
 
 # IDs of the resources created by run.py, so later runs and cleanup reuse them.
+# The IDs only exist in the region that created them, which is recorded too.
 def read_state(name: str) -> str:
     try:
         return (STATE / name).read_text(encoding="utf-8").strip()
@@ -79,11 +81,23 @@ def read_state(name: str) -> str:
 def write_state(name: str, value: str) -> None:
     if not STATE.is_dir():
         STATE.mkdir(parents=True)
+    (STATE / "region").write_text(region() + "\n", encoding="utf-8")
     (STATE / name).write_text(value + "\n", encoding="utf-8")
 
 
 def remove_state(name: str) -> None:
     (STATE / name).unlink(missing_ok=True)
+
+
+def check_state_region() -> None:
+    """Refuse to act on .state from another region instead of losing track of it."""
+    saved = read_state("region")
+    if saved and saved != region():
+        raise SystemExit(
+            f".state/ holds resources created in {saved}, but TENCENTCLOUD_REGION is "
+            f"{region()}. Run `make cleanup` with TENCENTCLOUD_REGION={saved} first, "
+            "or switch back to that region."
+        )
 
 
 def derived_volumes(client: CommonClient, template_id: str) -> list[dict[str, Any]]:

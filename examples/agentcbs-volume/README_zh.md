@@ -171,6 +171,7 @@ make cleanup
 | 现象 | 原因 / 处理 |
 |---|---|
 | `... is not set; fill it in .env` | 把 `.env.example` 复制为 `.env`，并填写必填项 |
+| `.state/ holds resources created in <region>, but TENCENTCLOUD_REGION is ...` | `.state/` 中记录的资源属于创建它们的地域。切换地域前，请先用原来的 `TENCENTCLOUD_REGION` 执行 `make cleanup` |
 | `Invalid API key format: expected "e2b_"...` | 本地 `e2b` 版本在 2.25～2.45 之间，这些版本不接受 AGS 的 Key（`ark_` 开头）。执行 `pip install -U "e2b>=2.55.1" "e2b-code-interpreter>=2.11.5"` 升级 |
 | `AuthFailure...` / `UnauthorizedOperation` | 检查 SecretId/SecretKey 是否正确，以及是否有 AGS 相关接口权限 |
 | `MissingParameter.RoleArn`，或者 Tool 拉取镜像失败 | 检查 `ROLE_ARN` 是否填写、该角色是否有 CCR 拉取权限、调用方是否有该角色的 `cam:PassRole` 权限，修正后重新执行 `make run`。处于 `FAILED` 状态的 Tool 会被自动替换，存储模板和 Volume 保持不变 |

@@ -56,6 +56,7 @@ def main() -> int:
         remove_state("volume_template_id")
         remove_state("volume_template_name")
 
+    remove_state("region")
     print("CLEANUP_OK")
     return 0
 

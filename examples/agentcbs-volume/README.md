@@ -191,6 +191,7 @@ as soon as the request is accepted, and the disk is released in the background.
 | Symptom | Cause / fix |
 |---|---|
 | `... is not set; fill it in .env` | Copy `.env.example` to `.env` and fill in the required values. |
+| `.state/ holds resources created in <region>, but TENCENTCLOUD_REGION is ...` | `.state/` is tied to the region that created the resources. Run `make cleanup` with the original `TENCENTCLOUD_REGION` before switching regions. |
 | `Invalid API key format: expected "e2b_"...` | The installed `e2b` 2.25–2.45 rejects AGS keys (`ark_...`). Run `pip install -U "e2b>=2.55.1" "e2b-code-interpreter>=2.11.5"`. |
 | `AuthFailure...` / `UnauthorizedOperation` | Check the SecretId/SecretKey and their AGS permissions. |
 | `MissingParameter.RoleArn`, or the Tool fails to pull the image | Check `ROLE_ARN`, its CCR permission, and the caller's `cam:PassRole` on it, then run `make run` again. A Tool in `FAILED` status is replaced automatically; the template and Volumes are kept. |
