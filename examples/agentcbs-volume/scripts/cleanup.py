@@ -26,11 +26,18 @@ def delete(client, action: str, params: dict[str, Any], label: str) -> None:
 def main() -> int:
     tool_id = read_state("tool_id")
     template_id = read_state("volume_template_id")
-    if not (tool_id or template_id):
+    template_name = read_state("volume_template_name")
+    if not (tool_id or template_id or template_name):
         print("Nothing to clean up (.state/ is empty)")
         return 0
 
     client = ags_client()
+    if not template_id and template_name:
+        # An interrupted run may have saved only the name; resolve the ID so the
+        # template and its Volumes are not left behind.
+        resp = call(client, "DescribeVolumeTemplateList", {"VolumeTemplateNames": [template_name]})
+        template_id = ((resp.get("VolumeTemplateSet") or [{}])[0]).get("VolumeTemplateId", "")
+
     # Delete the Tool first so that no new sandbox derives Volumes from the template.
     if tool_id:
         delete(client, "DeleteSandboxTool", {"ToolId": tool_id}, f"Tool {tool_id}")
@@ -53,8 +60,8 @@ def main() -> int:
             {"VolumeTemplateId": template_id},
             f"VolumeTemplate {template_id}",
         )
-        remove_state("volume_template_id")
-        remove_state("volume_template_name")
+    remove_state("volume_template_id")
+    remove_state("volume_template_name")
 
     remove_state("region")
     print("CLEANUP_OK")

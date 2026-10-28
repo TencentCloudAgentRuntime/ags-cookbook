@@ -47,7 +47,7 @@ python scripts/cleanup.py
 
 | 变量 | 获取方式 |
 |---|---|
-| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [访问管理 API 密钥](https://console.cloud.tencent.com/cam/capi)。该身份需要有以下 AGS 接口权限：`make run` 需要 `CreateVolumeTemplate`、`DescribeVolumeTemplateList`、`CreateSandboxTool`、`DescribeSandboxToolList`、`DescribeVolumeList`；`make cleanup` 需要 `DeleteSandboxTool`、`DeleteVolume`、`DeleteVolumeTemplate` |
+| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [访问管理 API 密钥](https://console.cloud.tencent.com/cam/capi)。该身份需要有以下 AGS 接口权限：`make run` 需要 `CreateVolumeTemplate`、`DescribeVolumeTemplateList`、`CreateSandboxTool`、`DescribeSandboxToolList`、`DescribeVolumeList`；`make cleanup` 需要 `DescribeVolumeTemplateList`、`DescribeVolumeList`、`DeleteSandboxTool`、`DeleteVolume`、`DeleteVolumeTemplate` |
 | `TENCENTCLOUD_REGION` | AGS 地域，默认 `ap-guangzhou` |
 | `E2B_API_KEY` | Agent Runtime 控制台中的 API Key，以 `ark_` 开头，不是 SecretId/SecretKey |
 | `ROLE_ARN` | AGS 拉取镜像时扮演的 CAM 角色。按[创建自定义沙箱](https://cloud.tencent.com/document/product/1814/129691)第二、三步创建：以 Agent Runtime 为载体、有 CCR 拉取权限的角色，并给调用方授予该角色的 `cam:PassRole` 权限 |

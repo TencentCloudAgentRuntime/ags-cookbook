@@ -57,7 +57,7 @@ python scripts/cleanup.py
 
 | Variable | Where to get it |
 |---|---|
-| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [CAM API keys](https://console.cloud.tencent.com/cam/capi). The identity must be allowed to call these AGS APIs: `CreateVolumeTemplate`, `DescribeVolumeTemplateList`, `CreateSandboxTool`, `DescribeSandboxToolList`, and `DescribeVolumeList` for `make run`; `DeleteSandboxTool`, `DeleteVolume`, and `DeleteVolumeTemplate` for `make cleanup`. |
+| `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` | [CAM API keys](https://console.cloud.tencent.com/cam/capi). The identity must be allowed to call these AGS APIs. `make run`: `CreateVolumeTemplate`, `DescribeVolumeTemplateList`, `CreateSandboxTool`, `DescribeSandboxToolList`, `DescribeVolumeList`. `make cleanup`: `DescribeVolumeTemplateList`, `DescribeVolumeList`, `DeleteSandboxTool`, `DeleteVolume`, `DeleteVolumeTemplate`. |
 | `TENCENTCLOUD_REGION` | AGS region, default `ap-guangzhou`. |
 | `E2B_API_KEY` | AGS API Key from the Agent Runtime console. It starts with `ark_` and is different from the SecretId/SecretKey. |
 | `ROLE_ARN` | CAM role that AGS assumes to pull the image. Create it as described in steps 2 and 3 of [Create a custom sandbox](https://cloud.tencent.com/document/product/1814/129691): a role for the Agent Runtime service with CCR pull permission, plus `cam:PassRole` on that role for the caller. |

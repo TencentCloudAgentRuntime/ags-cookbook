@@ -45,14 +45,27 @@ SESSION_ID = os.getenv("SESSION_ID", "").strip() or "session-s001"
 VOLUME_CAPACITY = os.getenv("VOLUME_CAPACITY", "").strip() or "10Gi"
 
 
-def ensure_volume_template(client) -> dict[str, Any]:
+def find_volume_template(client) -> dict[str, Any] | None:
+    """Look up the recorded template by ID, or by name if only the name was saved."""
+    template_id = read_state("volume_template_id")
     name = read_state("volume_template_name")
-    found = (
-        call(client, "DescribeVolumeTemplateList", {"VolumeTemplateNames": [name]}) if name else {}
-    )
-    if found.get("VolumeTemplateSet"):
-        template = found["VolumeTemplateSet"][0]
-        print(f"Reusing VolumeTemplate {name} ({template['VolumeTemplateId']})")
+    if template_id:
+        query = {"VolumeTemplateIds": [template_id]}
+    elif name:
+        query = {"VolumeTemplateNames": [name]}
+    else:
+        return None
+    templates = call(client, "DescribeVolumeTemplateList", query).get("VolumeTemplateSet") or []
+    return templates[0] if templates else None
+
+
+def ensure_volume_template(client) -> dict[str, Any]:
+    template = find_volume_template(client)
+    if template:
+        print(
+            f"Reusing VolumeTemplate {template['VolumeTemplateName']} "
+            f"({template['VolumeTemplateId']})"
+        )
     else:
         name = f"agentcbs-ws-{time.strftime('%m%d%H%M%S')}"
         template = call(
@@ -71,13 +84,18 @@ def ensure_volume_template(client) -> dict[str, Any]:
             },
         )["VolumeTemplate"]
         print(f"Created VolumeTemplate {name} ({VOLUME_CAPACITY}): {template['VolumeTemplateId']}")
-        write_state("volume_template_name", name)
-        write_state("volume_template_id", template["VolumeTemplateId"])
         # A Tool recorded earlier is bound to the previous template; create a new one.
         remove_state("tool_id")
+    # Always record both, so an interrupted earlier run cannot leave cleanup without the ID.
+    write_state("volume_template_id", template["VolumeTemplateId"])
+    write_state("volume_template_name", template["VolumeTemplateName"])
 
     def status() -> str:
-        resp = call(client, "DescribeVolumeTemplateList", {"VolumeTemplateNames": [name]})
+        resp = call(
+            client,
+            "DescribeVolumeTemplateList",
+            {"VolumeTemplateIds": [template["VolumeTemplateId"]]},
+        )
         return (resp.get("VolumeTemplateSet") or [{}])[0].get("Status", "")
 
     wait_active("volume template", status)
