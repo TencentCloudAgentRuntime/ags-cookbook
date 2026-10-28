@@ -58,7 +58,7 @@ python scripts/cleanup.py
 |---|---|---|
 | `E2B_DOMAIN` | `<TENCENTCLOUD_REGION>.tencentags.com` | E2B 接入域名 |
 | `SESSION_ID` | `session-s001` | 复用键，相同的键挂载同一块盘。只能包含小写字母、数字、`-`、`_`，最长 128 个字符 |
-| `VOLUME_CAPACITY` | `10Gi` | 磁盘容量，创建存储模板时使用 |
+| `VOLUME_CAPACITY` | `10Gi` | 磁盘容量，例如 `30Gi`。只在创建存储模板时生效，见[修改磁盘容量](#修改磁盘容量) |
 | `SANDBOX_IMAGE_REF` | `ccr.ccs.tencentyun.com/ags-image/sandbox-code:latest` | 基于代码解释器镜像（`FROM`）自行构建的镜像 |
 | `SANDBOX_IMAGE_REGISTRY_TYPE` | `personal` | `personal`（CCR 个人版）或 `enterprise`（TCR 企业版） |
 
@@ -158,6 +158,26 @@ sandbox.kill()   # 沙箱销毁后 Volume 保留
 
 E2B SDK 不负责管理存储模板、Volume 和 Tool。`scripts/run.py` 通过 `tencentcloud-sdk-python-common` 的 `CommonClient` 调用腾讯云 API 3.0 来创建这些资源。
 
+## 修改磁盘容量
+
+磁盘容量由存储模板决定。`VOLUME_CAPACITY` 只在 `make run` **新建**模板时生效。如果 `.state/` 中已经记录了模板，`make run` 会输出 `Reusing VolumeTemplate ...`，继续使用原来的容量。已有的 Volume 无法扩容，`UpdateVolume` 只能修改标签。
+
+以改成 30 GiB 为例：
+
+```bash
+make cleanup                  # 删除旧的模板、Tool 和 Volume（盘上的数据会一并删除）
+# 在 .env 中设置 VOLUME_CAPACITY=30Gi，然后：
+make run
+```
+
+```text
+/dev/vda         30G   24K   28G   1% /workspace
+Volume: vol-... (agentcbs-ws-...-ws-session-s001, 30Gi, mounted_by=...)
+```
+
+- 容量请写成「正整数 + `Gi`」的形式，例如 `30Gi`；`30G`、`30GB` 这样的写法会被拒绝。
+- 如果直接调用 API，用 `UpdateVolumeTemplate` 修改 `DefaultCapacity`，只会影响修改**之后**新派生的 Volume（即新的 `reuse_key`）；已经派生出的 Volume 容量保持不变。
+
 ## 清理
 
 ```bash
@@ -175,6 +195,7 @@ make cleanup
 | `Invalid API key format: expected "e2b_"...` | 本地 `e2b` 版本在 2.25～2.45 之间，这些版本不接受 AGS 的 Key（`ark_` 开头）。执行 `pip install -U "e2b>=2.55.1" "e2b-code-interpreter>=2.11.5"` 升级 |
 | `AuthFailure...` / `UnauthorizedOperation` | 检查 SecretId/SecretKey 是否正确，以及是否有 AGS 相关接口权限 |
 | `MissingParameter.RoleArn`，或者 Tool 拉取镜像失败 | 检查 `ROLE_ARN` 是否填写、该角色是否有 CCR 拉取权限、调用方是否有该角色的 `cam:PassRole` 权限，修正后重新执行 `make run`。处于 `FAILED` 状态的 Tool 会被自动替换，存储模板和 Volume 保持不变 |
+| 修改 `VOLUME_CAPACITY` 后，盘的大小没有变化 | 脚本复用了 `.state/` 中已有的模板。先执行 `make cleanup`，再执行 `make run`，见[修改磁盘容量](#修改磁盘容量) |
 | 启动时报 `ResourceInUse` | Volume 是 `ReadWriteOnce`，仍被另一个使用相同 `reuse_key` 的运行中沙箱占用。先销毁那个沙箱，或者换一个 `SESSION_ID` |
 | `UnsupportedOperation.SandboxInstance: AgentCBS Volume requires metadata x-ags-agent-cbs-system-disk=true` | 启动沙箱时在 metadata 中加上该项 |
 | 使用 `code-interpreter-v1` 等内置模板时报 `FailedOperation.ImagePrepare` | 内置模板无法挂载 AgentCBS，请像本示例一样使用 `custom` Tool |

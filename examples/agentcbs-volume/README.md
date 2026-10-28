@@ -68,7 +68,7 @@ Optional values in `.env`:
 |---|---|---|
 | `E2B_DOMAIN` | `<TENCENTCLOUD_REGION>.tencentags.com` | E2B endpoint |
 | `SESSION_ID` | `session-s001` | Reuse key. The same key mounts the same Volume. Lowercase letters, digits, `-`, `_`, at most 128 characters. |
-| `VOLUME_CAPACITY` | `10Gi` | Disk size, used when the template is created |
+| `VOLUME_CAPACITY` | `10Gi` | Disk size, for example `30Gi`. Only used when the template is created; see [Change the disk size](#change-the-disk-size) |
 | `SANDBOX_IMAGE_REF` | `ccr.ccs.tencentyun.com/ags-image/sandbox-code:latest` | Your own image built `FROM` the code interpreter image |
 | `SANDBOX_IMAGE_REGISTRY_TYPE` | `personal` | `personal` (CCR) or `enterprise` (TCR) |
 
@@ -176,6 +176,32 @@ The E2B SDK does not manage templates, Volumes, or Tools. `scripts/run.py`
 creates them with Tencent Cloud API 3.0 through the `CommonClient` of
 `tencentcloud-sdk-python-common`.
 
+## Change the disk size
+
+The disk size comes from the VolumeTemplate. `VOLUME_CAPACITY` is applied only
+when `make run` **creates** the template. If `.state/` already holds a template,
+`make run` prints `Reusing VolumeTemplate ...` and keeps using the old size.
+An existing Volume cannot be resized: `UpdateVolume` only updates tags.
+
+To switch to, for example, 30 GiB:
+
+```bash
+make cleanup                  # deletes the old template, Tool, and Volume (and its data)
+# set VOLUME_CAPACITY=30Gi in .env, then:
+make run
+```
+
+```text
+/dev/vda         30G   24K   28G   1% /workspace
+Volume: vol-... (agentcbs-ws-...-ws-session-s001, 30Gi, mounted_by=...)
+```
+
+- Use a positive integer with the `Gi` suffix, such as `30Gi`. Values like `30G`
+  or `30GB` are rejected.
+- With the API, `UpdateVolumeTemplate` with `DefaultCapacity` changes the size for
+  Volumes derived **after** the update (new `reuse_key` values). Volumes that were
+  already derived keep their size.
+
 ## Cleanup
 
 ```bash
@@ -195,6 +221,7 @@ as soon as the request is accepted, and the disk is released in the background.
 | `Invalid API key format: expected "e2b_"...` | The installed `e2b` 2.25–2.45 rejects AGS keys (`ark_...`). Run `pip install -U "e2b>=2.55.1" "e2b-code-interpreter>=2.11.5"`. |
 | `AuthFailure...` / `UnauthorizedOperation` | Check the SecretId/SecretKey and their AGS permissions. |
 | `MissingParameter.RoleArn`, or the Tool fails to pull the image | Check `ROLE_ARN`, its CCR permission, and the caller's `cam:PassRole` on it, then run `make run` again. A Tool in `FAILED` status is replaced automatically; the template and Volumes are kept. |
+| The disk is still the old size after changing `VOLUME_CAPACITY` | The existing template in `.state/` was reused. Run `make cleanup`, then `make run`. See [Change the disk size](#change-the-disk-size). |
 | `ResourceInUse` on start | The Volume is `ReadWriteOnce`, and another running sandbox with the same `reuse_key` still holds it. Kill that sandbox, or use a different `SESSION_ID`. |
 | `UnsupportedOperation.SandboxInstance: AgentCBS Volume requires metadata x-ags-agent-cbs-system-disk=true` | Add the metadata entry when you start the sandbox. |
 | `FailedOperation.ImagePrepare` with a built-in template such as `code-interpreter-v1` | Built-in templates cannot mount AgentCBS. Use a `custom` Tool, as this example does. |
