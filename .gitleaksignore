@@ -1,0 +1,4 @@
+# Historical false positive: empty TENCENTCLOUD_TOKEN consumed the next
+# AGS_REGION=ap-guangzhou line. No credential was present; current example
+# separates empty credentials from deployment settings. Ignore only this finding.
+dde37dfe538a140d2680dc902aafdc9d9d26d7ff:examples/osworld-custom-image/.env.example:generic-api-key:3
