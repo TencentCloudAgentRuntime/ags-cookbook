@@ -1,0 +1,1240 @@
+--- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js
+@@ -17,9 +17,12 @@
+   validateStoredEvents,
+ } from '@deepseek-ai/dsh-session-persistence'
+ import TencentCloudSdk from 'tencentcloud-sdk-nodejs-ags'
++import { SESSION_PERSISTENCE_CONFLICT } from './constants.js'
+ 
+ const { Client } = TencentCloudSdk.ags.v20250920
+ 
++export { SESSION_PERSISTENCE_CONFLICT }
++
+ export const name = 'session-persistence-agent-runtime'
+ 
+ function required(value, name) {
+@@ -209,6 +212,14 @@
+   return SessionPersistenceRevision(`agent-runtime:${sessionId}:${eventCount}`)
+ }
+ 
++function lastTurnBoundary(events) {
++  for (let index = events.length - 1; index >= 0; index -= 1) {
++    const event = events[index]
++    if (event?.type === 'turn/start' || event?.type === 'turn/end') return event
++  }
++  return undefined
++}
++
+ function isSessionNotFound(error) {
+   return error?.code === 'ResourceNotFound.SessionNotExist'
+ }
+@@ -240,8 +251,32 @@
+ // Matches the official JSONL backend: the first routed live event opens a fixed batching window.
+ const LIVE_BATCH_WINDOW_MS = 200
+ 
++// How far handoffCheck scans back for the last turn boundary. A turn longer than
++// this window reports no boundary and the caller stays conservative.
++const HANDOFF_TAIL_EVENTS = 20
++
+ function isRateLimited(error) {
+   return String(error?.code ?? '').startsWith('RequestLimitExceeded')
++}
++
++function isEventIdDuplicate(error) {
++  return error?.code === 'ResourceInUse.EventIdDuplicate'
++}
++
++// The Session API rejected an EventId because a different writer already stored
++// it. Retrying the same batch cannot succeed: the identity is taken. The handle
++// is permanently conflicted, and recovering the Session needs a generation
++// rebuild by whoever owns the live Session, not a retry here.
++
++export class SessionPersistenceConflictError extends Error {
++  constructor(sessionId, eventId, options) {
++    super(`session "${sessionId}": EventId "${eventId}" was stored by another writer with different content`, options)
++    this.name = 'SessionPersistenceConflictError'
++    /** The Session API error code that reported the conflict. */
++    this.code = 'ResourceInUse.EventIdDuplicate'
++    this.sessionId = sessionId
++    this.eventId = eventId
++  }
+ }
+ 
+ /**
+@@ -260,6 +295,10 @@
+   /** Set when a drain failed; the automatic timer stays quiet until the next drain. */
+   drainPaused = false
+   draining
++  /** Set once another writer took an EventId; every later write rejects with it. */
++  conflict
++  /** Report a conflict only once; later live events stop and stay quiet. */
++  conflictReported = false
+ 
+   constructor(backend, header, access, state) {
+     this.backend = backend
+@@ -290,7 +329,7 @@
+   }
+ 
+   async append(events, options) {
+-    this.assertOpen('append')
++    this.assertWritable('append')
+     const batch = materializeAppendBatch(events)
+     return this.run('append', async () => {
+       options?.signal?.throwIfAborted()
+@@ -310,19 +349,25 @@
+   close() {
+     return this.closing ??= (async () => {
+       let drainFailure
+-      for (;;) {
+-        try {
+-          await this.drainLive()
+-        } catch (error) {
+-          drainFailure = error
+-          break
++      // A conflicted handle has no recoverable tail; drop it and release the
++      // in-process claim so the owning generation can be rebuilt.
++      if (this.conflict === undefined) {
++        for (;;) {
++          try {
++            await this.drainLive()
++          } catch (error) {
++            drainFailure = error
++            break
++          }
++          await this.chain
++          if (this.buffered.length === 0) break
+         }
+-        await this.chain
+-        if (this.buffered.length === 0) break
+       }
+       await this.chain
+       this.backend.tracker.release(this, this.state.materialized)
+-      if (drainFailure !== undefined) throw drainFailure
++      if (drainFailure !== undefined && !(drainFailure instanceof SessionPersistenceConflictError)) {
++        throw drainFailure
++      }
+     })()
+   }
+ 
+@@ -331,6 +376,13 @@
+   }
+ 
+   enqueueLive(event, reportBackgroundFailure) {
++    if (this.conflict !== undefined) {
++      if (!this.conflictReported) {
++        this.conflictReported = true
++        reportBackgroundFailure?.(this.conflict)
++      }
++      return
++    }
+     this.buffered.push(structuredClone(event))
+     if (this.batchTimer !== undefined || this.drainPaused) return
+     this.batchTimer = setTimeout(() => {
+@@ -357,6 +409,13 @@
+         try {
+           await this.persistContiguous(materializeAppendBatch(batch))
+         } catch (error) {
++          if (error instanceof SessionPersistenceConflictError) {
++            // The EventId is taken by different content; replaying this batch can
++            // never succeed. Drop the uncommitted tail and fail closed.
++            this.markConflicted(error)
++            this.buffered = []
++            throw error
++          }
+           // Keep the batch in order; session/flush or close retries it and rejects loudly.
+           this.buffered = batch.concat(this.buffered)
+           this.drainPaused = true
+@@ -370,10 +429,16 @@
+   // events that already landed; AppendEvent accepts an identical EventId retry.
+   async persistContiguous(batch) {
+     if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'append')
++    this.assertNotConflicted()
+     if (batch.length === 0) return
+     assertContiguous(this.id, batch, this.state.cursor)
+     await this.materialize()
+-    await this.backend.appendEvents(this.id, batch)
++    try {
++      await this.backend.appendEvents(this.id, batch)
++    } catch (error) {
++      if (error instanceof SessionPersistenceConflictError) this.markConflicted(error)
++      throw error
++    }
+     for (const event of batch) this.state.events.push(deepFreeze(event))
+     this.state.cursor += batch.length
+   }
+@@ -392,13 +457,34 @@
+   }
+ 
+   async run(operation, op) {
+-    this.assertOpen(operation)
++    this.assertWritable(operation)
+     return this.enqueueChain(async () => {
+-      this.assertOpen(operation)
++      this.assertWritable(operation)
+       return op()
+     })
+   }
+ 
++  // Permanent for this handle: the owning generation must be rebuilt, not retried.
++  markConflicted(error) {
++    this.conflict ??= error
++    this.buffered = []
++    this.drainPaused = false
++    if (this.batchTimer !== undefined) {
++      clearTimeout(this.batchTimer)
++      this.batchTimer = undefined
++    }
++    return this.conflict
++  }
++
++  assertWritable(operation) {
++    this.assertOpen(operation)
++    this.assertNotConflicted()
++  }
++
++  assertNotConflicted() {
++    if (this.conflict !== undefined) throw this.conflict
++  }
++
+   assertOpen(operation) {
+     if (this.closing !== undefined) throw new SessionHandleClosedError(this.id, operation)
+   }
+@@ -500,7 +586,16 @@
+         if (errors.length > 0) throw new AggregateError(errors, `${name} dispose failed`)
+       }
+       yield ctx.on('session/event', (session, event) => {
+-        writers.get(session.id)?.enqueueLive(event, error => {
++        const writer = writers.get(session.id)
++        writer?.enqueueLive(event, error => {
++          if (writer !== undefined && writer !== null) writer.conflictReported = true
++          if (error instanceof SessionPersistenceConflictError) {
++            ctx.logger.error(`session-persistence: session "${session.id}" is conflicted and stopped writing: ${String(error)}`)
++            // The persistence layer cannot rebuild the live Session. The owning
++            // generation must invalidate itself, await close, and resume.
++            ctx.emit?.(SESSION_PERSISTENCE_CONFLICT, session, error)
++            return
++          }
+           ctx.logger.warn(`session-persistence: background write for session "${session.id}" failed (buffered events retained): ${String(error)}`)
+         })
+       })
+@@ -515,7 +610,9 @@
+       yield ctx.on('session/disposed', session => {
+         const writer = writers.get(session.id)
+         if (writer === null || writer === undefined) return
+-        writer.close().catch(error => {
++        // Return the close promise so a dispatcher that awaits listeners releases
++        // the in-process write claim before a new generation opens the Session.
++        return writer.close().catch(error => {
+           ctx.logger.warn(`session-persistence: final drain for session "${session.id}" failed: ${String(error)}`)
+         })
+       })
+@@ -703,14 +800,106 @@
+   }
+ 
+   async revision(id, signal) {
++    return revisionFromEventCount(id, await this.eventCount(id, signal))
++  }
++
++  // Cheap freshness primitive for the pre-turn check: the stored event count.
++  // It is not a lock; a writer can still append between this read and the write.
++  async eventCount(id, signal) {
+     signal?.throwIfAborted()
+     const response = await this.request('DescribeEvents', this.sessionRequest(id, {
+       Offset: 0,
+       Limit: 1,
+     }))
+-    return revisionFromEventCount(id, Number(response.TotalCount ?? 0))
++    return Number(response.TotalCount ?? 0)
+   }
+ 
++  // Pre-turn state-machine input for stateless handoff. `localEventCount` is the
++  // number of events this replica has durably persisted (the write handle cursor).
++  //
++  // state:
++  //   fresh       the stored log matches the local view
++  //   stale       another writer advanced the stored log
++  //   local-ahead the local view is ahead of storage; flush or rebuild first
++  //   not-found   the Session does not exist yet
++  //
++  // turnClosed is a tail heuristic: true only when the last turn boundary in the
++  // scanned window is a turn/end. It is not a liveness signal and cannot tell a
++  // crashed turn from one still running on another replica.
++  async handoffCheck(id, localEventCount, signal) {
++    if (!Number.isSafeInteger(localEventCount) || localEventCount < 0) {
++      throw new TypeError(`localEventCount must be a non-negative safe integer, got ${String(localEventCount)}`)
++    }
++    signal?.throwIfAborted()
++    let cloudEventCount
++    try {
++      cloudEventCount = await this.eventCount(id, signal)
++    } catch (error) {
++      if (isSessionNotFound(error)) {
++        return { state: 'not-found', cloudEventCount: 0, localEventCount, turnClosed: false }
++      }
++      throw error
++    }
++    const state = cloudEventCount === localEventCount
++      ? 'fresh'
++      : cloudEventCount > localEventCount
++        ? 'stale'
++        : 'local-ahead'
++    let events
++    if (cloudEventCount === 0) {
++      events = []
++    } else if (state === 'stale') {
++      // The local view is behind; only the cloud tail can say whether the
++      // writer's turn is closed.
++      events = await this.lastDshEvents(id, cloudEventCount, signal)
++    } else {
++      // fresh or local-ahead: the in-process write handle already holds the
++      // latest DSH events, so the common path costs one event-count read.
++      const writer = this.tracker.writerOf(id)
++      events = writer !== undefined
++        ? writer.state.events
++        : await this.lastDshEvents(id, cloudEventCount, signal)
++    }
++    const lastBoundary = lastTurnBoundary(events)
++    return {
++      state,
++      cloudEventCount,
++      localEventCount,
++      turnClosed: lastBoundary?.type === 'turn/end',
++      lastEvent: events.at(-1),
++    }
++  }
++
++  async lastDshEvents(id, cloudEventCount, signal) {
++    const offset = Math.max(0, cloudEventCount - HANDOFF_TAIL_EVENTS)
++    const response = await this.request('DescribeEvents', this.sessionRequest(id, {
++      Offset: offset,
++      Limit: cloudEventCount - offset,
++    }))
++    signal?.throwIfAborted()
++    return (response.Events ?? []).map(eventFromSummary).filter(Boolean)
++  }
++
++  // Teardown barrier for generation invalidation: await this after disposing the
++  // agent, before resuming, so the in-process write claim is gone.
++  async releaseWriter(id) {
++    for (const handle of this.tracker.openHandles) {
++      if (handle.id === id && handle.access === 'write') {
++        await handle.close()
++        return
++      }
++    }
++  }
++
++  // Durable cursor of this replica's write handle, for host.localEventCount().
++  // Undefined when this replica holds no write handle for the Session.
++  writerCursor(id) {
++    for (const handle of this.tracker.openHandles) {
++      if (handle.id === id && handle.access === 'write') return handle.state.cursor
++    }
++    return undefined
++  }
++
+   async sessionExists(id) {
+     try {
+       await this.describeSession(id)
+@@ -787,19 +976,29 @@
+     for (const event of events) {
+       const projection = contentProjection(event)
+       const terminal = terminalProjection(event)
+-      await this.request('AppendEvent', this.sessionRequest(id, {
+-        Event: {
+-          EventId: stableEventId(id, event.seq),
+-          InvocationId: invocationId(event, id),
+-          Author: projection.Author ?? 'dsh',
+-          Content: projection.Content,
+-          Actions: actionsProjection(event),
+-          Metadata: JSON.stringify(terminal.Metadata),
+-          ErrorCode: terminal.ErrorCode,
+-          ErrorMessage: terminal.ErrorMessage,
+-          Extensions: JSON.stringify({ dshEvent: event }),
+-        },
+-      }))
++      const eventId = stableEventId(id, event.seq)
++      try {
++        await this.request('AppendEvent', this.sessionRequest(id, {
++          Event: {
++            EventId: eventId,
++            InvocationId: invocationId(event, id),
++            Author: projection.Author ?? 'dsh',
++            Content: projection.Content,
++            Actions: actionsProjection(event),
++            Metadata: JSON.stringify(terminal.Metadata),
++            ErrorCode: terminal.ErrorCode,
++            ErrorMessage: terminal.ErrorMessage,
++            Extensions: JSON.stringify({ dshEvent: event }),
++          },
++        }))
++      } catch (error) {
++        // Same EventId with different content: another writer owns this position.
++        // Rate limits are already retried by request(); everything else is terminal.
++        if (isEventIdDuplicate(error)) {
++          throw new SessionPersistenceConflictError(id, eventId, { cause: error })
++        }
++        throw error
++      }
+     }
+   }
+ 
+@@ -860,3 +1059,6 @@
+   }, `${name} resources`)
+   await service.await()
+ }
++
++export { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
++export { attachDshHandoff, createDshHandoff } from './dsh-handoff.js'
+--- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js
+@@ -10,9 +10,14 @@
+   SessionReadOnlyError,
+ } from '@deepseek-ai/dsh-session-persistence'
+ import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
++import { createHandoffController } from './handoff-controller.js'
+ 
+ const modulePath = process.env.PLUGIN_MODULE ?? './index.js'
+-const { AgentRuntimeBackendTracker, AgentRuntimeSessionPersistence } = await import(modulePath)
++const {
++  AgentRuntimeBackendTracker,
++  AgentRuntimeSessionPersistence,
++  SessionPersistenceConflictError,
++} = await import(modulePath)
+ 
+ function apiError(code) {
+   return Object.assign(new Error(code), { code })
+@@ -393,9 +398,285 @@
+   assert.equal(handle.buffered.length, 1)
+   await persistence.flush()
+   assert.equal(store.sessions.get('session-drain').events.length, 1)
++  await handle.close()
++})
++
++test('an EventId conflict makes the handle permanent and stops further writes', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-conflicted'))
++  await handle.append([turn(0)])
++  // Another writer stored different content at the next EventId first.
++  store.sessions.get('session-conflicted').events.push({
++    EventId: 'dsh-session-conflicted-1',
++    InvocationId: 'other',
++    Author: 'other',
++  })
++
++  await assert.rejects(handle.append([turn(1)]), SessionPersistenceConflictError)
++  assert.ok(handle.conflict instanceof SessionPersistenceConflictError)
++  assert.equal(handle.buffered.length, 0)
++
++  await assert.rejects(handle.append([turn(2, 2)]), SessionPersistenceConflictError)
++  await assert.rejects(handle.flush(), SessionPersistenceConflictError)
++
++  let notified
++  handle.enqueueLive(turn(2, 2), error => { notified = error })
++  assert.ok(notified instanceof SessionPersistenceConflictError)
++  assert.equal(handle.buffered.length, 0)
++
++  let reportedAgain
++  handle.enqueueLive(turn(2, 2), error => { reportedAgain = error })
++  assert.equal(reportedAgain, undefined)
++
+   await handle.close()
++  assert.equal(persistence.tracker.writers.has('session-conflicted'), false)
++  const reopened = await backend(store).open('session-conflicted', 'write')
++  await reopened.close()
+ })
+ 
++test('a live drain conflict drops the uncommitted batch instead of retrying it', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-live-conflict'))
++  await handle.flush()
++
++  store.sessions.get('session-live-conflict').events.push({
++    EventId: 'dsh-session-live-conflict-0',
++    InvocationId: 'other',
++    Author: 'other',
++  })
++  handle.enqueueLive(turn(0), () => {})
++
++  await assert.rejects(persistence.flush(), AggregateError)
++  assert.ok(handle.conflict instanceof SessionPersistenceConflictError)
++  assert.equal(handle.buffered.length, 0)
++  assert.equal(store.sessions.get('session-live-conflict').events.length, 1)
++
++  await handle.close()
++  assert.equal(persistence.tracker.writers.has('session-live-conflict'), false)
++})
++
++test('releaseWriter closes the write handle and releases the in-process claim', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-release'))
++  await handle.append([turn(0)])
++  assert.equal(persistence.tracker.writers.has('session-release'), true)
++
++  await persistence.releaseWriter('session-release')
++  assert.equal(persistence.tracker.writers.has('session-release'), false)
++  await assert.rejects(handle.read(), SessionHandleClosedError)
++
++  const reopened = await persistence.open('session-release', 'write')
++  await reopened.close()
++})
++
++test('writerCursor reports the durable cursor of the in-process writer', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  assert.equal(persistence.writerCursor('session-cursor'), undefined)
++
++  const handle = await persistence.create(header('session-cursor'))
++  assert.equal(persistence.writerCursor('session-cursor'), 0)
++  await handle.append([turn(0), turn(1)])
++  assert.equal(persistence.writerCursor('session-cursor'), 2)
++  await handle.close()
++  assert.equal(persistence.writerCursor('session-cursor'), undefined)
++})
++
++test('eventCount reports the stored count for the pre-turn freshness check', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-count'))
++  await handle.flush()
++  assert.equal(await persistence.eventCount('session-count'), 0)
++
++  await handle.append([turn(0), turn(1)])
++  assert.equal(await persistence.eventCount('session-count'), 2)
++  await handle.close()
++})
++
++test('handoffCheck reports fresh, stale, local-ahead, and not-found states', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-handoff-state'))
++  await handle.append([turn(0), turn(1)])
++
++  const fresh = await persistence.handoffCheck('session-handoff-state', 2)
++  assert.equal(fresh.state, 'fresh')
++  assert.equal(fresh.cloudEventCount, 2)
++  assert.equal(fresh.localEventCount, 2)
++  assert.equal(fresh.turnClosed, true)
++  assert.equal((await persistence.handoffCheck('session-handoff-state', 1)).state, 'stale')
++  assert.equal((await persistence.handoffCheck('session-handoff-state', 3)).state, 'local-ahead')
++  assert.equal((await persistence.handoffCheck('session-missing', 0)).state, 'not-found')
++  await handle.close()
++})
++
++test('handoffCheck reports an open turn instead of treating it as complete', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-open'))
++  await handle.append([turn(0)])
++
++  const check = await persistence.handoffCheck('session-open', 1)
++  assert.equal(check.state, 'fresh')
++  assert.equal(check.turnClosed, false)
++  assert.equal(check.lastEvent.type, 'turn/start')
++  await handle.close()
++})
++
++test('handoffCheck reads the cloud tail only when the local view is behind', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-one-read'))
++  await handle.append([turn(0), turn(1)])
++
++  const freshStart = store.calls.length
++  await persistence.handoffCheck('session-one-read', 2)
++  const freshReads = store.calls.slice(freshStart).filter(call => call.action === 'DescribeEvents')
++  assert.equal(freshReads.length, 1)
++
++  const other = backend(store)
++  const otherHandle = await other.open('session-one-read', 'write')
++  await otherHandle.append([turn(2, 2), turn(3, 2)])
++  await otherHandle.close()
++
++  const staleStart = store.calls.length
++  const stale = await persistence.handoffCheck('session-one-read', 2)
++  assert.equal(stale.state, 'stale')
++  const staleReads = store.calls.slice(staleStart).filter(call => call.action === 'DescribeEvents')
++  assert.equal(staleReads.length, 2)
++  await handle.close()
++})
++
++test('handoffCheck uses the local tail for a local-ahead view', async () => {
++  const store = sessionStore()
++  const persistence = backend(store)
++  const handle = await persistence.create(header('session-local-tail'))
++  await handle.append([turn(0), turn(1)])
++
++  const start = store.calls.length
++  const check = await persistence.handoffCheck('session-local-tail', 3)
++  assert.equal(check.state, 'local-ahead')
++  assert.equal(check.turnClosed, true)
++  const reads = store.calls.slice(start).filter(call => call.action === 'DescribeEvents')
++  assert.equal(reads.length, 1)
++  await handle.close()
++})
++
++test('a second replica handoff at a turn boundary makes the stale writer stop', async () => {
++  const store = sessionStore()
++  const replicaA = backend(store)
++  const handleA = await replicaA.create(header('session-handoff'))
++  await handleA.append([turn(0), turn(1)])
++  assert.equal((await replicaA.handoffCheck('session-handoff', 2)).state, 'fresh')
++
++  // Replica B shares the Session API but has its own in-process tracker.
++  const replicaB = backend(store)
++  const handleB = await replicaB.open('session-handoff', 'write')
++  await handleB.append([turn(2, 2), turn(3, 2)])
++  await handleB.close()
++
++  const check = await replicaA.handoffCheck('session-handoff', 2)
++  assert.equal(check.state, 'stale')
++  assert.equal(check.cloudEventCount, 4)
++  assert.equal(check.turnClosed, true)
++
++  const staleEvent = {
++    type: 'user/message',
++    seq: 2,
++    time: 3,
++    data: {
++      id: 'msg-a',
++      role: 'user',
++      source: { kind: 'user', rpcId: 'rpc-a' },
++      content: [{ type: 'text', text: 'from replica A' }],
++    },
++  }
++  await assert.rejects(handleA.append([staleEvent]), SessionPersistenceConflictError)
++  assert.ok(handleA.conflict instanceof SessionPersistenceConflictError)
++  await handleA.close()
++  assert.equal(replicaA.tracker.writers.has('session-handoff'), false)
++})
++
++test('the controller rebuilds a stale replica and it continues after resume', async () => {
++  const store = sessionStore()
++  const replicaA = backend(store)
++  const handleA = await replicaA.create(header('session-rebuild'))
++  await handleA.append([turn(0), turn(1)])
++
++  const replicaB = backend(store)
++  const handleB = await replicaB.open('session-rebuild', 'write')
++  await handleB.append([turn(2, 2), turn(3, 2)])
++  await handleB.close()
++
++  let resumed
++  const host = {
++    localEventCount: async () => replicaA.writerCursor('session-rebuild'),
++    invalidate: async () => { await replicaA.releaseWriter('session-rebuild') },
++    resume: async () => {
++      resumed = await replicaA.open('session-rebuild', 'write')
++      return resumed
++    },
++  }
++  const controller = createHandoffController({ persistence: replicaA, host })
++
++  const decision = await controller.preflight('session-rebuild')
++  assert.equal(decision.action, 'rebuilt')
++  assert.equal(resumed.state.cursor, 4)
++
++  await resumed.append([turn(4, 3), turn(5, 3)])
++  assert.equal(store.sessions.get('session-rebuild').events.length, 6)
++  await resumed.close()
++})
++
++test('the controller recovers a conflicted handle and the session continues', async () => {
++  const store = sessionStore()
++  const replicaA = backend(store)
++  const handleA = await replicaA.create(header('session-recover'))
++  await handleA.append([turn(0), turn(1)])
++
++  const replicaB = backend(store)
++  const handleB = await replicaB.open('session-recover', 'write')
++  await handleB.append([turn(2, 2), turn(3, 2)])
++  await handleB.close()
++
++  const staleEvent = {
++    type: 'user/message',
++    seq: 2,
++    time: 3,
++    data: {
++      id: 'msg-b',
++      role: 'user',
++      source: { kind: 'user', rpcId: 'rpc-b' },
++      content: [{ type: 'text', text: 'from replica A' }],
++    },
++  }
++  await assert.rejects(handleA.append([staleEvent]), SessionPersistenceConflictError)
++  assert.ok(handleA.conflict instanceof SessionPersistenceConflictError)
++
++  let resumed
++  const host = {
++    localEventCount: async () => replicaA.writerCursor('session-recover'),
++    invalidate: async () => { await replicaA.releaseWriter('session-recover') },
++    resume: async () => {
++      resumed = await replicaA.open('session-recover', 'write')
++      return resumed
++    },
++  }
++  const controller = createHandoffController({ persistence: replicaA, host })
++
++  const result = await controller.recover('session-recover', 'conflict')
++  assert.equal(result.action, 'rebuilt')
++  assert.equal(resumed.state.cursor, 4)
++
++  await resumed.append([turn(4, 3), turn(5, 3)])
++  assert.equal(store.sessions.get('session-recover').events.length, 6)
++  await resumed.close()
++})
++
+ test('seeded Sessions store their inherited prefix length', async () => {
+   const store = sessionStore()
+   const persistence = backend(store)
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js
+@@ -0,0 +1,2 @@
++/** Cordis event emitted when a write handle detects an EventId conflict. */
++export const SESSION_PERSISTENCE_CONFLICT = 'session-persistence/conflict'
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js
+@@ -0,0 +1,133 @@
++/**
++ * Turns the persistence plugin's handoff primitives into an explicit state
++ * machine for the owner of the live session.
++ *
++ * The controller is deliberately host-agnostic: it never imports DSH. The
++ * integration supplies three operations:
++ *
++ *   host.localEventCount(sessionId)  durable events this replica has written
++ *   host.invalidate(sessionId)       stop input, cancel/await the turn, dispose
++ *                                    the agent, and finish teardown
++ *   host.resume(sessionId)           reopen through DSH's resume path
++ *
++ * `host.invalidate` MUST await teardown; `persistence.releaseWriter` is called
++ * after it to make sure the in-process write claim is gone before `resume`.
++ */
++
++import { SESSION_PERSISTENCE_CONFLICT } from './constants.js'
++
++export class HandoffBusyError extends Error {
++  constructor(sessionId, check) {
++    super(`session "${sessionId}" cannot start a new turn: ${describe(check)}`)
++    this.name = 'HandoffBusyError'
++    this.sessionId = sessionId
++    this.check = check
++  }
++}
++
++function describe(check) {
++  if (!check.turnClosed) {
++    return check.state === 'stale'
++      ? 'the stored log is ahead and the last turn is still open'
++      : 'the last turn is still open'
++  }
++  return check.state
++}
++
++export function createHandoffController({ persistence, host, logger = () => {} }) {
++  if (!persistence || typeof persistence.handoffCheck !== 'function' || typeof persistence.releaseWriter !== 'function') {
++    throw new TypeError('persistence must provide handoffCheck() and releaseWriter()')
++  }
++  if (!host || typeof host.localEventCount !== 'function' || typeof host.invalidate !== 'function' || typeof host.resume !== 'function') {
++    throw new TypeError('host must provide localEventCount(), invalidate(), and resume()')
++  }
++
++  // Coalesce concurrent rebuilds so two conflicts cannot tear down twice.
++  const rebuilding = new Map()
++
++  async function check(sessionId) {
++    const localEventCount = await host.localEventCount(sessionId)
++    return persistence.handoffCheck(sessionId, localEventCount)
++  }
++
++  async function rebuild(sessionId, reason) {
++    const running = rebuilding.get(sessionId)
++    if (running !== undefined) return running
++
++    const task = (async () => {
++      logger('handoff rebuild started', { sessionId, reason })
++      // Stop the old generation first; resuming before teardown would race the
++      // in-process write claim and the live Session object.
++      await host.invalidate(sessionId)
++      await persistence.releaseWriter(sessionId)
++      const generation = await host.resume(sessionId)
++      logger('handoff rebuild finished', { sessionId, reason })
++      return generation
++    })()
++    rebuilding.set(sessionId, task)
++    try {
++      return await task
++    } finally {
++      rebuilding.delete(sessionId)
++    }
++  }
++
++  /**
++   * Decide what to do before a new turn.
++   *
++   * - `run`      the stored log matches and the last turn is closed
++   * - `rebuilt`  a stale generation was invalidated and resumed
++   * - `create`   the Session does not exist yet
++   * - `blocked`  local is ahead (flush failed or was unavailable)
++   *
++   * Throws HandoffBusyError when the last turn is open. An open turn is not a
++   * liveness signal: never close it automatically.
++   */
++  async function preflight(sessionId) {
++    let current = await check(sessionId)
++
++    if (current.state === 'local-ahead' && typeof host.flush === 'function') {
++      await host.flush(sessionId)
++      current = await check(sessionId)
++    }
++
++    if (current.state === 'not-found') return { action: 'create', check: current }
++    if (current.state === 'local-ahead') return { action: 'blocked', check: current }
++    if (!current.turnClosed) throw new HandoffBusyError(sessionId, current)
++    if (current.state === 'stale') {
++      const generation = await rebuild(sessionId, 'preflight-stale')
++      return { action: 'rebuilt', check: current, generation }
++    }
++    if (current.state === 'fresh') return { action: 'run', check: current }
++    return { action: 'blocked', check: current }
++  }
++
++  /**
++   * Recover after a persistence conflict. The controller only rebuilds; the
++   * caller decides whether the failed turn may be retried.
++   */
++  async function recover(sessionId, reason = 'conflict') {
++    const generation = await rebuild(sessionId, reason)
++    return { action: 'rebuilt', check: await check(sessionId), generation }
++  }
++
++  return { preflight, recover, rebuild, check }
++}
++
++/**
++ * Wire the controller to the persistence conflict event. The integration still
++ * owns the host; this only routes `session-persistence/conflict` to recover().
++ *
++ * @returns the Cordis listener disposer.
++ */
++export function attachConflictRecovery(ctx, controller, { logger = () => {} } = {}) {
++  if (!ctx || typeof ctx.on !== 'function') throw new TypeError('ctx.on is required')
++  return ctx.on(SESSION_PERSISTENCE_CONFLICT, (session, error) => {
++    const sessionId = session?.id
++    if (!sessionId) return undefined
++    return controller.recover(sessionId, 'conflict').catch(failure => {
++      logger('handoff conflict recovery failed', { sessionId, error: String(failure) })
++      throw failure
++    })
++  })
++}
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js
+@@ -0,0 +1,197 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++import { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
++
++function check(state, turnClosed = true) {
++  return { state, cloudEventCount: 2, localEventCount: 2, turnClosed }
++}
++
++function fakePersistence(checks, { releaseError } = {}) {
++  const calls = []
++  let index = 0
++  return {
++    calls,
++    async handoffCheck(sessionId, localEventCount) {
++      calls.push(['handoffCheck', sessionId, localEventCount])
++      return Array.isArray(checks) ? checks[Math.min(index++, checks.length - 1)] : checks
++    },
++    async releaseWriter(sessionId) {
++      calls.push(['releaseWriter', sessionId])
++      if (releaseError !== undefined) throw releaseError
++    },
++  }
++}
++
++function fakeHost({ localEventCount = 2, invalidate, resume, flush } = {}) {
++  const calls = []
++  const host = {
++    calls,
++    async localEventCount(sessionId) {
++      calls.push(['localEventCount', sessionId])
++      return localEventCount
++    },
++    async invalidate(sessionId) {
++      calls.push(['invalidate', sessionId])
++      if (invalidate !== undefined) await invalidate(sessionId)
++    },
++    async resume(sessionId) {
++      calls.push(['resume', sessionId])
++      return resume !== undefined ? resume(sessionId) : { generation: `${sessionId}-new` }
++    },
++  }
++  if (flush !== undefined) {
++    host.flush = async sessionId => {
++      calls.push(['flush', sessionId])
++      await flush(sessionId)
++    }
++  }
++  return host
++}
++
++test('preflight runs when the stored log matches and the turn is closed', async () => {
++  const persistence = fakePersistence(check('fresh'))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  const result = await controller.preflight('session-a')
++  assert.equal(result.action, 'run')
++  assert.deepEqual(host.calls, [['localEventCount', 'session-a']])
++  assert.deepEqual(persistence.calls, [['handoffCheck', 'session-a', 2]])
++})
++
++test('preflight rebuilds a stale generation and resumes it', async () => {
++  const persistence = fakePersistence(check('stale'))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  const result = await controller.preflight('session-b')
++  assert.equal(result.action, 'rebuilt')
++  assert.deepEqual(result.generation, { generation: 'session-b-new' })
++  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'invalidate', 'resume'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['handoffCheck', 'releaseWriter'])
++})
++
++test('preflight refuses a stale open turn instead of closing it', async () => {
++  const persistence = fakePersistence(check('stale', false))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  await assert.rejects(controller.preflight('session-c'), HandoffBusyError)
++  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount'])
++  assert.equal(persistence.calls.some(call => call[0] === 'releaseWriter'), false)
++})
++
++test('preflight refuses a fresh open turn', async () => {
++  const persistence = fakePersistence(check('fresh', false))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  await assert.rejects(controller.preflight('session-d'), HandoffBusyError)
++  assert.equal(host.calls.some(call => call[0] === 'invalidate'), false)
++})
++
++test('preflight flushes a local-ahead log and rechecks', async () => {
++  const persistence = fakePersistence([check('local-ahead'), check('fresh')])
++  const host = fakeHost({ flush: async () => {} })
++  const controller = createHandoffController({ persistence, host })
++
++  const result = await controller.preflight('session-e')
++  assert.equal(result.action, 'run')
++  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'flush', 'localEventCount'])
++  assert.equal(persistence.calls.filter(call => call[0] === 'handoffCheck').length, 2)
++})
++
++test('preflight blocks local-ahead when the host cannot flush', async () => {
++  const persistence = fakePersistence(check('local-ahead'))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  const result = await controller.preflight('session-f')
++  assert.equal(result.action, 'blocked')
++  assert.equal(host.calls.some(call => call[0] === 'flush'), false)
++})
++
++test('preflight reports create for a missing Session', async () => {
++  const persistence = fakePersistence(check('not-found'))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  const result = await controller.preflight('session-g')
++  assert.equal(result.action, 'create')
++  assert.equal(host.calls.some(call => call[0] === 'invalidate'), false)
++})
++
++test('recover rebuilds after a conflict and reports the new state', async () => {
++  const persistence = fakePersistence(check('fresh'))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  const result = await controller.recover('session-h', 'conflict')
++  assert.equal(result.action, 'rebuilt')
++  assert.equal(result.check.state, 'fresh')
++  assert.deepEqual(host.calls.map(call => call[0]), ['invalidate', 'resume', 'localEventCount'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['releaseWriter', 'handoffCheck'])
++})
++
++test('concurrent recover calls share one rebuild', async () => {
++  let openGate
++  const gate = new Promise(resolve => { openGate = resolve })
++  const persistence = fakePersistence(check('fresh'))
++  const host = fakeHost({ invalidate: async () => { await gate } })
++  const controller = createHandoffController({ persistence, host })
++
++  const first = controller.recover('session-i')
++  const second = controller.recover('session-i')
++  openGate()
++  const [left, right] = await Promise.all([first, second])
++
++  assert.equal(left.action, 'rebuilt')
++  assert.equal(right.action, 'rebuilt')
++  assert.equal(host.calls.filter(call => call[0] === 'invalidate').length, 1)
++  assert.equal(host.calls.filter(call => call[0] === 'resume').length, 1)
++})
++
++test('a failed invalidate leaves the generation untouched', async () => {
++  const failure = new Error('invalidate failed')
++  const persistence = fakePersistence(check('stale'))
++  const host = fakeHost({ invalidate: async () => { throw failure } })
++  const controller = createHandoffController({ persistence, host })
++
++  await assert.rejects(controller.recover('session-j'), failure)
++  assert.equal(host.calls.some(call => call[0] === 'resume'), false)
++  assert.equal(persistence.calls.some(call => call[0] === 'releaseWriter'), false)
++})
++
++test('a failed releaseWriter does not resume the generation', async () => {
++  const failure = new Error('writer still open')
++  const persistence = fakePersistence(check('stale'), { releaseError: failure })
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++
++  await assert.rejects(controller.recover('session-k'), failure)
++  assert.equal(host.calls.some(call => call[0] === 'resume'), false)
++})
++
++test('attachConflictRecovery routes the conflict event into recover', async () => {
++  const handlers = new Map()
++  const ctx = {
++    on(name, handler) {
++      handlers.set(name, handler)
++      return () => handlers.delete(name)
++    },
++  }
++  const persistence = fakePersistence(check('fresh'))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host })
++  const dispose = attachConflictRecovery(ctx, controller)
++
++  const listener = handlers.get('session-persistence/conflict')
++  assert.equal(typeof listener, 'function')
++  const result = await listener({ id: 'session-l' }, new Error('conflict'))
++  assert.equal(result.action, 'rebuilt')
++  assert.equal(host.calls.filter(call => call[0] === 'invalidate').length, 1)
++  assert.equal(host.calls.filter(call => call[0] === 'resume').length, 1)
++
++  dispose()
++  assert.equal(handlers.has('session-persistence/conflict'), false)
++})
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js
+@@ -0,0 +1,61 @@
++/**
++ * Minimal DSH wiring for the handoff controller.
++ *
++ * The persistence plugin and the controller are version-independent. The only
++ * version-specific operation is the `generation` port, which the integration
++ * implements with the DSH 0.2.1-rc.2 agent/session-controller APIs:
++ *
++ *   generation.invalidate(sessionId)  stop input, cancel/await the turn, dispose
++ *                                     the agent, and finish teardown
++ *   generation.resume(sessionId)      reopen through ctx.agents.resume()
++ *   generation.flush(sessionId)?      optional; flush before a local-ahead check
++ *
++ * Keeping this as a port is deliberate: without the real agent handle, a
++ * plugin cannot dispose a live Session, and the session-controller's public
++ * release/invalidate surface must be verified on the target version.
++ */
++
++import { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
++
++export function createDshHandoff({ persistence, generation, logger }) {
++  if (!generation || typeof generation.invalidate !== 'function' || typeof generation.resume !== 'function') {
++    throw new TypeError('generation must provide invalidate() and resume()')
++  }
++
++  const host = {
++    localEventCount: sessionId => persistence.writerCursor(sessionId),
++    invalidate: sessionId => generation.invalidate(sessionId),
++    resume: sessionId => generation.resume(sessionId),
++  }
++  if (typeof generation.flush === 'function') {
++    host.flush = sessionId => generation.flush(sessionId)
++  }
++  return createHandoffController({ persistence, host, logger })
++}
++
++/**
++ * Cordis helper: create the controller from `ctx.sessionPersistence` and route
++ * `session-persistence/conflict` into recover(). The caller still has to call
++ * `controller.preflight(sessionId)` before each turn; the plugin cannot see the
++ * turn boundary.
++ *
++ * @returns {{ controller: ReturnType<typeof createHandoffController>, dispose: () => void }}
++ */
++export function attachDshHandoff(ctx, { generation, logger } = {}) {
++  if (!ctx || typeof ctx.on !== 'function') throw new TypeError('ctx.on is required')
++  const persistence = ctx.sessionPersistence
++  if (!persistence) throw new TypeError('ctx.sessionPersistence is required')
++  const controller = createDshHandoff({ persistence, generation, logger })
++  // The DSH source patch calls this before admitting a non-steer prompt.
++  if (typeof ctx.set === 'function') {
++    ctx.set('sessionHandoff', {
++      beforePrompt: async sessionId => {
++        const decision = await controller.preflight(sessionId)
++        if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check)
++        return decision
++      },
++    })
++  }
++  const dispose = attachConflictRecovery(ctx, controller, { logger })
++  return { controller, dispose }
++}
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js
+@@ -0,0 +1,140 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++import { attachDshHandoff, createDshHandoff } from './dsh-handoff.js'
++import { HandoffBusyError } from './handoff-controller.js'
++
++function check(state, turnClosed = true) {
++  return { state, cloudEventCount: 2, localEventCount: 2, turnClosed }
++}
++
++function fakePersistence(checks) {
++  const calls = []
++  let index = 0
++  return {
++    calls,
++    writerCursor(sessionId) {
++      calls.push(['writerCursor', sessionId])
++      return 2
++    },
++    async handoffCheck(sessionId, localEventCount) {
++      calls.push(['handoffCheck', sessionId, localEventCount])
++      return Array.isArray(checks) ? checks[Math.min(index++, checks.length - 1)] : checks
++    },
++    async releaseWriter(sessionId) {
++      calls.push(['releaseWriter', sessionId])
++    },
++  }
++}
++
++function fakeGeneration({ flush } = {}) {
++  const calls = []
++  const generation = {
++    calls,
++    async invalidate(sessionId) {
++      calls.push(['invalidate', sessionId])
++    },
++    async resume(sessionId) {
++      calls.push(['resume', sessionId])
++      return { sessionId }
++    },
++  }
++  if (flush !== undefined) {
++    generation.flush = async sessionId => {
++      calls.push(['flush', sessionId])
++      await flush(sessionId)
++    }
++  }
++  return generation
++}
++
++function fakeCtx(persistence) {
++  const services = new Map()
++  const handlers = new Map()
++  return {
++    handlers,
++    sessionPersistence: persistence,
++    on(name, handler) {
++      handlers.set(name, handler)
++      return () => handlers.delete(name)
++    },
++    set(name, value) {
++      services.set(name, value)
++    },
++    get(name) {
++      return services.get(name)
++    },
++  }
++}
++
++test('createDshHandoff rebuilds a stale generation through the port', async () => {
++  const persistence = fakePersistence(check('stale'))
++  const generation = fakeGeneration()
++  const controller = createDshHandoff({ persistence, generation })
++
++  const result = await controller.preflight('session-a')
++  assert.equal(result.action, 'rebuilt')
++  assert.deepEqual(generation.calls.map(call => call[0]), ['invalidate', 'resume'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['writerCursor', 'handoffCheck', 'releaseWriter'])
++})
++
++test('createDshHandoff forwards the optional flush operation', async () => {
++  const persistence = fakePersistence([check('local-ahead'), check('fresh')])
++  const generation = fakeGeneration({ flush: async () => {} })
++  const controller = createDshHandoff({ persistence, generation })
++
++  const result = await controller.preflight('session-b')
++  assert.equal(result.action, 'run')
++  assert.equal(generation.calls.some(call => call[0] === 'flush'), true)
++})
++
++test('attachDshHandoff wires the conflict event to recovery', async () => {
++  const ctx = fakeCtx(fakePersistence(check('fresh')))
++  const generation = fakeGeneration()
++  const { controller, dispose } = attachDshHandoff(ctx, { generation })
++  assert.equal(typeof controller.preflight, 'function')
++
++  const listener = ctx.handlers.get('session-persistence/conflict')
++  await listener({ id: 'session-c' }, new Error('conflict'))
++  assert.deepEqual(generation.calls.map(call => call[0]), ['invalidate', 'resume'])
++
++  dispose()
++  assert.equal(ctx.handlers.has('session-persistence/conflict'), false)
++})
++
++test('attachDshHandoff installs the pre-prompt hook', async () => {
++  const ctx = fakeCtx(fakePersistence(check('stale')))
++  const generation = fakeGeneration()
++  attachDshHandoff(ctx, { generation })
++
++  const handoff = ctx.get('sessionHandoff')
++  assert.equal(typeof handoff.beforePrompt, 'function')
++  const decision = await handoff.beforePrompt('session-d')
++  assert.equal(decision.action, 'rebuilt')
++  assert.deepEqual(generation.calls.map(call => call[0]), ['invalidate', 'resume'])
++})
++
++test('the pre-prompt hook reports a blocked handoff as busy', async () => {
++  const ctx = fakeCtx(fakePersistence(check('local-ahead')))
++  const generation = fakeGeneration()
++  attachDshHandoff(ctx, { generation })
++
++  await assert.rejects(
++    ctx.get('sessionHandoff').beforePrompt('session-e'),
++    HandoffBusyError,
++  )
++  assert.equal(generation.calls.length, 0)
++})
++
++test('createDshHandoff rejects an incomplete generation port', () => {
++  assert.throws(
++    () => createDshHandoff({ persistence: fakePersistence(check('fresh')), generation: {} }),
++    /invalidate/,
++  )
++})
++
++test('attachDshHandoff requires ctx.sessionPersistence', () => {
++  assert.throws(
++    () => attachDshHandoff({ on() {} }, { generation: fakeGeneration() }),
++    /sessionPersistence/,
++  )
++})

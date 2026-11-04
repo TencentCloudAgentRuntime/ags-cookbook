@@ -40,3 +40,9 @@ DSH 在不同版本之间调整过会话持久化接口，部分版本之间存�
 
 - `npm install -g @deepseek-ai/dsh` 不写版本号时，会安装 npm 上当前的最新版本，可能与插件适配的版本不同。
 - 版本不一致时，DSH 在启动阶段即报错，例如 `does not provide an export named 'PersistenceCoordinator'`。
+
+## 无状态会话交接（参考实现）
+
+基础示例的插件只处理单写者场景。多副本下发生 EventId 冲突时，插件会持续重试，导致该副本上的会话不可用。
+
+[dsh-0.2.1-rc.2-stateless-handoff](./reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md) 是面向无状态交接的参考实现：检测冲突后停止重试、让出写句柄，并提供 `handoffCheck` / `releaseWriter` 辅助接口。它不引入租约，也不能自行重建 live session；真正的无状态交接仍需上层的 generation 失效和 `resume()`。该目录不是独立部署示例，基础示例保持不变。

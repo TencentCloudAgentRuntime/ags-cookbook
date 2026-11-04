@@ -1,0 +1,181 @@
+diff --git a/packages/api/session-controller/src/agent.ts b/packages/api/session-controller/src/agent.ts
+index aaacc886..fa23306c 100644
+--- a/packages/api/session-controller/src/agent.ts
++++ b/packages/api/session-controller/src/agent.ts
+@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises'
+ import type { Context } from '@deepseek-ai/cordis'
+ import { installModelSelection } from '@deepseek-ai/dsh-agent'
+ import type {
+-  Agent, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef,
++  Agent, AgentHandle, AgentOptions, AgentSetup, ModelSelection as AgentModelSelection, ModelSelectionRef,
+ } from '@deepseek-ai/dsh-agent'
+ import type {} from '@deepseek-ai/dsh-agent-default-model'
+ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+@@ -170,6 +170,8 @@ export async function inspectApiSession(
+ export class ApiSessionAgentController {
+   private readonly resumes = new Map<SessionId, Promise<Agent>>()
+   private readonly claims = new Map<SessionId, Promise<void>>()
++  /** Handles created/resumed here; the disposer is a capability this owner keeps. */
++  private readonly handles = new Map<SessionId, AgentHandle>()
+   private readonly selections = new WeakMap<Agent, InstalledSelection>()
+   private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+ 
+@@ -210,6 +212,33 @@ export class ApiSessionAgentController {
+     return this.resolve(observation.header.id, observation)
+   }
+ 
++  /**
++   * Tear down the live generation for one Session so the next resolve/resume
++   * rebuilds it from durable state.
++   *
++   * The handle is the disposer capability returned by create/resume; this
++   * controller is its owner and must keep it. The caller must not race an
++   * in-flight resolve or an active turn.
++   */
++  async invalidateGeneration(sessionId: SessionId): Promise<void> {
++    const handle = this.handles.get(sessionId)
++    if (handle === undefined) {
++      throw new Error(`session "${sessionId}" has no live generation to invalidate`)
++    }
++    this.handles.delete(sessionId)
++    this.resumes.delete(sessionId)
++    this.claims.delete(sessionId)
++    await handle.dispose()
++  }
++
++  /** Invalidate the live generation and resume it from durable state. */
++  async resumeGeneration(sessionId: SessionId): Promise<Agent> {
++    await this.invalidateGeneration(sessionId)
++    const found = await this.resolveAgent(sessionId)
++    if ('error' in found) throw found.error
++    return found.agent
++  }
++
+   private async resolve(
+     sessionId: SessionId,
+     observation?: SessionObservation,
+@@ -437,11 +466,13 @@ export class ApiSessionAgentController {
+     if (published !== undefined && hasApiSessionSubagentOwner(this.ctx, published, live)) {
+       throw new ApiSessionSubagentOwnership(sessionId)
+     }
+-    return (await this.ctx.agents.resume({
++    const handle = await this.ctx.agents.resume({
+       resumeSessionId: sessionId,
+       agentOptions: this.agentOptions(),
+       setup: composition.setup,
+-    })).agent
++    })
++    this.handles.set(sessionId, handle)
++    return handle.agent
+   }
+ 
+   private async inOrder<Value>(sessionId: SessionId, operation: () => Promise<Value>): Promise<Value> {
+@@ -491,11 +522,13 @@ export class ApiSessionAgentController {
+     if (!reusable) return this.createMinted(request.cwd, composition)
+     this.assertPresetApplicable(sessionId, request.agentPreset)
+     try {
+-      return (await this.ctx.agents.resume({
++      const handle = await this.ctx.agents.resume({
+         resumeSessionId: sessionId,
+         agentOptions: this.agentOptions(),
+         setup: this.reuseSetup(composition),
+-      })).agent
++      })
++      this.handles.set(sessionId, handle)
++      return handle.agent
+     } catch (error: unknown) {
+       if (error instanceof ApiSessionStartedSinceObserved) return this.createMinted(request.cwd, composition)
+       if (!(error instanceof Error) || error.name !== 'SessionAlreadyOwnedError') throw error
+@@ -566,7 +599,7 @@ export class ApiSessionAgentController {
+     } catch (error: unknown) {
+       throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
+     }
+-    return (await this.ctx.agents.create({
++    const handle = await this.ctx.agents.create({
+       sessionId,
+       agentOptions: this.agentOptions(),
+       meta: {
+@@ -574,7 +607,9 @@ export class ApiSessionAgentController {
+         ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
+       },
+       setup: composition.setup,
+-    })).agent
++    })
++    this.handles.set(sessionId, handle)
++    return handle.agent
+   }
+ 
+   private agentOptions(): AgentOptions {
+diff --git a/packages/api/session-controller/src/index.ts b/packages/api/session-controller/src/index.ts
+index 2362bce2..d6bf1eaf 100644
+--- a/packages/api/session-controller/src/index.ts
++++ b/packages/api/session-controller/src/index.ts
+@@ -73,10 +73,22 @@ export { ApiSessionNotFound } from './agent.ts'
+ export { SessionFileReferences } from './file-references.ts'
+ export { SessionSkillCatalog } from './skill-catalog.ts'
+ 
++/**
++ * Optional pre-prompt hook installed by a stateless handoff plugin. It runs
++ * before a new turn is admitted and may rebuild the live generation from
++ * durable state; a rejection is surfaced as `session/agent-busy`.
++ */
++export interface SessionHandoffService {
++  /** @param sessionId - ordinary Session about to receive a new turn. */
++  beforePrompt(sessionId: SessionId): Promise<void>
++}
++
+ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     /** Host Session business API and Remote namespace owner. */
+     sessionController: SessionController
++    /** Optional pre-prompt hook for stateless generation handoff. */
++    sessionHandoff?: SessionHandoffService
+   }
+ }
+ 
+@@ -244,6 +256,24 @@ export class SessionController extends TypertRemoteService {
+     return this.agents.resolveAgent(sessionId)
+   }
+ 
++  /**
++   * Tear down the live generation so the next resolve/resume rebuilds it from
++   * durable state. Used by the stateless handoff controller.
++   * @param sessionId - Session whose live Agent generation is invalidated.
++   */
++  invalidateGeneration(sessionId: SessionId): Promise<void> {
++    return this.agents.invalidateGeneration(sessionId)
++  }
++
++  /**
++   * Invalidate the live generation and resume it from durable state.
++   * @param sessionId - Session whose live Agent is rebuilt.
++   * @returns the resumed Agent.
++   */
++  resumeGeneration(sessionId: SessionId): Promise<Agent> {
++    return this.agents.resumeGeneration(sessionId)
++  }
++
+   /**
+    * Inspect one attached or persisted Session without activating its Agent.
+    * @param sessionId - durable Session identity.
+@@ -482,6 +512,20 @@ export class SessionController extends TypertRemoteService {
+       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+       ...(principal === undefined ? {} : { principal }),
+     }
++    // Stateless handoff: check and, when stale, rebuild the live generation
++    // before a new turn is admitted. Steer is an in-turn operation and must
++    // not rebuild underneath the running turn.
++    if (request.mode !== 'steer') {
++      const handoff = this.ctx.get('sessionHandoff')
++      if (handoff !== undefined) {
++        try {
++          await handoff.beforePrompt(request.sessionId)
++        } catch (error: unknown) {
++          if (error instanceof RemoteError) throw error
++          throw new RemoteError('session/agent-busy', 'session handoff pending', { reason: String(error) })
++        }
++      }
++    }
+     return this.commands.prompt(request, source)
+   }
+ 

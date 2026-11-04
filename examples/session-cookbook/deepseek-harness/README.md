@@ -40,3 +40,9 @@ The plugin depends on DSH's internal modules, so DSH and those modules must be e
 
 - `npm install -g @deepseek-ai/dsh` without a version installs whatever is newest on npm, which may not be the version the plugin targets.
 - On a mismatch, DSH fails at startup, for example with `does not provide an export named 'PersistenceCoordinator'`.
+
+## Stateless session handoff (reference)
+
+The base plugin handles the single-writer path only. Under multiple replicas, an EventId conflict makes the plugin retry forever and leaves the conversation unusable on that replica.
+
+[dsh-0.2.1-rc.2-stateless-handoff](./reference/dsh-0.2.1-rc.2-stateless-handoff/README.md) is a reference toward stateless handoff: it detects the conflict, stops retrying, releases the write handle, and exposes `handoffCheck` / `releaseWriter` helpers. It does not introduce a lease and cannot rebuild the live session by itself; true stateless handoff still needs generation invalidation and `resume()` in the owner. It is not a standalone deployment example, and the base example is unchanged.
