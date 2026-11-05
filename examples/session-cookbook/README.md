@@ -9,6 +9,7 @@ Each example stands on its own and walks through configuration, build, verificat
 | Integration target | What the example shows |
 | --- | --- |
 | DeepSeek Harness (DSH) | Connect DSH's conversation persistence to cloud Session, delete the container, then reload the same conversation in a fresh one and keep talking — [deepseek-harness](./deepseek-harness/README.md) |
+| pi | Add a pi extension that copies every conversation entry to cloud Session, delete the container, then reopen the same conversation in a fresh one with the official `pi` binary, including `/fork` and `switch_session`; also shows a minimal in-memory variant — [pi](./pi/README.md) |
 
 `make run` prints navigation.
 
