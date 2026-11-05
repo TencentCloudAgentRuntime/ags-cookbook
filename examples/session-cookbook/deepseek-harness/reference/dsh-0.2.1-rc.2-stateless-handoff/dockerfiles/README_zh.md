@@ -85,11 +85,30 @@ docker build -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
 3. `pnpm run build:official`，再用 `release:pack` 打出 vendor 和 dsh 两套 tarball；
 4. **runtime**：安装 tarball，安装本目录插件，把 `@deepseek-ai` peer 依赖链接到 DSH 自己的副本，最后放入 Cordis 配置和 entrypoint。
 
-第一次构建会编译整个 DSH，耗时较长。若某个版本把 `@deepseek-ai` 包提升到别的路径，覆盖 `DSH_MODULES`：
+第一次构建会编译整个 DSH，耗时较长。
+
+构建阶段需要 apt 安装 `git` / `g++` / `make` / `python3`。`node:24.8.0-bookworm-slim` 的 Debian keyring 早于 bookworm 的归档密钥轮换，`apt-get update` 会报 `NoPubKey`，因此构建阶段默认使用 `node:24.22.2-bookworm-slim`，运行阶段仍使用基础示例的 `24.8.0`。需要内网镜像时覆盖：
+
+```bash
+docker build \
+  --build-arg BUILD_IMAGE=your-registry/node:24.22.2-bookworm-slim \
+  --build-arg RUNTIME_IMAGE=your-registry/node:24.8.0-bookworm-slim \
+  -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
+```
+
+若某个版本把 `@deepseek-ai` 包提升到别的路径，覆盖 `DSH_MODULES`：
 
 ```bash
 docker build --build-arg DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai ...
 ```
+
+`build:official` 默认按 CPU 数并行执行构建 gate。内存较小的 Docker VM（例如 8G）可能在 `host compiler` 之后的 bundle / aggregate check 阶段 OOM，表现为 BuildKit 报 `error reading from server: EOF`。这时限制 gate 并发：
+
+```bash
+docker build --build-arg DSH_GATE_CONCURRENCY=1 -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
+```
+
+`pnpm install` 会从 `cdn.sheetjs.com` 拉取一个 xlsx tarball；慢网络下默认 60s 的 fetch 超时不够。Dockerfile 已把 `--fetch-timeout` 提高到 600s，不需要额外参数。
 
 ## 5. 运行时加载
 
@@ -137,4 +156,33 @@ docker build --build-arg DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai ..
 
 ## 8. 验证状态
 
-补丁已通过 `git apply --check`，Dockerfile 已按 deployment cookbook 的构建路径写好；**尚未在本仓库实际构建镜像或运行 DSH**。在上面三条链路跑通之前，只能声明“编译和单元测试覆盖”，不能声明“真实部署可用”。
+已在本机 Docker 环境完成以下验证（2026-11-05）：
+
+| 项 | 结果 |
+| --- | --- |
+| 镜像构建 | ✅ `ags-dsh-stateless-handoff` 2.15GB |
+| 构建期 session-controller 测试 | ✅ 3 files / 40 tests |
+| `build:official` | ✅ 9 个 gate 全部 PASS，包含 host / client aggregate check |
+| web profile 插件加载 | ✅ `[dsh-stateless-handoff] handoff service registered` |
+| A→B→A | ✅ 副本 A → B → A 的回合全部 `completed`，无 EventId 冲突 |
+| stale 交接 | ✅ A 的第三次请求日志：`handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}`，并出现 `rebuild started/finished` |
+
+日志中的关键证据：
+
+```text
+[dsh-stateless-handoff] handoff rebuild started  {"reason":"preflight-stale"}
+[dsh-stateless-handoff] handoff rebuild finished {"reason":"preflight-stale"}
+[dsh-stateless-handoff] handoff preflight {"action":"rebuilt","state":"stale","turnState":"closed"}
+```
+
+未覆盖：
+
+- 真实写入冲突（`ResourceInUse.EventIdDuplicate`）触发的 `recover()` 只在单测和插件级集成测试里覆盖，没有在镜像里人为制造；
+- 未结束回合的 busy 行为只在单测覆盖；
+- 工作区状态和工具副作用幂等不在本方案范围内。
+
+构建环境注意：
+
+- 8G 左右的 Docker VM 需要 `DSH_GATE_CONCURRENCY=1`，否则 `build:official` 的并行 gate 会 OOM；
+- 运行阶段一次安装 700+ 个全局 tarball 也会 OOM；Dockerfile 已限制 V8 堆、先装 vendor 再装 dsh，并使用 `--legacy-peer-deps`；
+- `xlsx@0.20.3` 只从 `cdn.sheetjs.com` 分发，慢网络下会拖慢 `pnpm install`；Dockerfile 已用 pnpm store cache mount 和 30 分钟 fetch timeout 缓解。

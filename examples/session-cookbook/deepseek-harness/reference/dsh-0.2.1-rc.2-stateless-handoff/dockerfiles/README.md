@@ -85,11 +85,30 @@ The image has two stages:
 3. `pnpm run build:official`, then `release:pack` for the vendor and dsh tarballs;
 4. **runtime**: install the tarballs and this plugin, link the `@deepseek-ai` peers to DSH's own copy, then add the Cordis config and entrypoint.
 
-The first build compiles all of DSH and takes a while. If a release hoists the `@deepseek-ai` packages elsewhere, override `DSH_MODULES`:
+The first build compiles all of DSH and takes a while.
+
+The build stage needs apt for `git`, `g++`, `make`, and `python3`. The `node:24.8.0-bookworm-slim` image predates the Debian archive key rotation, so `apt-get update` fails with `NoPubKey`. The build stage therefore defaults to `node:24.22.2-bookworm-slim`, while the runtime stage keeps the base example's `24.8.0`. Override both for an internal mirror:
+
+```bash
+docker build \
+  --build-arg BUILD_IMAGE=your-registry/node:24.22.2-bookworm-slim \
+  --build-arg RUNTIME_IMAGE=your-registry/node:24.8.0-bookworm-slim \
+  -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
+```
+
+If a release hoists the `@deepseek-ai` packages elsewhere, override `DSH_MODULES`:
 
 ```bash
 docker build --build-arg DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai ...
 ```
+
+`build:official` runs build gates up to the CPU count. A small Docker VM (for example 8 GB) can OOM after `host compiler`, while the bundle and aggregate check run in parallel; BuildKit reports `error reading from server: EOF`. Cap the gate concurrency:
+
+```bash
+docker build --build-arg DSH_GATE_CONCURRENCY=1 -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
+```
+
+`pnpm install` fetches one xlsx tarball from `cdn.sheetjs.com`; on a slow network the default 60 s fetch timeout is not enough. The Dockerfile raises `--fetch-timeout` to 600 s, so no extra flag is needed.
 
 ## 5. Runtime wiring
 
@@ -137,4 +156,33 @@ The build already runs three session-controller test files. After the image is b
 
 ## 8. Verification status
 
-The patch passes `git apply --check`, and the Dockerfile follows the deployment cookbook build path; **the image has not been built and DSH has not been run from this repository**. Until the three flows above pass, this can only claim compile-time and unit-test coverage, not production readiness.
+Verified in a local Docker environment on 2026-11-05:
+
+| Item | Result |
+| --- | --- |
+| Image build | ✅ `ags-dsh-stateless-handoff`, 2.15 GB |
+| Build-time session-controller tests | ✅ 3 files / 40 tests |
+| `build:official` | ✅ all 9 gates passed, including the host and client aggregate checks |
+| Web-profile plugin load | ✅ `[dsh-stateless-handoff] handoff service registered` |
+| A→B→A | ✅ every replica turn completed, no EventId conflict |
+| Stale handoff | ✅ A's third request logged `handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}` with `rebuild started/finished` |
+
+Key log lines:
+
+```text
+[dsh-stateless-handoff] handoff rebuild started  {"reason":"preflight-stale"}
+[dsh-stateless-handoff] handoff rebuild finished {"reason":"preflight-stale"}
+[dsh-stateless-handoff] handoff preflight {"action":"rebuilt","state":"stale","turnState":"closed"}
+```
+
+Not covered:
+
+- the `recover()` path for a real `ResourceInUse.EventIdDuplicate` write conflict (covered by unit and plugin-level integration tests only, not induced in the image);
+- the busy behaviour for an open turn (unit tests only);
+- workspace state and tool-side-effect idempotency are outside this design.
+
+Build notes:
+
+- an 8 GB Docker VM needs `DSH_GATE_CONCURRENCY=1`, otherwise the parallel `build:official` gates are OOM-killed;
+- the runtime stage's single install of 700+ global tarballs also OOMs; the Dockerfile caps the V8 heap, installs vendor and dsh separately, and uses `--legacy-peer-deps`;
+- `xlsx@0.20.3` is distributed only from `cdn.sheetjs.com`, which slows `pnpm install` on a slow network; the Dockerfile mitigates it with a pnpm store cache mount and a 30-minute fetch timeout.

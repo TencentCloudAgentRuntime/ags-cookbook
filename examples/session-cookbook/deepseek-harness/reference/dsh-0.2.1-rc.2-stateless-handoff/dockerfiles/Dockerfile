@@ -7,14 +7,24 @@
 #
 # Build context: this directory (the reference root).
 
-ARG NODE_IMAGE=docker.io/library/node:24.8.0-bookworm-slim
+ARG BUILD_IMAGE=node:24.22.2-bookworm-slim
+ARG RUNTIME_IMAGE=node:24.8.0-bookworm-slim
 ARG DEEPSEEK_HARNESS_TAG=dsh-v0.2.1-rc.2
 ARG DEEPSEEK_HARNESS_COMMIT=687f282e8625c6b8d11ff58211a90524be2e4317
 
-FROM --platform=${BUILDPLATFORM} ${NODE_IMAGE} AS build
+# The build stage needs apt (git, g++, make, python3). The 24.8.0 bookworm image
+# predates the Debian archive key rotation, so its keyring cannot verify the
+# current bookworm repository. The build image is therefore newer than the
+# runtime image; override BUILD_IMAGE if your registry mirrors a different one.
+FROM --platform=${BUILDPLATFORM} ${BUILD_IMAGE} AS build
 
 ARG DEEPSEEK_HARNESS_TAG
 ARG DEEPSEEK_HARNESS_COMMIT
+# Optional cap on DSH build-gate parallelism. DSH defaults to the CPU count;
+# lower it (for example 1 or 2) on memory-constrained builders, because
+# `build:official` runs the host compiler, bundle, and aggregate check in
+# parallel and can OOM a small Docker VM.
+ARG DSH_GATE_CONCURRENCY
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates git g++ make python3 \
@@ -37,7 +47,11 @@ WORKDIR /opt/deepseek-harness
 RUN git apply --check /tmp/0001-stateless-handoff.patch \
     && git apply /tmp/0001-stateless-handoff.patch
 
-RUN pnpm install --frozen-lockfile
+# One lockfile entry (xlsx) is fetched from cdn.sheetjs.com and can take many
+# minutes on a slow network. Keep the pnpm store in a BuildKit cache so a
+# retried build reuses everything already downloaded, and allow a long fetch.
+RUN --mount=type=cache,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm/store --fetch-timeout=1800000
 
 # Guard the two behaviours the patch changes: Agent handle ownership and the
 # prompt admission path.
@@ -46,18 +60,28 @@ RUN pnpm exec vitest run \
       packages/api/session-controller/tests/commands-queue-attachment.host.spec.ts \
       packages/api/session-controller/tests/controller.host.spec.ts
 
-RUN pnpm run build:official
+RUN if [ -n "$DSH_GATE_CONCURRENCY" ]; then \
+      DSH_GATE_CONCURRENCY="$DSH_GATE_CONCURRENCY" pnpm run build:official; \
+    else \
+      pnpm run build:official; \
+    fi
 
 RUN pnpm release:pack --family vendor --out dist/npm-vendor \
     && pnpm release:pack --family dsh --out dist/npm-dsh
 
-FROM ${NODE_IMAGE}
+FROM ${RUNTIME_IMAGE}
 
 COPY --from=build /opt/deepseek-harness/dist/npm-vendor /tmp/vendor-tarballs
 COPY --from=build /opt/deepseek-harness/dist/npm-dsh /tmp/dsh-tarballs
 
-RUN npm install --global --no-audit --no-fund --omit=optional \
+# 700+ global tarballs in one npm resolution peak above a small Docker VM.
+# Cap the V8 heap so it collects instead of being OOM-killed by the kernel, and
+# install the vendor set first to shrink the second resolution.
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
+RUN npm install --global --no-audit --no-fund --omit=optional --legacy-peer-deps \
       /tmp/vendor-tarballs/*.tgz \
+    && npm install --global --no-audit --no-fund --omit=optional --legacy-peer-deps \
       /tmp/dsh-tarballs/*.tgz \
     && rm -rf /tmp/vendor-tarballs /tmp/dsh-tarballs /root/.npm
 

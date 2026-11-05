@@ -11,8 +11,8 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/con
 +export const SESSION_PERSISTENCE_CONFLICT = 'session-persistence/conflict'
 diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js
 --- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js	2026-11-05 16:33:29
-@@ -0,0 +1,40 @@
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js	2026-11-05 19:53:49
+@@ -0,0 +1,42 @@
 +/**
 + * Cordis runtime plugin for stateless session handoff.
 + *
@@ -39,9 +39,11 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +export const inject = ['agents', 'sessionController', 'sessionPersistence', 'sessionProjections']
 +
 +export function apply(ctx, config = {}) {
++  // stderr, so the handoff state transitions are visible in the DSH process log
++  // even when the host logger has no info exporter configured.
 +  const logger = typeof config.logger === 'function'
 +    ? config.logger
-+    : (message, fields) => ctx.logger?.info?.(`${message} ${JSON.stringify(fields)}`)
++    : (message, fields) => console.error(`[dsh-stateless-handoff] ${message} ${JSON.stringify(fields)}`)
 +
 +  const { dispose } = attachDshHandoff(ctx, {
 +    generation: {
@@ -55,8 +57,8 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +}
 diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js
 --- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js	2026-11-05 16:39:41
-@@ -0,0 +1,90 @@
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js	2026-11-05 19:54:05
+@@ -0,0 +1,97 @@
 +/**
 + * Minimal DSH wiring for the handoff controller.
 + *
@@ -108,7 +110,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 + *
 + * @returns {{ controller: ReturnType<typeof createHandoffController>, dispose: () => void }}
 + */
-+export function attachDshHandoff(ctx, { generation, logger } = {}) {
++export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
 +  if (!ctx || typeof ctx.on !== 'function') throw new TypeError('ctx.on is required')
 +  const persistence = ctx.sessionPersistence
 +  if (!persistence) throw new TypeError('ctx.sessionPersistence is required')
@@ -134,6 +136,12 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +  const handoff = {
 +    beforePrompt: async sessionId => {
 +      const decision = await controller.preflight(sessionId)
++      logger('handoff preflight', {
++        sessionId,
++        action: decision.action,
++        state: decision.check?.state,
++        turnState: decision.check?.turnState,
++      })
 +      if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check, 'open-turn')
 +      return decision
 +    },
@@ -144,6 +152,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +    // Minimal hosts and unit tests that do not implement Cordis provide().
 +    ctx.set('sessionHandoff', handoff)
 +  }
++  logger('handoff service registered', {})
 +  const dispose = attachConflictRecovery(ctx, controller, { logger })
 +  return { controller, dispose }
 +}

@@ -49,7 +49,7 @@ export function createDshHandoff({ persistence, generation, liveAgentStatus, liv
  *
  * @returns {{ controller: ReturnType<typeof createHandoffController>, dispose: () => void }}
  */
-export function attachDshHandoff(ctx, { generation, logger } = {}) {
+export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
   if (!ctx || typeof ctx.on !== 'function') throw new TypeError('ctx.on is required')
   const persistence = ctx.sessionPersistence
   if (!persistence) throw new TypeError('ctx.sessionPersistence is required')
@@ -75,6 +75,12 @@ export function attachDshHandoff(ctx, { generation, logger } = {}) {
   const handoff = {
     beforePrompt: async sessionId => {
       const decision = await controller.preflight(sessionId)
+      logger('handoff preflight', {
+        sessionId,
+        action: decision.action,
+        state: decision.check?.state,
+        turnState: decision.check?.turnState,
+      })
       if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check, 'open-turn')
       return decision
     },
@@ -85,6 +91,7 @@ export function attachDshHandoff(ctx, { generation, logger } = {}) {
     // Minimal hosts and unit tests that do not implement Cordis provide().
     ctx.set('sessionHandoff', handoff)
   }
+  logger('handoff service registered', {})
   const dispose = attachConflictRecovery(ctx, controller, { logger })
   return { controller, dispose }
 }

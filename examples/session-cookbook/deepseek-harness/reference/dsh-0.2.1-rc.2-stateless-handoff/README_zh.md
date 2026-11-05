@@ -196,6 +196,8 @@ const dispose = attachConflictRecovery(ctx, controller)
 - `turn/end` 之后是否保证一次成功的 `session/flush`；
 - 恢复后 inbox / queued prompt 是否保留；`agent/*` 是实时控制状态，不保证随会话日志恢复。
 
+已在 Docker 镜像中验证（2026-11-05）：镜像构建成功，`build:official` 9 个 gate 全部通过，session-controller 40/40；web profile 加载 handoff 插件后，A→B→A 的回合全部完成，A 回到 stale generation 时日志为 `handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}`，并出现 `rebuild started/finished`。详见 [dockerfiles/README_zh.md](./dockerfiles/README_zh.md#8-验证状态)。
+
 本目录已针对 `dsh-v0.2.1-rc.2`（commit `687f282e8625c6b8d11ff58211a90524be2e4317`）生成源码补丁 [0001-stateless-handoff.patch](./dockerfiles/0001-stateless-handoff.patch)，做法与 deployment cookbook all-in-one 一致：clone 固定 tag、校验 commit、`git apply` 后构建。补丁：
 
 - 保留 `ctx.agents.create/resume` 返回的 `AgentHandle`，并按 Session 保存；

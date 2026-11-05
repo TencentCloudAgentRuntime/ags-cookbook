@@ -194,6 +194,8 @@ Still to verify against a real build:
 - whether a successful `session/flush` is guaranteed after `turn/end`;
 - whether inbox / queued prompts survive a resume; `agent/*` is live control state.
 
+Verified in the Docker image on 2026-11-05: the image built, all 9 `build:official` gates passed, and session-controller tests were 40/40. With the web profile loading the handoff plugin, every A→B→A turn completed; when A returned to a stale generation the log showed `handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}` with `rebuild started/finished`. See [dockerfiles/README.md](./dockerfiles/README.md#8-verification-status).
+
 This directory includes a source patch for `dsh-v0.2.1-rc.2` (commit `687f282e8625c6b8d11ff58211a90524be2e4317`): [0001-stateless-handoff.patch](./dockerfiles/0001-stateless-handoff.patch). It follows the deployment cookbook all-in-one approach: clone the pinned tag, verify the commit, `git apply`, then build. The patch:
 
 - keeps the `AgentHandle` returned by `ctx.agents.create/resume`, stored per Session;

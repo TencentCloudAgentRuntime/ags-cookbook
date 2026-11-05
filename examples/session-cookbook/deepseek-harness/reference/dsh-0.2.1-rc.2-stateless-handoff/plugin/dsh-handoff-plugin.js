@@ -24,9 +24,11 @@ export const name = 'dsh-stateless-handoff'
 export const inject = ['agents', 'sessionController', 'sessionPersistence', 'sessionProjections']
 
 export function apply(ctx, config = {}) {
+  // stderr, so the handoff state transitions are visible in the DSH process log
+  // even when the host logger has no info exporter configured.
   const logger = typeof config.logger === 'function'
     ? config.logger
-    : (message, fields) => ctx.logger?.info?.(`${message} ${JSON.stringify(fields)}`)
+    : (message, fields) => console.error(`[dsh-stateless-handoff] ${message} ${JSON.stringify(fields)}`)
 
   const { dispose } = attachDshHandoff(ctx, {
     generation: {
