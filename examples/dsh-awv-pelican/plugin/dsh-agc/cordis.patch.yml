@@ -1,0 +1,30 @@
+- insert:
+    - id: agc-k8s
+      name: '@agc/dsh-k8s'
+      config:
+        namespace: !!js process.env.DSH_AGC_NAMESPACE
+        workspaceClaim: !!js process.env.DSH_WORKSPACE_CLAIM
+        workerImage: !!js process.env.DSH_WORKER_IMAGE
+        siteImage: !!js process.env.DSH_SITE_IMAGE
+        modelSecret: !!js process.env.DSH_MODEL_SECRET
+        imagePullSecret: !!js process.env.DSH_IMAGE_PULL_SECRET
+        serviceType: !!js process.env.DSH_SITE_SERVICE_TYPE
+        codeNode: !!js process.env.DSH_CODE_NODE
+        reviewNode: !!js process.env.DSH_REVIEW_NODE
+        siteNode: !!js process.env.DSH_SITE_NODE
+
+    - id: code-agent-tool
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: agc-code
+        toolName: code_agent
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: review-agent-tool
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: agc-review
+        toolName: review_agent
+        enableRunInBackground: false
+        maxDepth: provider-managed

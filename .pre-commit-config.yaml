@@ -7,6 +7,8 @@ repos:
       - id: mixed-line-ending
       - id: check-yaml
         args: [--allow-multiple-documents]
+        # These Helm templates and Harness !!js expressions are validated below.
+        exclude: ^examples/dsh-awv-pelican/(deploy/helm/dsh-awv/templates/|images/(controller/|worker/profiles/)|plugin/dsh-agc/cordis\.patch\.yml$)
       - id: check-json
       - id: check-toml
       - id: check-merge-conflict
@@ -15,3 +17,11 @@ repos:
     rev: v8.30.0
     hooks:
       - id: gitleaks
+  - repo: local
+    hooks:
+      - id: dsh-awv-config
+        name: Validate AWV Helm and Harness configuration
+        entry: make -C examples/dsh-awv-pelican check-config
+        language: system
+        pass_filenames: false
+        files: ^examples/dsh-awv-pelican/.*\.(yaml|yml|json|mjs)$

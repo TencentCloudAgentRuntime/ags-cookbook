@@ -1,0 +1,6 @@
+apiVersion: v2
+name: dsh-awv
+description: DeepSeek Harness + AWV pelican cookbook
+type: application
+version: 0.2.2
+appVersion: 0.1.5-rc.2

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pelican-workspace
+  labels:
+    app: dsh-awv
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.workspace.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.workspace.size | quote }}

@@ -1,0 +1,9 @@
+{
+  "name": "dsh-awv-harness-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.5-rc.2"
+  }
+}

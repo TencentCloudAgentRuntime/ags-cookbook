@@ -1,0 +1,66 @@
+- id: agent-default-model
+  config:
+    provider: openai
+    model: !!js process.env.DSH_MODEL || 'deepseek/deepseek-flash'
+
+- id: llm-pi-ai
+  config:
+    providers:
+      openai:
+        apiKeyEnv: OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+        api: !!js process.env.OPENAI_API_TYPE
+        models:
+          - id: deepseek/deepseek-flash
+            contextWindow: 1048576
+            maxTokens: 393216
+          - id: gpt-5.6-sol
+          - id: qwen3:4b-instruct-2507-q4_K_M
+            contextWindow: 32768
+            maxTokens: 4096
+
+# DSH CLI 禁止通过 --host 公开监听。Cookbook 在部署层将 Web 绑定到 Pod
+# 网络，但 Service 保持 ClusterIP，只允许 kubectl port-forward 访问。
+- id: webserver
+  config:
+    host: 0.0.0.0
+    port: 3080
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024
+
+# 控制器只负责调度，不开放本地编码、通用子代理和联网工具。
+- id: session-title-llm
+  disabled: true
+- id: user-questions
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-web
+  disabled: true

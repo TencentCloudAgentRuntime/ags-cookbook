@@ -15,6 +15,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - [`agent-registry-multi-agent`](./agent-registry-multi-agent/README.md) — discover five governed A2A agents through Agent Registry and invoke them from DeepSeek Harness
 - [`agentcbs-volume`](./agentcbs-volume/README.md) — start a custom code-interpreter sandbox with an AgentCBS disk mounted through a VolumeTemplate
 - [`agentway-cookbook`](./agentway-cookbook/README.md) — deploy, operate, and observe AgentWay through scenario-oriented Tencent AGS and TKE guides
+- [`dsh-awv-pelican`](./dsh-awv-pelican/README.md) — Run Agents as Kubernetes Jobs, persist their page in AWV, and browser-review before publication
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
@@ -51,6 +52,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | [`agent-registry-multi-agent`](./agent-registry-multi-agent/README.md) | advanced | Node.js + A2A + MCP + DSH | `make run`, then `make register` | Includes Registry discovery and collaboration-view DSH plugin source |
 | [`agentcbs-volume`](./agentcbs-volume/README.md) | advanced | Python + code interpreter image + AgentCBS VolumeTemplate | `make run` | Requires Tencent Cloud API credentials and an image-pull RoleArn; no image build |
 | [`agentway-cookbook`](./agentway-cookbook/README.md) | advanced | Kubernetes + Helm + Markdown | `make run` | Scenario guides for AgentWay on Tencent AGS and TKE; detailed guides are in Chinese |
+| [`dsh-awv-pelican`](./dsh-awv-pelican/README.md) | advanced | Kubernetes + AWV + DSH | `make build`, `make run` | Run Agents as Kubernetes Jobs, persist their page in AWV, and browser-review before publication; AWV and LoadBalancer required |
 | `browser-agent` | advanced | Python + browser sandbox + LLM | `make run` | Requires OpenAI-compatible LLM backend env vars |
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |

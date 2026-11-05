@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["controller", "worker", "site", "workspace", "modelSecret"],
+  "properties": {
+    "controller": {
+      "type": "object",
+      "required": ["image", "serviceType"],
+      "properties": {
+        "trustedHosts": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "worker": { "type": "object", "required": ["image"] },
+    "site": { "type": "object", "required": ["image", "serviceType"] },
+    "workspace": { "type": "object", "required": ["storageClassName", "size"] },
+    "modelSecret": { "type": "string", "minLength": 1 },
+    "imagePullSecret": { "type": "string" },
+    "imagePullSecrets": { "type": "array" },
+    "nodes": { "type": "object" }
+  }
+}

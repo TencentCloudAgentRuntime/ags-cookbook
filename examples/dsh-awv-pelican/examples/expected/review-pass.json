@@ -1,0 +1,6 @@
+{
+  "status": "PASS",
+  "summary": "桌面端、移动端、动画、交互和控制台检查通过",
+  "blocking_issues": [],
+  "evidence": ["desktop.png", "mobile.png"]
+}
