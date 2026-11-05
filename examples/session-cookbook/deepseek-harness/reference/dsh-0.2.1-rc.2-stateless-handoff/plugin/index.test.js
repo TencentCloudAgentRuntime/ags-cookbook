@@ -507,6 +507,7 @@ test('handoffCheck reports fresh, stale, local-ahead, and not-found states', asy
   assert.equal(fresh.state, 'fresh')
   assert.equal(fresh.cloudEventCount, 2)
   assert.equal(fresh.localEventCount, 2)
+  assert.equal(fresh.turnState, 'closed')
   assert.equal(fresh.turnClosed, true)
   assert.equal((await persistence.handoffCheck('session-handoff-state', 1)).state, 'stale')
   assert.equal((await persistence.handoffCheck('session-handoff-state', 3)).state, 'local-ahead')
@@ -522,8 +523,22 @@ test('handoffCheck reports an open turn instead of treating it as complete', asy
 
   const check = await persistence.handoffCheck('session-open', 1)
   assert.equal(check.state, 'fresh')
+  assert.equal(check.turnState, 'open')
   assert.equal(check.turnClosed, false)
   assert.equal(check.lastEvent.type, 'turn/start')
+  await handle.close()
+})
+
+test('handoffCheck reports no turn for a Session with no events', async () => {
+  const store = sessionStore()
+  const persistence = backend(store)
+  const handle = await persistence.create(header('session-empty'))
+  await handle.flush()
+
+  const check = await persistence.handoffCheck('session-empty', 0)
+  assert.equal(check.state, 'fresh')
+  assert.equal(check.turnState, 'none')
+  assert.equal(check.turnClosed, false)
   await handle.close()
 })
 

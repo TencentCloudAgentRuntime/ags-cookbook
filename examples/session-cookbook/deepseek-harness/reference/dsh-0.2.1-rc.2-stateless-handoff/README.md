@@ -72,22 +72,27 @@ The integration provides a host:
 | `invalidate(sessionId)` | Stop input, cancel or await the turn, dispose the agent, and await teardown |
 | `resume(sessionId)` | Reopen through DSH's resume path (expected to be `ctx.agents.resume({ resumeSessionId })`) |
 | `flush(sessionId)` (optional) | Flush first when the check reports `local-ahead` |
+| `liveAgentStatus(sessionId)` (optional) | `ctx.agents.get(id)?.status`: `'idle' \| 'running' \| undefined` |
+| `liveTurnState(sessionId)` (optional) | `'none' \| 'open' \| 'closed'` derived from `sessionProjections.stateOf(session, 'turnBoundary')` |
+
+The last two are optional liveness ports. Without them the controller stays conservative: a `fresh` check with an open turn always returns busy. `attachDshHandoff` derives both from `ctx.agents` and `ctx.sessionProjections`, so callers do not hand-write them.
 
 `dsh-handoff.js` collapses the wiring into one generation port:
 
 ```js
 const { controller, dispose } = attachDshHandoff(ctx, {
   generation: {
-    invalidate: id => stopAndDisposeGeneration(id), // implement for DSH 0.2.1-rc.2
-    resume: id => ctx.agents.resume({ resumeSessionId: id }),
+    invalidate: id => ctx.sessionController.invalidateGeneration(id),
+    resume: id => ctx.sessionController.resumeGeneration(id),
     flush: id => flushSession(id), // optional
   },
 })
 ```
 
 - `localEventCount` is wired to `persistence.writerCursor`;
+- liveness comes from `ctx.agents` / `ctx.sessionProjections`;
 - `generation` is the only version-specific port;
-- `attachDshHandoff` also subscribes to `session-persistence/conflict`.
+- `attachDshHandoff` also subscribes to `session-persistence/conflict` and registers the `sessionHandoff` service.
 
 Usage:
 
@@ -99,15 +104,18 @@ const decision = await controller.preflight(sessionId)
 
 `preflight` decisions:
 
-| Check result | Action |
-| --- | --- |
-| `fresh` + `turnClosed` | `run` |
-| `stale` + `turnClosed` | `invalidate` → `releaseWriter` → `resume`, then return `rebuilt` |
-| any `turnClosed: false` | Throw `HandoffBusyError`; never append closers automatically |
-| `local-ahead` | Flush and recheck when the host supports it, otherwise return `blocked` |
-| `not-found` | `create` |
+| Check result | Live agent | Turn boundary | Action |
+| --- | --- | --- | --- |
+| `not-found` | — | — | `create` |
+| `local-ahead` | — | — | Flush and recheck when the host supports it, otherwise `blocked` |
+| `stale` | `running` | — | Throw `HandoffBusyError` (`local-turn-running`); never rebuild under a running turn |
+| `stale` | idle / none | `open` | Throw `HandoffBusyError`; never append closers automatically |
+| `stale` | idle / none | `closed` | `invalidate` → `releaseWriter` → `resume`, then `rebuilt` |
+| `fresh` | `running` | `open` | `run`: this replica is driving the turn; the followup queues normally |
+| `fresh` | idle / none | `open` | Throw `HandoffBusyError`: an open turn with no driver is crash residue or a just-resumed turn |
+| `fresh` | any | `closed` / `none` | `run` |
 
-`recover(sessionId)` handles a conflict: it only rebuilds the generation and never reruns the turn. Concurrent calls share one rebuild; a failed `invalidate` or `releaseWriter` stops before `resume`.
+`recover(sessionId)` handles a conflict: it only rebuilds the generation and never reruns the turn. Concurrent calls share one rebuild; a failed `invalidate` or `releaseWriter` stops before `resume`. A `preflight` check also waits for an in-flight rebuild, so it never reads the writer cursor while the generation is half torn down.
 
 Cordis integration can subscribe directly:
 
@@ -119,12 +127,12 @@ It listens for `session-persistence/conflict`, calls `recover(sessionId, 'confli
 
 Integration points:
 
-1. After a Session is created or resumed: call `attachDshHandoff`; it creates the controller and subscribes to conflicts.
-2. Before each turn: `await controller.preflight(sessionId)`; continue only for `run` / `rebuilt` / `create`.
+1. At deployment, load [`plugin/dsh-handoff-plugin.js`](./plugin/dsh-handoff-plugin.js) (Cordis name `@tencentcloud/ags-dsh-session-persistence/handoff`). It calls `attachDshHandoff`, creates the controller, registers the `sessionHandoff` service, and subscribes to conflicts.
+2. The patch calls `sessionHandoff.beforePrompt(sessionId)` inside `SessionCommandController.prompt`, after `resolveAgent` and before admission; on `rebuilt` it resolves the Agent again. `steer` bypasses the check.
 3. On a conflict: let `attachConflictRecovery` call `recover`; do not keep writing this turn.
 4. After a turn: ensure `session/flush` succeeded so the next `preflight` sees the durable cursor.
 
-`invalidate` and `resume` still need verification on DSH 0.2.1-rc.2; the controller itself covers the state machine, ordering, and failure paths with a fake host.
+`invalidate`, `resume`, and the liveness ports are all built on public 0.2.1-rc.2 APIs; the controller still covers the state machine, ordering, and failure paths with a fake host. See [dockerfiles/README.md](./dockerfiles/README.md) for the real build and A→B→A verification.
 
 ## 5. Pre-turn check
 
@@ -137,17 +145,22 @@ The integration can call `handoffCheck(id, localEventCount)` before each turn:
 | `local-ahead` | Local is ahead; events may be unflushed | Flush or rebuild; do not run |
 | `not-found` | The Session does not exist yet | Treat it as a new Session |
 
-`handoffCheck` also returns `turnClosed` and `lastEvent`. `turnClosed` looks only at the last `turn/start` / `turn/end` in the scanned tail:
+`handoffCheck` also returns the tri-state `turnState`, the derived `turnClosed`, and `lastEvent`:
 
-- `true`: a `turn/end` was seen; apply the state above.
-- `false`: return an explicit busy / interrupted status, do not append `interruptedTurnClosers` automatically, and use an explicit recovery policy.
+| `turnState` | Meaning |
+| --- | --- |
+| `none` | No event stored yet; the Session never started a turn |
+| `closed` | The last turn boundary in the scanned tail is `turn/end` |
+| `open` | The last boundary is `turn/start`, or a non-empty window has no boundary (a turn longer than the window) |
+
+`turnState` is only a tail read of the persisted log and **is not a liveness signal**: `open` cannot distinguish a remote turn still running from crash residue. Liveness comes from the live Agent's `status` (see the decision table in section 4). Without live state the controller stays conservative and returns busy for `fresh + open`.
 
 Limits:
 
 - This is not a lock. A writer can still append between the check and the write; the write-time EventId check is the last line of defense.
-- `turnClosed` is not a liveness signal. It cannot tell a crashed execution from one still running on another replica, and it does not replace DSH's own interrupted-turn repair.
+- `turnState` is not a liveness signal. It cannot tell a crashed execution from one still running on another replica, and it does not replace DSH's own interrupted-turn repair.
 - "The previous turn is closed" also requires `turn/end` to be durably flushed; a written but unflushed `turn/end` does not count.
-- Cost: `fresh` / `local-ahead` issue one `DescribeEvents` and read the local write handle's tail for `turnClosed`; only `stale` needs a second read for the cloud tail.
+- Cost: `fresh` / `local-ahead` issue one `DescribeEvents` and read the local write handle's tail for `turnState`; only `stale` needs a second read for the cloud tail.
 
 ## 6. Phase-one scope
 
@@ -167,19 +180,27 @@ Limits:
 
 ## 7. DSH capabilities to verify
 
-1. `ctx.agents.resume()` and `handle.dispose()` exist on 0.2.1-rc.2.
-2. Session-controller generation retain/release semantics; whether `release` alone lets the next `retain` get a new generation, or an explicit invalidate is required.
-3. Whether `session/disposed` dispatch awaits the listener's returned Promise. This reference returns `close()`'s Promise, but the dispatcher behavior needs verification.
-4. Whether a successful `session/flush` is guaranteed after `turn/end`.
-5. Whether inbox / queued prompts survive a resume; `agent/*` is live control state.
+Confirmed on the `dsh-v0.2.1-rc.2` source:
+
+1. `ctx.agents.resume()` / `ctx.agents.create()` return `AgentHandle`, and `handle.dispose()` exists; it is the only capability that disposes a live generation.
+2. `Agent` exposes `status: 'idle' | 'running'` (mirrored on `agent/status`); this is the liveness signal for "is this replica still driving the turn".
+3. `ctx.sessionProjections.stateOf(session, 'turnBoundary')` exposes `openTurnStartSeq` / `lastTurn`, which distinguishes `none` / `open` / `closed` without ambiguity.
+4. 0.2.1-rc.2 has no automatic interrupted-turn repair, and `turn()` does not check for an existing open turn before appending `turn/start`. The owner must handle an open turn explicitly.
+5. `session-controller` has no public retain/release generation semantics; the generation lives and dies with the handle in `ctx.agents`, so this reference invalidates it by keeping and disposing that handle.
+
+Still to verify against a real build:
+
+- whether `handle.dispose()` waits for the write handle to close (this reference calls `persistence.releaseWriter` afterwards as an explicit barrier);
+- whether a successful `session/flush` is guaranteed after `turn/end`;
+- whether inbox / queued prompts survive a resume; `agent/*` is live control state.
 
 This directory includes a source patch for `dsh-v0.2.1-rc.2` (commit `687f282e8625c6b8d11ff58211a90524be2e4317`): [0001-stateless-handoff.patch](./dockerfiles/0001-stateless-handoff.patch). It follows the deployment cookbook all-in-one approach: clone the pinned tag, verify the commit, `git apply`, then build. The patch:
 
-- keeps the `AgentHandle` returned by `ctx.agents.create/resume`;
-- adds `invalidateGeneration(sessionId)` / `resumeGeneration(sessionId)`;
-- calls `sessionHandoff.beforePrompt(sessionId)` in the non-`steer` path of `SessionController.prompt`.
+- keeps the `AgentHandle` returned by `ctx.agents.create/resume`, stored per Session;
+- adds idempotent `invalidateGeneration(sessionId)` / `resumeGeneration(sessionId)`;
+- calls `sessionHandoff.beforePrompt(sessionId)` in `SessionCommandController.prompt`, after `resolveAgent` and before admission; on `rebuilt` it resolves the Agent again; `steer` bypasses it.
 
-The patch has only passed `git apply --check`; DSH has not been built or run in this repository. See [dockerfiles/README.md](./dockerfiles/README.md) for the full build, wiring, and verification steps. It targets a pinned tag; on upgrade, clone the new tag, run `git apply --check`, and re-check the three insertion points. Do not assume it applies to the latest version.
+The patch passes `git apply --check`, and a source-build [Dockerfile](./dockerfiles/Dockerfile) is provided, but DSH has not been built or run in this repository. It targets a pinned tag; on upgrade, clone the new tag, run `git apply --check`, and re-check the insertion points. Do not assume it applies to the latest version.
 
 ## 8. Tests
 
@@ -194,11 +215,13 @@ Coverage:
 - a background drain conflict drops the uncommitted batch instead of retrying;
 - `releaseWriter` closes the handle and releases the in-process claim;
 - `writerCursor` reports this replica's durable write cursor;
-- `handoffCheck` reports `fresh` / `stale` / `local-ahead` / `not-found` and `turnClosed`;
+- `handoffCheck` reports `fresh` / `stale` / `local-ahead` / `not-found` and the tri-state `turnState`;
+- an empty log reports `turnState: 'none'` and is not mistaken for an open turn;
 - `handoffCheck` cost: one `DescribeEvents` for `fresh` / `local-ahead`, two for `stale`;
 - a second replica takes over at a turn boundary and the stale writer stops on its next append;
-- the controller's preflight decisions, recover ordering, concurrent rebuild coalescing, no-resume on `invalidate` / `releaseWriter` failure, and conflict-event routing;
-- the DSH generation port: validation, `writerCursor` wiring, optional `flush` forwarding, and conflict-event wiring;
+- controller decisions: every branch, including `fresh + open + running` (allow), `fresh + open + idle` (busy), and `stale + running` (no rebuild); plus recover ordering, concurrent rebuild coalescing, no-resume on `invalidate` / `releaseWriter` failure, and conflict-event routing;
+- the DSH wiring: generation port validation, `writerCursor`, optional `flush`, liveness ports, turn state derived from `ctx.agents` / `ctx.sessionProjections`, and conflict-event wiring;
+- the integration plugin: `apply` registers `sessionHandoff` and the conflict listener, and a conflict runs `invalidateGeneration` → `resumeGeneration`;
 - end to end: a stale replica is rebuilt by the controller and continues after resume;
 - end to end: a conflicted handle is recovered by the controller and continues after resume;
 - transient errors still keep the batch for retry, as in the base plugin.
@@ -210,12 +233,17 @@ Coverage:
 | [`plugin/index.js`](./plugin/index.js) | Reference plugin |
 | [`plugin/constants.js`](./plugin/constants.js) | Shared event name |
 | [`plugin/handoff-controller.js`](./plugin/handoff-controller.js) | Handoff state machine |
-| [`plugin/dsh-handoff.js`](./plugin/dsh-handoff.js) | DSH generation port and Cordis wiring |
+| [`plugin/dsh-handoff.js`](./plugin/dsh-handoff.js) | DSH generation port, liveness ports, and Cordis wiring |
+| [`plugin/dsh-handoff-plugin.js`](./plugin/dsh-handoff-plugin.js) | Runtime integration plugin (`.../handoff` export) |
 | [`plugin/index.test.js`](./plugin/index.test.js) | Plugin and end-to-end tests |
 | [`plugin/handoff-controller.test.js`](./plugin/handoff-controller.test.js) | Controller tests |
-| [`plugin/dsh-handoff.test.js`](./plugin/dsh-handoff.test.js) | Port and wiring tests |
-| [`plugin/package.json`](./plugin/package.json) | Dependencies, same as the base example |
+| [`plugin/dsh-handoff.test.js`](./plugin/dsh-handoff.test.js) | Port, liveness, and integration-plugin tests |
+| [`plugin/package.json`](./plugin/package.json) | Dependencies and the `./handoff` subpath export |
 | [`stateless-handoff.patch`](./stateless-handoff.patch) | Delta against the base plugin |
 | [`dockerfiles/0001-stateless-handoff.patch`](./dockerfiles/0001-stateless-handoff.patch) | DSH 0.2.1-rc.2 source patch |
-| [`dockerfiles/README.md`](./dockerfiles/README.md) | Source acquisition, build, and plugin wiring |
+| [`dockerfiles/Dockerfile`](./dockerfiles/Dockerfile) | Source build of the patched DSH image |
+| [`dockerfiles/agent-runtime-session.cordis.yml`](./dockerfiles/agent-runtime-session.cordis.yml) | Loads both the persistence and handoff plugins |
+| [`dockerfiles/entrypoint.sh`](./dockerfiles/entrypoint.sh) | Same entrypoint as the base example |
+| [`.dockerignore`](./.dockerignore) | Keeps the `plugin/node_modules` link out of the build context |
+| [`dockerfiles/README.md`](./dockerfiles/README.md) | Source acquisition, build, and verification |
 | [`Makefile`](./Makefile) | `setup` / `check` |

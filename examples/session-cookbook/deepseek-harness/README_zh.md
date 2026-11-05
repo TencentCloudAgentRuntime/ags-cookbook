@@ -45,4 +45,4 @@ DSH 在不同版本之间调整过会话持久化接口，部分版本之间存�
 
 基础示例的插件只处理单写者场景。多副本下发生 EventId 冲突时，插件会持续重试，导致该副本上的会话不可用。
 
-[dsh-0.2.1-rc.2-stateless-handoff](./reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md) 是面向无状态交接的参考实现：检测冲突后停止重试、让出写句柄，并提供 `handoffCheck` / `releaseWriter` 辅助接口。它不引入租约，也不能自行重建 live session；真正的无状态交接仍需上层的 generation 失效和 `resume()`。该目录不是独立部署示例，基础示例保持不变。
+[dsh-0.2.1-rc.2-stateless-handoff](./reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md) 是面向无状态交接的参考实现：检测冲突后停止重试、让出写句柄，提供 `handoffCheck` / `releaseWriter` 辅助接口，并包含一个面向 `dsh-v0.2.1-rc.2` 的 session-controller 源码补丁、运行时集成插件和从源码构建的 Dockerfile。它不引入租约；执行前检查发现云端领先时，通过 `invalidateGeneration` + `resumeGeneration` 重建 generation，冲突后走同一路径。它仍不覆盖重叠执行和冲突轮自动重跑。该目录是参考实现而非独立部署示例，基础示例保持不变。

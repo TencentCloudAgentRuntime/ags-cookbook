@@ -2,8 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
 
-function check(state, turnClosed = true) {
-  return { state, cloudEventCount: 2, localEventCount: 2, turnClosed }
+function check(state, turnState = 'closed') {
+  return {
+    state,
+    cloudEventCount: 2,
+    localEventCount: 2,
+    turnState,
+    turnClosed: turnState === 'closed',
+  }
 }
 
 function fakePersistence(checks, { releaseError } = {}) {
@@ -22,7 +28,7 @@ function fakePersistence(checks, { releaseError } = {}) {
   }
 }
 
-function fakeHost({ localEventCount = 2, invalidate, resume, flush } = {}) {
+function fakeHost({ localEventCount = 2, invalidate, resume, flush, liveAgentStatus, liveTurnState } = {}) {
   const calls = []
   const host = {
     calls,
@@ -45,6 +51,18 @@ function fakeHost({ localEventCount = 2, invalidate, resume, flush } = {}) {
       await flush(sessionId)
     }
   }
+  if (liveAgentStatus !== undefined) {
+    host.liveAgentStatus = async sessionId => {
+      calls.push(['liveAgentStatus', sessionId])
+      return typeof liveAgentStatus === 'function' ? liveAgentStatus(sessionId) : liveAgentStatus
+    }
+  }
+  if (liveTurnState !== undefined) {
+    host.liveTurnState = async sessionId => {
+      calls.push(['liveTurnState', sessionId])
+      return typeof liveTurnState === 'function' ? liveTurnState(sessionId) : liveTurnState
+    }
+  }
   return host
 }
 
@@ -59,34 +77,73 @@ test('preflight runs when the stored log matches and the turn is closed', async 
   assert.deepEqual(persistence.calls, [['handoffCheck', 'session-a', 2]])
 })
 
-test('preflight rebuilds a stale generation and resumes it', async () => {
-  const persistence = fakePersistence(check('stale'))
+test('preflight runs a fresh open turn while this replica is driving it', async () => {
+  const persistence = fakePersistence(check('fresh', 'open'))
+  const host = fakeHost({ liveAgentStatus: 'running', liveTurnState: 'open' })
+  const controller = createHandoffController({ persistence, host })
+
+  const result = await controller.preflight('session-queue')
+  assert.equal(result.action, 'run')
+  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'liveTurnState', 'liveAgentStatus'])
+})
+
+test('preflight refuses a fresh open turn when the live Agent is idle', async () => {
+  const persistence = fakePersistence(check('fresh', 'open'))
+  const host = fakeHost({ liveAgentStatus: 'idle', liveTurnState: 'open' })
+  const controller = createHandoffController({ persistence, host })
+
+  await assert.rejects(controller.preflight('session-crash'), HandoffBusyError)
+  assert.equal(host.calls.some(call => call[0] === 'invalidate'), false)
+})
+
+test('preflight refuses a fresh open turn when the host has no liveness ports', async () => {
+  const persistence = fakePersistence(check('fresh', 'open'))
   const host = fakeHost()
+  const controller = createHandoffController({ persistence, host })
+
+  await assert.rejects(controller.preflight('session-no-liveness'), HandoffBusyError)
+})
+
+test('preflight runs a fresh Session with no turn yet', async () => {
+  const persistence = fakePersistence(check('fresh', 'none'))
+  const host = fakeHost({ liveAgentStatus: 'idle', liveTurnState: 'none' })
+  const controller = createHandoffController({ persistence, host })
+
+  const result = await controller.preflight('session-new')
+  assert.equal(result.action, 'run')
+})
+
+test('preflight rebuilds a stale generation whose turn is closed', async () => {
+  const persistence = fakePersistence(check('stale'))
+  const host = fakeHost({ liveAgentStatus: 'idle', liveTurnState: 'open' })
   const controller = createHandoffController({ persistence, host })
 
   const result = await controller.preflight('session-b')
   assert.equal(result.action, 'rebuilt')
   assert.deepEqual(result.generation, { generation: 'session-b-new' })
-  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'invalidate', 'resume'])
+  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'liveAgentStatus', 'invalidate', 'resume'])
   assert.deepEqual(persistence.calls.map(call => call[0]), ['handoffCheck', 'releaseWriter'])
 })
 
 test('preflight refuses a stale open turn instead of closing it', async () => {
-  const persistence = fakePersistence(check('stale', false))
-  const host = fakeHost()
+  const persistence = fakePersistence(check('stale', 'open'))
+  const host = fakeHost({ liveAgentStatus: 'idle', liveTurnState: 'closed' })
   const controller = createHandoffController({ persistence, host })
 
   await assert.rejects(controller.preflight('session-c'), HandoffBusyError)
-  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount'])
+  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'liveAgentStatus'])
   assert.equal(persistence.calls.some(call => call[0] === 'releaseWriter'), false)
 })
 
-test('preflight refuses a fresh open turn', async () => {
-  const persistence = fakePersistence(check('fresh', false))
-  const host = fakeHost()
+test('preflight never rebuilds underneath a turn this replica is running', async () => {
+  const persistence = fakePersistence(check('stale'))
+  const host = fakeHost({ liveAgentStatus: 'running' })
   const controller = createHandoffController({ persistence, host })
 
-  await assert.rejects(controller.preflight('session-d'), HandoffBusyError)
+  await assert.rejects(controller.preflight('session-running'), error => {
+    assert.equal(error.reason, 'local-turn-running')
+    return true
+  })
   assert.equal(host.calls.some(call => call[0] === 'invalidate'), false)
 })
 
@@ -112,7 +169,7 @@ test('preflight blocks local-ahead when the host cannot flush', async () => {
 })
 
 test('preflight reports create for a missing Session', async () => {
-  const persistence = fakePersistence(check('not-found'))
+  const persistence = fakePersistence(check('not-found', 'none'))
   const host = fakeHost()
   const controller = createHandoffController({ persistence, host })
 
@@ -170,6 +227,25 @@ test('a failed releaseWriter does not resume the generation', async () => {
 
   await assert.rejects(controller.recover('session-k'), failure)
   assert.equal(host.calls.some(call => call[0] === 'resume'), false)
+})
+
+test('preflight waits for an in-flight rebuild before reading the cursor', async () => {
+  let openGate
+  const gate = new Promise(resolve => { openGate = resolve })
+  const persistence = fakePersistence(check('fresh'))
+  const host = fakeHost({ invalidate: async () => { await gate } })
+  const controller = createHandoffController({ persistence, host })
+
+  const recovering = controller.recover('session-m')
+  const preflighting = controller.preflight('session-m')
+  openGate()
+  await Promise.all([recovering, preflighting])
+
+  // Both checks must run after resume; without serialization, preflight would
+  // read localEventCount while invalidate is still tearing the generation down.
+  assert.deepEqual(host.calls.map(call => call[0]), [
+    'invalidate', 'resume', 'localEventCount', 'localEventCount',
+  ])
 })
 
 test('attachConflictRecovery routes the conflict event into recover', async () => {

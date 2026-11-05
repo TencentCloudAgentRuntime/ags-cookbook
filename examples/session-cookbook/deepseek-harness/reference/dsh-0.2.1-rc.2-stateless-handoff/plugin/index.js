@@ -823,9 +823,16 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
   //   local-ahead the local view is ahead of storage; flush or rebuild first
   //   not-found   the Session does not exist yet
   //
-  // turnClosed is a tail heuristic: true only when the last turn boundary in the
-  // scanned window is a turn/end. It is not a liveness signal and cannot tell a
-  // crashed turn from one still running on another replica.
+  // turnState is a tail heuristic over the persisted log:
+  //   none    no event has been stored yet
+  //   closed  the latest turn boundary is a turn/end
+  //   open    the latest boundary is a turn/start, or the non-empty tail window
+  //           contains no boundary at all (a turn longer than the window)
+  //
+  // It is not a liveness signal: `open` cannot tell a crashed turn from one
+  // still running on another replica. Callers combine it with the live Agent's
+  // `status` (see handoff-controller). `turnClosed` is kept for callers that
+  // only need the two-state view; it is false for both `none` and `open`.
   async handoffCheck(id, localEventCount, signal) {
     if (!Number.isSafeInteger(localEventCount) || localEventCount < 0) {
       throw new TypeError(`localEventCount must be a non-negative safe integer, got ${String(localEventCount)}`)
@@ -836,7 +843,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       cloudEventCount = await this.eventCount(id, signal)
     } catch (error) {
       if (isSessionNotFound(error)) {
-        return { state: 'not-found', cloudEventCount: 0, localEventCount, turnClosed: false }
+        return { state: 'not-found', cloudEventCount: 0, localEventCount, turnState: 'none', turnClosed: false }
       }
       throw error
     }
@@ -861,11 +868,17 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
         : await this.lastDshEvents(id, cloudEventCount, signal)
     }
     const lastBoundary = lastTurnBoundary(events)
+    const turnState = cloudEventCount === 0
+      ? 'none'
+      : lastBoundary?.type === 'turn/end'
+        ? 'closed'
+        : 'open'
     return {
       state,
       cloudEventCount,
       localEventCount,
-      turnClosed: lastBoundary?.type === 'turn/end',
+      turnState,
+      turnClosed: turnState === 'closed',
       lastEvent: events.at(-1),
     }
   }

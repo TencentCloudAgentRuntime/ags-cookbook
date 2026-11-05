@@ -2,9 +2,16 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { attachDshHandoff, createDshHandoff } from './dsh-handoff.js'
 import { HandoffBusyError } from './handoff-controller.js'
+import { apply as applyIntegration } from './dsh-handoff-plugin.js'
 
-function check(state, turnClosed = true) {
-  return { state, cloudEventCount: 2, localEventCount: 2, turnClosed }
+function check(state, turnState = 'closed') {
+  return {
+    state,
+    cloudEventCount: 2,
+    localEventCount: 2,
+    turnState,
+    turnClosed: turnState === 'closed',
+  }
 }
 
 function fakePersistence(checks) {
@@ -47,15 +54,21 @@ function fakeGeneration({ flush } = {}) {
   return generation
 }
 
-function fakeCtx(persistence) {
+function fakeCtx(persistence, { agents, sessionProjections } = {}) {
   const services = new Map()
   const handlers = new Map()
+  if (agents !== undefined) services.set('agents', agents)
+  if (sessionProjections !== undefined) services.set('sessionProjections', sessionProjections)
   return {
     handlers,
     sessionPersistence: persistence,
     on(name, handler) {
       handlers.set(name, handler)
       return () => handlers.delete(name)
+    },
+    provide(name, value) {
+      services.set(name, value)
+      return () => services.delete(name)
     },
     set(name, value) {
       services.set(name, value)
@@ -64,6 +77,15 @@ function fakeCtx(persistence) {
       return services.get(name)
     },
   }
+}
+
+function liveAgent(status) {
+  const agent = { id: 'session-live', session: { id: 'session-live' }, status }
+  return { get: sessionId => (sessionId === 'session-live' ? agent : undefined) }
+}
+
+function projection(boundary) {
+  return { stateOf: () => boundary }
 }
 
 test('createDshHandoff rebuilds a stale generation through the port', async () => {
@@ -85,6 +107,58 @@ test('createDshHandoff forwards the optional flush operation', async () => {
   const result = await controller.preflight('session-b')
   assert.equal(result.action, 'run')
   assert.equal(generation.calls.some(call => call[0] === 'flush'), true)
+})
+
+test('createDshHandoff accepts the optional liveness ports', async () => {
+  const persistence = fakePersistence(check('fresh', 'open'))
+  const generation = fakeGeneration()
+  const controller = createDshHandoff({
+    persistence,
+    generation,
+    liveAgentStatus: () => 'running',
+    liveTurnState: () => 'open',
+  })
+
+  const result = await controller.preflight('session-live')
+  assert.equal(result.action, 'run')
+})
+
+test('attachDshHandoff derives liveness from agents and session projections', async () => {
+  const ctx = fakeCtx(fakePersistence(check('fresh', 'open')), {
+    agents: liveAgent('running'),
+    sessionProjections: projection({ openTurnStartSeq: 1, lastTurn: 1 }),
+  })
+  const generation = fakeGeneration()
+  attachDshHandoff(ctx, { generation })
+
+  const decision = await ctx.get('sessionHandoff').beforePrompt('session-live')
+  assert.equal(decision.action, 'run')
+})
+
+test('attachDshHandoff refuses a resumed open turn when the live Agent is idle', async () => {
+  const ctx = fakeCtx(fakePersistence(check('fresh', 'open')), {
+    agents: liveAgent('idle'),
+    sessionProjections: projection({ openTurnStartSeq: 1, lastTurn: 1 }),
+  })
+  const generation = fakeGeneration()
+  attachDshHandoff(ctx, { generation })
+
+  await assert.rejects(
+    ctx.get('sessionHandoff').beforePrompt('session-live'),
+    HandoffBusyError,
+  )
+})
+
+test('attachDshHandoff treats a never-started Session as none, not open', async () => {
+  const ctx = fakeCtx(fakePersistence(check('fresh', 'none')), {
+    agents: liveAgent('idle'),
+    sessionProjections: projection({ openTurnStartSeq: null, lastTurn: 0 }),
+  })
+  const generation = fakeGeneration()
+  attachDshHandoff(ctx, { generation })
+
+  const decision = await ctx.get('sessionHandoff').beforePrompt('session-live')
+  assert.equal(decision.action, 'run')
 })
 
 test('attachDshHandoff wires the conflict event to recovery', async () => {
@@ -137,4 +211,57 @@ test('attachDshHandoff requires ctx.sessionPersistence', () => {
     () => attachDshHandoff({ on() {} }, { generation: fakeGeneration() }),
     /sessionPersistence/,
   )
+})
+
+test('the integration plugin registers the handoff service and conflict recovery', async () => {
+  const persistence = fakePersistence(check('fresh'))
+  const calls = []
+  const disposers = []
+  const ctx = {
+    sessionPersistence: persistence,
+    sessionController: {
+      async invalidateGeneration(sessionId) {
+        calls.push(['invalidateGeneration', sessionId])
+      },
+      async resumeGeneration(sessionId) {
+        calls.push(['resumeGeneration', sessionId])
+        return { id: sessionId }
+      },
+    },
+    agents: { get: () => undefined },
+    sessionProjections: { stateOf: () => undefined },
+    on(name, handler) {
+      this.handlers ??= new Map()
+      this.handlers.set(name, handler)
+      return () => this.handlers.delete(name)
+    },
+    provide(name, value) {
+      this.services ??= new Map()
+      this.services.set(name, value)
+      return () => this.services.delete(name)
+    },
+    set(name, value) {
+      this.services ??= new Map()
+      this.services.set(name, value)
+    },
+    get(name) {
+      return this.services?.get(name)
+    },
+    effect(create, label) {
+      disposers.push([label, create()])
+      return () => {}
+    },
+    logger: { info() {} },
+  }
+
+  applyIntegration(ctx, {})
+  assert.equal(typeof ctx.get('sessionHandoff').beforePrompt, 'function')
+  assert.equal(ctx.handlers.has('session-persistence/conflict'), true)
+  assert.equal(disposers.length, 1)
+
+  await ctx.handlers.get('session-persistence/conflict')({ id: 'session-plugin' }, new Error('conflict'))
+  assert.deepEqual(calls, [
+    ['invalidateGeneration', 'session-plugin'],
+    ['resumeGeneration', 'session-plugin'],
+  ])
 })

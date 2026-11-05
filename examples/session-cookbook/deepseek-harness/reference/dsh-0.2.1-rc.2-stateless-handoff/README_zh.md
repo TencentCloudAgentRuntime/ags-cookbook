@@ -72,22 +72,27 @@ git apply examples/session-cookbook/deepseek-harness/reference/dsh-0.2.1-rc.2-st
 | `invalidate(sessionId)` | 停止接收输入、取消或等待当前 turn、销毁 agent，并等待 teardown 完成 |
 | `resume(sessionId)` | 走 DSH 的恢复路径重新打开会话（预期是 `ctx.agents.resume({ resumeSessionId })`） |
 | `flush(sessionId)`（可选） | 在 `local-ahead` 时先执行 flush |
+| `liveAgentStatus(sessionId)`（可选） | `ctx.agents.get(id)?.status`：`'idle' \| 'running' \| undefined` |
+| `liveTurnState(sessionId)`（可选） | `sessionProjections.stateOf(session, 'turnBoundary')` 折算出的 `'none' \| 'open' \| 'closed'` |
+
+后两个是可选的 liveness 端口。没有它们时控制器保持保守：`fresh` 遇到未结束回合一律返回 busy。`attachDshHandoff` 会自动从 `ctx.agents` 和 `ctx.sessionProjections` 推导，不需要调用方手写。
 
 `dsh-handoff.js` 把接线收敛成一个 generation port：
 
 ```js
 const { controller, dispose } = attachDshHandoff(ctx, {
   generation: {
-    invalidate: id => stopAndDisposeGeneration(id), // 需按 DSH 0.2.1-rc.2 实现
-    resume: id => ctx.agents.resume({ resumeSessionId: id }),
+    invalidate: id => ctx.sessionController.invalidateGeneration(id),
+    resume: id => ctx.sessionController.resumeGeneration(id),
     flush: id => flushSession(id), // 可选
   },
 })
 ```
 
 - `localEventCount` 自动接到 `persistence.writerCursor`；
+- liveness 端口自动来自 `ctx.agents` / `ctx.sessionProjections`；
 - `generation` 是唯一与 DSH 版本相关的部分；
-- `attachDshHandoff` 同时订阅 `session-persistence/conflict`。
+- `attachDshHandoff` 同时订阅 `session-persistence/conflict`，并注册 `sessionHandoff` 服务。
 
 控制器用法：
 
@@ -99,15 +104,18 @@ const decision = await controller.preflight(sessionId)
 
 `preflight` 的决策：
 
-| 检查结果 | 动作 |
-| --- | --- |
-| `fresh` + `turnClosed` | `run`，正常执行 |
-| `stale` + `turnClosed` | 依次 `invalidate` → `releaseWriter` → `resume`，返回 `rebuilt` |
-| 任何 `turnClosed: false` | 抛 `HandoffBusyError`，不自动补 closer |
-| `local-ahead` | 有 `flush` 就先 flush 再检查，否则返回 `blocked` |
-| `not-found` | `create`，按新建会话处理 |
+| 检查结果 | live agent | 回合边界 | 动作 |
+| --- | --- | --- | --- |
+| `not-found` | — | — | `create`，按新建会话处理 |
+| `local-ahead` | — | — | 有 `flush` 就先 flush 再检查，否则 `blocked` |
+| `stale` | `running` | — | 抛 `HandoffBusyError`（`local-turn-running`），不重建正在跑的回合 |
+| `stale` | idle / 无 | `open` | 抛 `HandoffBusyError`，不自动补 closer |
+| `stale` | idle / 无 | `closed` | 依次 `invalidate` → `releaseWriter` → `resume`，返回 `rebuilt` |
+| `fresh` | `running` | `open` | `run`：本副本正在跑，followup 正常排队 |
+| `fresh` | idle / 无 | `open` | 抛 `HandoffBusyError`：无人驱动但回合开口 = 崩溃残留或刚 resume |
+| `fresh` | 任意 | `closed` / `none` | `run` |
 
-`recover(sessionId)` 用于冲突事件：只重建 generation，不重跑 turn。并发调用会合并为一次重建；`invalidate` 或 `releaseWriter` 失败时不会 `resume`。
+`recover(sessionId)` 用于冲突事件：只重建 generation，不重跑 turn。并发调用会合并为一次重建；`invalidate` 或 `releaseWriter` 失败时不会 `resume`。`preflight` 的检查也会等待进行中的重建结束，避免在 generation 拆到一半时读 writer cursor。
 
 Cordis 集成可以直接订阅冲突事件：
 
@@ -119,12 +127,12 @@ const dispose = attachConflictRecovery(ctx, controller)
 
 接入点：
 
-1. 会话创建或恢复后：调用 `attachDshHandoff`，它创建 controller 并订阅冲突事件。
-2. 每轮开始前：`await controller.preflight(sessionId)`；只有 `run` / `rebuilt` / `create` 才继续。
+1. 部署时加载 [`plugin/dsh-handoff-plugin.js`](./plugin/dsh-handoff-plugin.js)（Cordis 名 `@tencentcloud/ags-dsh-session-persistence/handoff`）。它调用 `attachDshHandoff`，创建 controller、注册 `sessionHandoff` 服务并订阅冲突事件。
+2. 补丁在 `SessionCommandController.prompt` 中、`resolveAgent` 之后、admission 之前调用 `sessionHandoff.beforePrompt(sessionId)`；返回 `rebuilt` 时重新 resolve Agent 再继续。`steer` 不经过这个检查。
 3. 冲突事件：由 `attachConflictRecovery` 调用 `recover`；这一轮不要继续写入。
 4. 轮结束后：确保 `session/flush` 成功，下一轮 `preflight` 才能看到 durable cursor。
 
-`invalidate` 和 `resume` 仍然需要 DSH 0.2.1-rc.2 的实际验证；控制器本身用 fake host 覆盖了状态机、执行顺序和失败路径。
+`invalidate` / `resume` / liveness 端口都基于 0.2.1-rc.2 的公开 API；控制器本身仍用 fake host 覆盖状态机、执行顺序和失败路径。真实构建与 A→B→A 验证见 [dockerfiles/README_zh.md](./dockerfiles/README_zh.md)。
 
 ## 5. 执行前检查
 
@@ -137,10 +145,15 @@ const dispose = attachConflictRecovery(ctx, controller)
 | `local-ahead` | 本地领先，可能有未 flush 的事件 | 先 flush 或重建，不要直接执行 |
 | `not-found` | 会话尚不存在 | 按新建处理 |
 
-`handoffCheck` 还返回 `turnClosed` 和 `lastEvent`。`turnClosed` 只检查扫描窗口内最后一个 `turn/start` / `turn/end`：
+`handoffCheck` 还返回三态 `turnState`、派生的 `turnClosed` 和 `lastEvent`：
 
-- 为 `true`：上一轮已出现 `turn/end`，可以按 state 处理；
-- 为 `false`：返回明确的 busy / interrupted 状态，不要自动补 `interruptedTurnClosers`，走显式恢复策略（人工或管理接口）。
+| `turnState` | 含义 |
+| --- | --- |
+| `none` | 还没有任何事件，会话从未开始过回合 |
+| `closed` | 扫描窗口内最后一个回合边界是 `turn/end` |
+| `open` | 最后边界是 `turn/start`，或非空窗口内没有任何边界（回合比窗口长） |
+
+`turnState` 只是持久化日志的尾部判断，**不是 liveness 信号**：`open` 无法区分“另一个副本还在跑”和“崩溃残留”。真正的死活由 live Agent 的 `status` 决定（见第 4 节状态表）。拿不到 live 状态时保持保守：`fresh + open` 返回 busy。
 
 限制与成本：
 
@@ -169,21 +182,27 @@ const dispose = attachConflictRecovery(ctx, controller)
 
 ## 7. 需要验证的 DSH 能力
 
-落地前逐项确认：
+已在 `dsh-v0.2.1-rc.2` 源码上确认：
 
-1. DSH 0.2.1-rc.2 是否提供 `ctx.agents.resume()` 和 `handle.dispose()`。
-2. session-controller 的 generation retain/release 语义；`release` 是否足以让下一次 `retain` 拿到新 generation，还是需要显式的 invalidate。
-3. `session/disposed` 的 dispatch 是否等待监听器返回的 Promise；本参考实现已返回 `close()` 的 Promise，但调度器是否 await 需要验证。
-4. `turn/end` 之后是否保证一次成功的 `session/flush`。
-5. 恢复后 inbox / queued prompt 是否保留；`agent/*` 是实时控制状态，不保证随会话日志恢复。
+1. `ctx.agents.resume()`、`ctx.agents.create()` 返回 `AgentHandle`，`handle.dispose()` 存在；它是销毁 live generation 的唯一 capability。
+2. `Agent` 公开 `status: 'idle' | 'running'`（`agent/status` 同步发布），这是判断“本副本是否仍在驱动回合”的 liveness 信号。
+3. `ctx.sessionProjections.stateOf(session, 'turnBoundary')` 提供 `openTurnStartSeq` / `lastTurn`，可无歧义地区分 `none` / `open` / `closed`。
+4. 0.2.1-rc.2 没有自动补 `turn/end` 的中断修复；`turn()` 追加 `turn/start` 时也不检查已有开口。因此“未结束回合”必须由上层显式处理。
+5. `session-controller` 没有 retain/release generation 的公开语义；generation 的生命周期由 `ctx.agents` 中的 handle 决定，本参考实现通过保存并 dispose handle 来失效。
+
+仍需在真实构建后验证：
+
+- `handle.dispose()` 是否等待写句柄关闭（本实现随后调用 `persistence.releaseWriter` 作为显式屏障）；
+- `turn/end` 之后是否保证一次成功的 `session/flush`；
+- 恢复后 inbox / queued prompt 是否保留；`agent/*` 是实时控制状态，不保证随会话日志恢复。
 
 本目录已针对 `dsh-v0.2.1-rc.2`（commit `687f282e8625c6b8d11ff58211a90524be2e4317`）生成源码补丁 [0001-stateless-handoff.patch](./dockerfiles/0001-stateless-handoff.patch)，做法与 deployment cookbook all-in-one 一致：clone 固定 tag、校验 commit、`git apply` 后构建。补丁：
 
-- 保留 `ctx.agents.create/resume` 返回的 `AgentHandle`；
-- 新增 `invalidateGeneration(sessionId)` / `resumeGeneration(sessionId)`；
-- 在 `SessionController.prompt` 的非 `steer` 路径调用 `sessionHandoff.beforePrompt(sessionId)`。
+- 保留 `ctx.agents.create/resume` 返回的 `AgentHandle`，并按 Session 保存；
+- 新增幂等的 `invalidateGeneration(sessionId)` 和 `resumeGeneration(sessionId)`；
+- 在 `SessionCommandController.prompt` 中、`resolveAgent` 之后、admission 之前调用 `sessionHandoff.beforePrompt(sessionId)`；`rebuilt` 时重新 resolve Agent；`steer` 跳过。
 
-补丁目前只通过 `git apply --check`，尚未在本仓库构建/运行 DSH。完整构建、接线和验证步骤见 [dockerfiles/README_zh.md](./dockerfiles/README_zh.md)。补丁针对固定 tag，升级 DSH 时需要重新 clone、`git apply --check` 并复核三个插入点；不要假设它直接适用于最新版本。
+补丁已通过 `git apply --check`，并提供了从源码构建的 [Dockerfile](./dockerfiles/Dockerfile)，但尚未在本仓库实际构建/运行 DSH。补丁针对固定 tag，升级 DSH 时需要重新 clone、`git apply --check` 并复核插入点；不要假设它直接适用于最新版本。
 
 ## 8. 测试
 
@@ -198,11 +217,13 @@ make check   # node --check + node --test
 - 后台 drain 冲突丢弃未提交批次，而不是继续重试；
 - `releaseWriter` 关闭写句柄并释放进程内 claim；
 - `writerCursor` 返回本副本写句柄的持久化游标；
-- `handoffCheck` 返回 `fresh` / `stale` / `local-ahead` / `not-found` 和 `turnClosed`；
+- `handoffCheck` 返回 `fresh` / `stale` / `local-ahead` / `not-found` 和三态 `turnState`；
+- 空日志返回 `turnState: 'none'`，不会再被当成“未结束回合”；
 - `handoffCheck` 的读取成本：`fresh` / `local-ahead` 只发 1 次 `DescribeEvents`，`stale` 发 2 次；
 - 两个副本在回合边界交接后，旧 writer 的下一轮写入冲突并停止；
-- 控制器：`preflight` 的四类决策、`recover` 的重建顺序、并发重建合并、`invalidate` / `releaseWriter` 失败时不 `resume`、`attachConflictRecovery` 的事件路由；
-- `dsh-handoff`：generation port 校验、`writerCursor` 接线、`flush` 透传、冲突事件接线；
+- 控制器：`preflight` 的全部决策分支，包括 `fresh + open + running` 放行、`fresh + open + idle` 拒绝、`stale + running` 拒绝重建；`recover` 的重建顺序、并发重建合并、`invalidate` / `releaseWriter` 失败时不 `resume`、`attachConflictRecovery` 的事件路由；
+- `dsh-handoff`：generation port 校验、`writerCursor` 接线、`flush` 透传、liveness 端口接线、从 `ctx.agents` / `ctx.sessionProjections` 推导回合状态、冲突事件接线；
+- 集成插件：`apply` 注册 `sessionHandoff` 和冲突监听，冲突走 `invalidateGeneration` → `resumeGeneration`；
 - 端到端：A 的日志落后 → `controller.preflight` 重建 → `resume` 后继续追加；
 - 端到端：A 发生写入冲突 → `controller.recover` 重建 → `resume` 后继续追加；
 - 瞬时错误仍保留批次重试（与基础插件一致）。
@@ -214,12 +235,17 @@ make check   # node --check + node --test
 | [`plugin/index.js`](./plugin/index.js) | 参考插件 |
 | [`plugin/constants.js`](./plugin/constants.js) | 共享事件名 |
 | [`plugin/handoff-controller.js`](./plugin/handoff-controller.js) | 无状态交接状态机 |
-| [`plugin/dsh-handoff.js`](./plugin/dsh-handoff.js) | DSH generation port 与 Cordis 接线 |
+| [`plugin/dsh-handoff.js`](./plugin/dsh-handoff.js) | DSH generation port、liveness 端口与 Cordis 接线 |
+| [`plugin/dsh-handoff-plugin.js`](./plugin/dsh-handoff-plugin.js) | 运行时集成插件（`.../handoff` 导出） |
 | [`plugin/index.test.js`](./plugin/index.test.js) | 插件与端到端测试 |
 | [`plugin/handoff-controller.test.js`](./plugin/handoff-controller.test.js) | 控制器测试 |
-| [`plugin/dsh-handoff.test.js`](./plugin/dsh-handoff.test.js) | generation port 与接线测试 |
-| [`plugin/package.json`](./plugin/package.json) | 依赖声明，与基础示例一致 |
+| [`plugin/dsh-handoff.test.js`](./plugin/dsh-handoff.test.js) | generation port、liveness 与集成插件测试 |
+| [`plugin/package.json`](./plugin/package.json) | 依赖声明与 `./handoff` 子路径导出 |
 | [`stateless-handoff.patch`](./stateless-handoff.patch) | 相对基础插件的差异 |
 | [`dockerfiles/0001-stateless-handoff.patch`](./dockerfiles/0001-stateless-handoff.patch) | DSH 0.2.1-rc.2 源码补丁 |
-| [`dockerfiles/README_zh.md`](./dockerfiles/README_zh.md) | 源码获取、构建与插件接线 |
+| [`dockerfiles/Dockerfile`](./dockerfiles/Dockerfile) | 从源码构建带补丁的 DSH 镜像 |
+| [`dockerfiles/agent-runtime-session.cordis.yml`](./dockerfiles/agent-runtime-session.cordis.yml) | 加载 persistence + handoff 两个插件 |
+| [`dockerfiles/entrypoint.sh`](./dockerfiles/entrypoint.sh) | 与基础示例相同的入口 |
+| [`.dockerignore`](./.dockerignore) | 构建时排除 `plugin/node_modules` 链接 |
+| [`dockerfiles/README_zh.md`](./dockerfiles/README_zh.md) | 源码获取、构建与验证 |
 | [`Makefile`](./Makefile) | `setup` / `check` |

@@ -12,4 +12,5 @@ check:
 	node --check plugin/constants.js
 	node --check plugin/handoff-controller.js
 	node --check plugin/dsh-handoff.js
+	node --check plugin/dsh-handoff-plugin.js
 	node --test plugin/index.test.js plugin/handoff-controller.test.js plugin/dsh-handoff.test.js

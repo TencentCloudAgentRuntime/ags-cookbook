@@ -13,6 +13,6 @@
 
 `make run` 显示导航。
 
-需要事先说明：Session 负责保存历史，但不负责决定由谁写入。多个实例写入同一会话，或进行中的回合需要由另一个实例接续时，需要额外的协调机制，详见[限制与边界](./deepseek-harness/dsh-0.2.1-rc.2/README_zh.md#8-限制与边界)。插件侧的无状态交接参考实现见 [dsh-0.2.1-rc.2-stateless-handoff](./deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md)。
+需要事先说明：Session 负责保存历史，但不负责决定由谁写入。多个实例写入同一会话，或进行中的回合需要由另一个实例接续时，需要额外的协调机制，详见[限制与边界](./deepseek-harness/dsh-0.2.1-rc.2/README_zh.md#8-限制与边界)。无状态交接的参考实现见 [dsh-0.2.1-rc.2-stateless-handoff](./deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md)。
 
 扩缩容、亲和性和工作区关联请看 [Deployment Cookbook](../deployment-cookbook/README_zh.md)。Brain/Hands 分离、由云端 Session 保存对话和 Hands 工作区路由的组合示例在 [brain-hands-session](../deployment-cookbook/brain-hands-session/README_zh.md)。

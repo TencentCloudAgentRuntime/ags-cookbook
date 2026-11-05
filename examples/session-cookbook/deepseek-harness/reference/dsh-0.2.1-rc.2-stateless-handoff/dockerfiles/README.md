@@ -1,91 +1,140 @@
-# DSH source patch (dsh-v0.2.1-rc.2)
+# DSH source patch and image build (dsh-v0.2.1-rc.2)
 
-This patch adds the two capabilities the stateless handoff needs to DSH's session-controller:
+## 1. Why a source patch is required
 
-1. **Keep `AgentHandle`**: the handle returned by `ctx.agents.create/resume` is the only capability that can tear an agent down. The original code took `.agent` and dropped the handle; the patch keeps it in `ApiSessionAgentController.handles`.
-2. **Generation invalidate/rebuild**: `invalidateGeneration(sessionId)` awaits `handle.dispose()`; `resumeGeneration(sessionId)` disposes and then `resolveAgent`, which resumes from durable state.
-3. **Pre-prompt hook**: `SessionController.prompt` calls `ctx.get('sessionHandoff')?.beforePrompt(sessionId)` for non-`steer` prompts. The plugin runs `controller.preflight()` there.
+The persistence plugin can detect conflicts and stop writing, but it cannot see the turn boundary and does not hold the capability that disposes a live generation:
 
-## Source and version
+- `session/event` is a post-commit notification; a listener failure does not stop the loop;
+- `AgentHandle.dispose()` belongs to the owner of `ctx.agents.create/resume`;
+- `session-controller` has no public per-session generation-invalidate entry point.
 
-This uses the same approach as `deployment-cookbook/deepseek-harness/all-in-one/dockerfiles/Dockerfile`: clone a pinned tag from GitHub and verify the commit.
+The patch adds the three missing pieces to `session-controller`.
 
-```bash
-git clone --depth 1 --branch dsh-v0.2.1-rc.2 \
-  https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness rev-parse HEAD
-# must be 687f282e8625c6b8d11ff58211a90524be2e4317
-```
+## 2. Patch contents
 
-| Item | Value |
-| --- | --- |
-| Tag | `dsh-v0.2.1-rc.2` |
-| Commit | `687f282e8625c6b8d11ff58211a90524be2e4317` |
-| pnpm | `11.28.5` (the root `package.json` `packageManager`) |
+### 2.1 Keep the `AgentHandle`
 
-## Apply and build
+`ApiSessionAgentController` used to take only `.agent` from `ctx.agents.create/resume` and discard the handle. The patch stores it per Session on all three create/resume paths.
 
-```bash
-cd deepseek-harness
-git apply --check /path/to/0001-stateless-handoff.patch
-git apply /path/to/0001-stateless-handoff.patch
+### 2.2 Invalidate and rebuild a generation
 
-pnpm install --frozen-lockfile
-pnpm run build:official
-pnpm release:pack --family vendor --out dist/npm-vendor
-pnpm release:pack --family dsh --out dist/npm-dsh
-```
+```ts
+async invalidateGeneration(sessionId): Promise<void> {
+  // wait for an in-flight resolve/claim first (it stores the handle)
+  // idempotent: no live handle satisfies the postcondition
+  // deletes handles / resumes / claims, then awaits handle.dispose()
+}
 
-After the build, install the plugin and link the `@deepseek-ai` modules as in the [base 0.2.1-rc.2 image](../../../dsh-0.2.1-rc.2/dockerfiles/Dockerfile); the `plugin/` here can replace that example's plugin.
-
-At minimum, run:
-
-```bash
-pnpm exec vitest run packages/api/session-controller/tests/agent.host.spec.ts
-```
-
-## Plugin wiring
-
-The patch only provides hooks. A small Cordis integration plugin calls `attachDshHandoff`:
-
-```js
-import { attachDshHandoff } from '@tencentcloud/ags-dsh-session-persistence'
-
-export const name = 'dsh-stateless-handoff'
-export const inject = ['sessionController', 'sessionPersistence']
-
-export function apply(ctx) {
-  attachDshHandoff(ctx, {
-    generation: {
-      invalidate: id => ctx.sessionController.invalidateGeneration(id),
-      resume: id => ctx.sessionController.resumeGeneration(id),
-    },
-    logger: (message, fields) => ctx.logger.info(`${message} ${JSON.stringify(fields)}`),
-  })
+async resumeGeneration(sessionId): Promise<Agent> {
+  await this.invalidateGeneration(sessionId)
+  // resolveAgent() -> ctx.agents.resume() re-reads durable state
 }
 ```
 
-`attachDshHandoff`:
+`SessionController` exposes delegating methods with the same names for the integration plugin.
 
-- wires `localEventCount` to `sessionPersistence.writerCursor`;
-- registers the `sessionHandoff` service that the patched `prompt` calls;
-- subscribes to `session-persistence/conflict` and routes it to `controller.recover`.
+### 2.3 Pre-prompt hook
 
-## Compatibility and maintenance
+The call site is `SessionCommandController.prompt`, **after `resolveAgent` and before admission**:
+
+```ts
+let agent = await this.resolveAgent(request.sessionId)
+if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
+if (request.mode !== 'steer') {
+  const handoff = this.ctx.get('sessionHandoff')
+  if (handoff !== undefined) {
+    const decision = await handoff.beforePrompt(request.sessionId)
+    if (decision.action === 'rebuilt') agent = await this.resolveAgent(request.sessionId)
+  }
+}
+```
+
+Why not earlier in `SessionController.prompt`:
+
+- on the first prompt in a replica there is no writer handle yet, so `writerCursor()` is `undefined` and the check would fail;
+- after `resolveAgent` the writer always exists and `invalidate` always has a real generation to dispose;
+- a non-`RemoteError` from the hook is mapped to `session/agent-busy`.
+
+`steer` must be skipped: it is inserted into the running turn, and a rebuild would tear that turn down.
+
+The patch also declares `SessionHandoffService` and `SessionHandoffDecision`. When no such service is installed, behaviour is unchanged.
+
+## 3. Source and version
+
+Same approach as `deployment-cookbook/deepseek-harness/all-in-one/dockerfiles/Dockerfile`: clone a pinned tag from GitHub and verify the commit.
+
+| Item | Value |
+| --- | --- |
+| tag | `dsh-v0.2.1-rc.2` |
+| commit | `687f282e8625c6b8d11ff58211a90524be2e4317` |
+| pnpm | `11.28.5` (the DSH root `package.json` `packageManager`) |
+
+## 4. Build the image
+
+The build context is this reference directory, not the repository root:
+
+```bash
+cd examples/session-cookbook/deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff
+docker build -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
+```
+
+The image has two stages:
+
+1. **build**: clone the tag, verify the commit, `git apply` the patch, `pnpm install --frozen-lockfile`;
+2. run the session-controller `agent` / `commands-queue-attachment` / `controller` tests;
+3. `pnpm run build:official`, then `release:pack` for the vendor and dsh tarballs;
+4. **runtime**: install the tarballs and this plugin, link the `@deepseek-ai` peers to DSH's own copy, then add the Cordis config and entrypoint.
+
+The first build compiles all of DSH and takes a while. If a release hoists the `@deepseek-ai` packages elsewhere, override `DSH_MODULES`:
+
+```bash
+docker build --build-arg DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai ...
+```
+
+## 5. Runtime wiring
+
+[`agent-runtime-session.cordis.yml`](./agent-runtime-session.cordis.yml) adds one plugin to the base example:
+
+```yaml
+- id: dsh-stateless-handoff
+  name: '@tencentcloud/ags-dsh-session-persistence/handoff'
+```
+
+It must load after `session-persistence-agent-runtime`. The integration plugin ([`../plugin/dsh-handoff-plugin.js`](../plugin/dsh-handoff-plugin.js)):
+
+- calls `attachDshHandoff` and binds `localEventCount` to `writerCursor`;
+- supplies liveness from `ctx.agents.get(id)?.status` and `ctx.sessionProjections.stateOf(session, 'turnBoundary')`;
+- registers the `sessionHandoff` service the patched `prompt` calls;
+- subscribes to `session-persistence/conflict` and runs `invalidateGeneration` → `releaseWriter` → `resumeGeneration`.
+
+## 6. Verification
+
+The build already runs three session-controller test files. After the image is built, verify at least these three flows by hand:
+
+1. **A→B→A, no conflict**
+   - A finishes a turn and flushes;
+   - B finishes a turn on the same Session;
+   - the next turn returns to A: `preflight` should report `stale` + `closed` and rebuild before any model call.
+2. **Conflict recovery**
+   - let A keep writing on a stale generation and trigger `ResourceInUse.EventIdDuplicate`;
+   - the plugin should mark the handle conflicted, stop retrying, and emit `session-persistence/conflict`;
+   - the integration plugin should rebuild and later writes should succeed.
+3. **Open turn**
+   - produce a log with no `turn/end`;
+   - a new request must return busy instead of closing it automatically;
+   - if a live Agent is driving that turn (`status === 'running'`), a followup on the same replica must still queue normally.
+
+## 7. Compatibility
 
 - The patch targets `dsh-v0.2.1-rc.2` / `687f282e...`; do not assume it applies to the latest version.
-- On upgrade, clone the new tag and run `git apply --check` first. Conflicts normally appear only in three places:
-  - `ApiSessionAgentController` create/resume;
-  - `SessionController.prompt` admission;
-  - the Cordis `Context` service declaration.
-- Keep the patch minimal: handle retention, generation invalidate/resume, and one optional `sessionHandoff` hook. Without the service installed, behavior is unchanged.
-- If upstream later provides a native pre-prompt/generation-invalidate hook, drop the patch and register the service directly.
-- If the AGS deployment patch (`0001-support-ags-deployment-web.patch`) is also needed, apply it first, then this patch, and rerun the tests above.
+- On upgrade, clone the new tag and run `git apply --check` first. Conflicts usually appear in four places:
+  - `ApiSessionAgentController` create/resume and handle storage;
+  - the `SessionCommandController.prompt` admission path;
+  - the `SessionController` delegating methods;
+  - the Cordis `Context` service declarations.
+- If upstream later provides a native pre-prompt / generation-invalidate hook, delete the patch and register the service directly.
+- If the AGS deployment patch (`0001-support-ags-deployment-web.patch`) is also needed, apply it before this patch and re-run the tests.
 
-## Verification status
+## 8. Verification status
 
-The patch has only passed `git apply --check` and code review; **it has not been built or run in this repository**. To call it usable, you must:
-
-1. build the image with the commands above;
-2. run the session-controller tests;
-3. run A→B→A on a real DSH process: after B writes, A's next prompt makes `preflight` see `stale`, then `invalidateGeneration` + `resumeGeneration` continue from the cloud log.
+The patch passes `git apply --check`, and the Dockerfile follows the deployment cookbook build path; **the image has not been built and DSH has not been run from this repository**. Until the three flows above pass, this can only claim compile-time and unit-test coverage, not production readiness.

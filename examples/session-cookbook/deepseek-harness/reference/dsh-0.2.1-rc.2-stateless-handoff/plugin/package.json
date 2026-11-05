@@ -7,13 +7,15 @@
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./handoff": "./dsh-handoff-plugin.js"
   },
   "files": [
     "index.js",
     "constants.js",
     "handoff-controller.js",
-    "dsh-handoff.js"
+    "dsh-handoff.js",
+    "dsh-handoff-plugin.js"
   ],
   "dependencies": {
     "tencentcloud-sdk-nodejs-ags": "4.1.302"
