@@ -1,0 +1,15 @@
+[project]
+name = "ags-osworld-custom-image"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "tencentcloud-sdk-python-ags==3.1.169",
+  "tencentcloud-sdk-python-common==3.1.169",
+  "requests>=2.32.4,<3",
+  "python-dotenv>=1.1,<2",
+  "pillow>=11,<13",
+  "websocket-client>=1.8,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
