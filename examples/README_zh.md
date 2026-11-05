@@ -17,6 +17,7 @@
 - [`agentway-cookbook`](./agentway-cookbook/README_zh.md) —— 面向 Tencent AGS 与 TKE 场景部署、运维和观测 AgentWay
 - [`dsh-awv-pelican`](./dsh-awv-pelican/README_zh.md) — 通过 Kubernetes Jobs 运行多 Agent，用 AWV 保存网页并完成浏览器评审与发布
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
+- `local-service-tunnel` —— custom 沙箱内 workload 通过用户侧 WebSocket tunnel 访问本地或内网服务
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
 - `deployment-cookbook` —— 使用 `agr` 管理 Deployment，从 httpbin 基础到长驻 Agent 工作区
 - [`session-cookbook`](./session-cookbook/README_zh.md) —— 把框架会话存到云端 Session，并在新进程恢复
@@ -54,6 +55,7 @@
 | [`agentway-cookbook`](./agentway-cookbook/README_zh.md) | 进阶 | Kubernetes + Helm + Markdown | `make run` | AgentWay 在 Tencent AGS 与 TKE 上的场景化操作手册 |
 | [`dsh-awv-pelican`](./dsh-awv-pelican/README_zh.md) | 进阶 | Kubernetes + AWV + DSH | `make build`, `make run` | 通过 Kubernetes Jobs 运行多 Agent，用 AWV 保存网页并完成浏览器评审与发布; AWV and LoadBalancer required |
 | `browser-agent` | 进阶 | Python + 浏览器沙箱 + LLM | `make run` | 需要 OpenAI-compatible LLM backend 环境变量 |
+| `local-service-tunnel` | 进阶 | Go/Python + custom 沙箱 + 镜像卷 | `make run` | 服务凭据留在本地，沙箱 workload 流量经用户侧 WebSocket tunnel 转发 |
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
 | `deployment-cookbook` | 进阶 | agr CLI + Markdown | 按场景 README 操作 | 涵盖部署、伸缩、生命周期、亲和性与长驻 Agent 工作区 |
