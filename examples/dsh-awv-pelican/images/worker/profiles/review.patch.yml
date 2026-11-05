@@ -1,0 +1,94 @@
+- id: agent-default-model
+  config:
+    provider: openai
+    model: !!js process.env.DSH_REVIEW_MODEL || process.env.DSH_MODEL || 'deepseek/deepseek-flash'
+
+- id: llm-pi-ai
+  config:
+    providers:
+      openai:
+        apiKeyEnv: OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+        api: !!js process.env.OPENAI_API_TYPE
+        models:
+          - id: deepseek/deepseek-flash
+            contextWindow: 1048576
+            maxTokens: 393216
+            input: [text, image]
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      你是 Review Agent。页面源码以只读方式挂载在 /workspace/site，禁止修改任何文件。
+      必须使用 mcp__browser__browser_navigate 打开 file:///workspace/site/index.html；
+      按最小步骤执行：导航页面；在 1440x900 下截图并一次性检查结构、溢出和动画；
+      在 390x844 下截图并一次性检查结构和溢出；点击一次动画开关并确认状态变化；读取一次控制台错误。
+      完成这些检查后立即给出结论，不追加其他尺寸、像素分析、源码分析或重复调用。
+      对照主 Agent 提供的验收条件独立判断，不得仅根据源码、DOM 摘要或任务描述给出结论。
+      任一必要浏览器调用失败、页面不可见、存在阻塞问题或证据不足时必须返回 FAIL。
+      最终回复只能包含下面一行结果，不要输出报告、Markdown 或代码块：
+      DSH_REVIEW_RESULT={"status":"PASS或FAIL","summary":"结论","blocking_issues":[],"evidence":[]}
+      blocking_issues 和 evidence 必须是字符串数组；各数组最多 4 项；PASS 时 blocking_issues 必须为空。
+      JSON 必须合法。所有字符串使用单行中文，不得包含双引号、反斜杠或换行；结果行之后不要输出其他内容。
+    personaSuffix: 工作目录是 {{cwd}}。
+
+- insert:
+    - id: mcp-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: browser
+        transport: stdio
+        command: /opt/pelican/browser/node_modules/.bin/playwright-mcp
+        args:
+          - --headless
+          - --isolated
+          - --browser
+          - chrome
+          - --no-sandbox
+          - --allow-unrestricted-file-access
+          - --caps
+          - vision
+          - --image-responses
+          - allow
+          - --output-dir
+          - /tmp/review
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+        cwd: /workspace/site
+        toolCallTimeoutMs: 60000
+        failOnStartupError: true
+
+- id: session-title-llm
+  disabled: true
+- id: user-questions
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-web
+  disabled: true

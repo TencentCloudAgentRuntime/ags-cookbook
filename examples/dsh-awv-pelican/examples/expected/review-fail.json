@@ -1,0 +1,6 @@
+{
+  "status": "FAIL",
+  "summary": "移动端存在横向溢出",
+  "blocking_issues": ["移动端存在横向滚动条"],
+  "evidence": ["mobile.png"]
+}

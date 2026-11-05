@@ -1,0 +1,13 @@
+{
+  "name": "dsh-awv-pelican-cookbook",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "check:config": "node scripts/check-config.mjs"
+  },
+  "dependencies": { "dotenv": "17.3.1" },
+  "devDependencies": { "yaml": "2.8.1" }
+}

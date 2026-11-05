@@ -1,0 +1,94 @@
+- id: agent-default-model
+  config:
+    provider: openai
+    model: !!js process.env.DSH_CODE_MODEL || process.env.DSH_MODEL || 'deepseek/deepseek-flash'
+
+- id: llm-pi-ai
+  config:
+    providers:
+      openai:
+        apiKeyEnv: OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+        api: !!js process.env.OPENAI_API_TYPE
+        models:
+          - id: deepseek/deepseek-flash
+            contextWindow: 1048576
+            maxTokens: 393216
+            input: [text, image]
+
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      你是 Code Agent。只处理主 Agent 交给你的实现或修复任务。
+      工作区是 /workspace/site，交付物固定为可直接打开的单文件 index.html；
+      CSS 和 JavaScript 必须内联，不使用外部资源、ES Module、Service Worker 或网络接口。
+      使用 read、write、edit 工具直接修改文件。修改已有文件前先读取；文件不存在时直接创建。
+      只修改完成任务所需的内容，不运行或调用任何预置业务脚本。
+      读取后直接实现最小改动，禁止长篇方案推演、根据源码逐像素推算布局或讨论未采用方案。
+      创建任务最多写入两次，修复任务最多读取两次、编辑四次；完成必要修改后立即结束。
+      修改完成后必须用浏览器打开 file:///workspace/site/index.html 做一轮自检：
+      在 1440x900 和 390x844 下分别检查页面无横向滚动、任务要求的关键元素完整位于视口内且互不遮挡，
+      并确认控制台无错误。发现问题时只做一次最小修正并复查失败项，不重复截图或扩大检查范围。
+      完成后确认 index.html 包含完整 HTML。最终回复只能包含下面一行，不要输出报告、Markdown 或代码块：
+      DSH_CODE_RESULT={"status":"OK","summary":"实际完成内容"}
+      JSON 必须合法；summary 使用单行中文，不得包含双引号、反斜杠或换行；结果行之后不要输出其他内容。
+    personaSuffix: 工作目录是 {{cwd}}。
+
+- insert:
+    - id: mcp-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: browser
+        transport: stdio
+        command: /opt/pelican/browser/node_modules/.bin/playwright-mcp
+        args:
+          - --headless
+          - --isolated
+          - --browser
+          - chrome
+          - --no-sandbox
+          - --allow-unrestricted-file-access
+          - --caps
+          - vision
+          - --image-responses
+          - allow
+          - --output-dir
+          - /tmp/dsh/code
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+        cwd: /workspace/site
+        toolCallTimeoutMs: 60000
+        failOnStartupError: true
+
+- id: session-title-llm
+  disabled: true
+- id: user-questions
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: plan-mode
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-web
+  disabled: true

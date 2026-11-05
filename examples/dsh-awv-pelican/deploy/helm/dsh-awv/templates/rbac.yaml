@@ -1,0 +1,33 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dsh-harness
+  labels:
+    app: dsh-awv
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "configmaps", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dsh-harness
+  labels:
+    app: dsh-awv
+subjects:
+  - kind: ServiceAccount
+    name: dsh-harness
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dsh-harness

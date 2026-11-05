@@ -1,0 +1,11 @@
+{
+  "name": "dsh-awv-worker-browser",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@playwright/mcp": "0.0.80",
+    "playwright": "1.63.0-alpha-2026-08-31"
+  },
+  "packageManager": "pnpm@11.19.0"
+}

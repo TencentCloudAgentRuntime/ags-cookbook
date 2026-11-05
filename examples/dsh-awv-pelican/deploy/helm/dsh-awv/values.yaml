@@ -1,0 +1,33 @@
+controller:
+  image: example.invalid/your-namespace/dsh-awv-controller:dev
+  imagePullPolicy: IfNotPresent
+  serviceType: ClusterIP
+  trustedHosts: []
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+worker:
+  image: example.invalid/your-namespace/dsh-awv-worker:dev
+
+site:
+  image: nginxinc/nginx-unprivileged@sha256:42a7d7f2ee23e9f5a1dcdf3647ba5c585bbd18f79e79cd817e70e8cd61c55779
+  serviceType: LoadBalancer
+
+workspace:
+  storageClassName: awv-btrfs
+  size: 10Gi
+
+modelSecret: dsh-model
+imagePullSecret: ""
+imagePullSecrets: []
+
+nodes:
+  controller: ""
+  code: ""
+  review: ""
+  site: ""
