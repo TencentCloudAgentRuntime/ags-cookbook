@@ -40,3 +40,7 @@ The plugin depends on DSH's internal modules, so DSH and those modules must be e
 
 - `npm install -g @deepseek-ai/dsh` without a version installs whatever is newest on npm, which may not be the version the plugin targets.
 - On a mismatch, DSH fails at startup, for example with `does not provide an export named 'PersistenceCoordinator'`.
+
+## Two DSH 0.2.1-rc.2 implementations
+
+The 0.2.1-rc.2 row above describes the unpatched base persistence example. For completed-turn handoff across persistent replicas, choose the independent [DSH 0.2.1-rc.2 handoff reference](./reference/dsh-0.2.1-rc.2-stateless-handoff/README.md). It keeps the in-memory session cache, checks cloud history before input, disposes/rebuilds stale generations, and persists a turn claim before model/tool execution. It uses a source patch and its own image; base version directories are unaffected. Its README covers changed files, framework lifecycle, request cost and unfinished-turn boundaries.

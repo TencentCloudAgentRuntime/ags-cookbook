@@ -1,0 +1,3 @@
+# The working tree links node_modules to the base example; the image installs
+# its own copy, so never send the symlink into the build context.
+plugin/node_modules

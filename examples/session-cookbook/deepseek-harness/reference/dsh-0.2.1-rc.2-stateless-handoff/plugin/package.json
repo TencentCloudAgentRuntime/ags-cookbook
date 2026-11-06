@@ -1,0 +1,31 @@
+{
+  "name": "@tencentcloud/ags-dsh-session-persistence",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "description": "Reference DeepSeek Harness 0.2.1-rc.2 persistence plugin for stateless session handoff",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./handoff": "./dsh-handoff-plugin.js"
+  },
+  "files": [
+    "index.js",
+    "constants.js",
+    "handoff-controller.js",
+    "dsh-handoff.js",
+    "dsh-handoff-plugin.js",
+    "session-titles.js",
+    "cloud-title-hints.js"
+  ],
+  "dependencies": {
+    "tencentcloud-sdk-nodejs-ags": "4.1.302"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-session": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-persistence": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5"
+  }
+}

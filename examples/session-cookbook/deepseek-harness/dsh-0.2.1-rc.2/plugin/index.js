@@ -1,3 +1,5 @@
+import { withSessionTitles, dshEventTitle } from './session-titles.js'
+import { installCloudTitleHints } from './cloud-title-hints.js'
 import z from '@deepseek-ai/schemastery'
 import { SESSION_FORMAT_VERSION, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import {
@@ -415,6 +417,8 @@ export class AgentRuntimeBackendTracker {
   writers = new Map()
   pending = new Map()
   counter = 0
+  /** Called with a Session id when the Session is disposed, to release per-session memory. */
+  sessionReleased = new Set()
 
   constructor(name) {
     this.name = name
@@ -486,7 +490,7 @@ export class AgentRuntimeBackendTracker {
   }
 
   install(ctx) {
-    const { writers, openHandles, name } = this
+    const { writers, openHandles, name, sessionReleased } = this
     return ctx.effect(function* () {
       yield async () => {
         const errors = []
@@ -513,6 +517,7 @@ export class AgentRuntimeBackendTracker {
         })()
       })
       yield ctx.on('session/disposed', session => {
+        for (const release of sessionReleased) release(session.id)
         const writer = writers.get(session.id)
         if (writer === null || writer === undefined) return
         writer.close().catch(error => {
@@ -530,6 +535,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     super(ctx)
     this.config = config
     this.tracker = tracker
+    tracker.sessionReleased.add(id => this.titleRequest?.forget(this.sessionRequest(id)))
     const clientConfig = {
       credential: {
         secretId: required(config.secretId, 'TENCENTCLOUD_SECRET_ID'),
@@ -545,16 +551,25 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     this.spaceId = required(config.spaceId, 'SESSION_SPACE_ID')
     this.userId = required(config.userId, 'SESSION_USER_ID')
     this.agentId = config.agentId?.trim() || undefined
+    installCloudTitleHints(ctx, this.cloudTitles)
   }
 
+  cloudTitles = new Map()
+  titleRequest
+
   async request(action, payload) {
+    this.titleRequest ??= withSessionTitles((action, payload) => this.client.request(action, payload), dshEventTitle)
     // Session actions may be newer than the generated SDK surface. AbstractClient's
     // public request path still supplies TC3 signing, retries, and endpoint handling.
     // Rate-limited calls were not executed, so retrying them is safe; AppendEvent is
     // also idempotent through its stable EventId.
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.client.request(action, payload)
+        const response = await this.titleRequest(action, payload)
+        if (action === 'DescribeSessions') {
+          for (const row of response.Sessions ?? []) this.cloudTitles.set(row.SessionId, row.Title)
+        }
+        return response
       } catch (error) {
         if (!isRateLimited(error) || attempt >= MAX_RATE_LIMIT_RETRIES) throw error
         await new Promise(resolve => setTimeout(resolve, this.retryDelayMs(attempt)))
