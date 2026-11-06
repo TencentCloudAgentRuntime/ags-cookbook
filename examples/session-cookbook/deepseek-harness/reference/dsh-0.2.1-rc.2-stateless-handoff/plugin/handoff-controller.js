@@ -23,9 +23,14 @@
  * another replica look identical. A live Agent's `status` is the liveness
  * signal, and its Session projection is the authoritative turn boundary for
  * the fresh case.
+ *
+ * When this replica's own Agent is running a turn, preflight returns `run`
+ * without reading the cloud. The turn already holds its claim (turn/start is
+ * persisted before any work), so another writer cannot be running one, and a
+ * read would only race this replica's own in-flight appends.
  */
 
-import { SESSION_PERSISTENCE_CONFLICT } from './constants.js'
+import { SESSION_PERSISTENCE_CONFLICT, idleMs } from './constants.js'
 
 /**
  * A new turn was refused because the stored log or the live generation is in
@@ -37,12 +42,15 @@ export class HandoffBusyError extends Error {
    * @param check - the handoffCheck() value the decision was made from.
    * @param reason - why the turn was refused.
    */
-  constructor(sessionId, check, reason = 'open-turn') {
+  constructor(sessionId, check, reason = 'open-turn', retryAfterMs = undefined) {
     super(`session "${sessionId}" cannot start a new turn: ${describe(check, reason)}`)
     this.name = 'HandoffBusyError'
+    this.code = 'session/handoff-busy'
     this.sessionId = sessionId
     this.check = check
     this.reason = reason
+    /** When set, a retry after this many milliseconds is expected to succeed if the turn really crashed. */
+    this.retryAfterMs = retryAfterMs
   }
 }
 
@@ -53,9 +61,7 @@ function turnStateOf(check) {
 }
 
 function describe(check, reason) {
-  if (reason === 'local-turn-running') {
-    return 'this replica is still driving a turn while the stored log is ahead'
-  }
+  if (reason === 'local-ahead') return 'this replica holds events that are not stored yet'
   const turnState = turnStateOf(check)
   if (turnState === 'open') {
     return check.state === 'stale'
@@ -65,7 +71,7 @@ function describe(check, reason) {
   return check.state
 }
 
-export function createHandoffController({ persistence, host, logger = () => {} }) {
+export function createHandoffController({ persistence, host, logger = () => {}, openTurnTimeoutMs, now = Date.now }) {
   if (!persistence || typeof persistence.handoffCheck !== 'function' || typeof persistence.releaseWriter !== 'function') {
     throw new TypeError('persistence must provide handoffCheck() and releaseWriter()')
   }
@@ -91,7 +97,7 @@ export function createHandoffController({ persistence, host, logger = () => {} }
     return persistence.handoffCheck(sessionId, localEventCount)
   }
 
-  async function rebuild(sessionId, reason) {
+  async function rebuild(sessionId, reason, allowOpenTurn = true) {
     const running = rebuilding.get(sessionId)
     if (running !== undefined) return running
 
@@ -101,6 +107,13 @@ export function createHandoffController({ persistence, host, logger = () => {} }
       // in-process write claim and the live Session object.
       await host.invalidate(sessionId)
       await persistence.releaseWriter(sessionId)
+      if (!allowOpenTurn) {
+        // A losing executor may discard its generation, but conflict recovery
+        // must not take the winner's turn back, even after its quiet timeout.
+        // Only an explicit new prompt is allowed to initiate timeout takeover.
+        const current = await persistence.handoffCheck(sessionId, 0)
+        if (turnStateOf(current) === 'open') throw new HandoffBusyError(sessionId, current)
+      }
       const generation = await host.resume(sessionId)
       logger('handoff rebuild finished', { sessionId, reason })
       return generation
@@ -139,10 +152,13 @@ export function createHandoffController({ persistence, host, logger = () => {} }
    * - `blocked`  local is ahead (flush failed or was unavailable)
    *
    * Throws HandoffBusyError when the stored log is ahead and its turn is open,
-   * or when an open turn has no driver in this replica. An open turn is not a
-   * liveness signal and is never closed automatically.
+   * or when an open turn has no driver here and has not reached the configured
+   * quiet timeout. Older open turns are rebuilt through native crash repair.
    */
   async function preflight(sessionId) {
+    // Our own turn is running: queueing more input is normal and needs no cloud read.
+    if (await resolveAgentStatus(sessionId) === 'running') return { action: 'run' }
+
     let current = await check(sessionId)
 
     if (current.state === 'local-ahead' && typeof host.flush === 'function') {
@@ -154,27 +170,27 @@ export function createHandoffController({ persistence, host, logger = () => {} }
     if (current.state === 'local-ahead') return { action: 'blocked', check: current }
 
     const turnState = await resolveTurnState(sessionId, current)
-    const agentStatus = await resolveAgentStatus(sessionId)
-
-    if (current.state === 'stale') {
-      // Never rebuild underneath a turn this replica is still driving. The
-      // running turn will surface its own conflict on append.
-      if (agentStatus === 'running') {
-        throw new HandoffBusyError(sessionId, current, 'local-turn-running')
+    // Here this replica's Agent is idle, so an open turn has no driver in this
+    // process. Either another replica is running it or it was left by a crash,
+    // and the log cannot tell which. Activity tells: a turn that recently wrote an
+    // event may be alive and is refused; one quiet for the whole timeout is
+    // treated as a crash and closed by rebuilding, which makes DSH's own crash
+    // repair run when the Session is reopened for writing. Without a configured
+    // timeout nothing is ever taken over.
+    if (turnState === 'open') {
+      const idle = idleMs(current.lastEvent, now())
+      if (openTurnTimeoutMs === undefined || idle === undefined || idle < openTurnTimeoutMs) {
+        const retryAfterMs = openTurnTimeoutMs === undefined ? undefined : Math.ceil(openTurnTimeoutMs - (idle ?? 0))
+        throw new HandoffBusyError(sessionId, current, 'open-turn', retryAfterMs)
       }
-      // The remote writer's turn is open, or a crashed turn was left open.
-      // This replica cannot tell which, and must not close it.
-      if (turnState !== 'closed') throw new HandoffBusyError(sessionId, current, 'open-turn')
-      const generation = await rebuild(sessionId, 'preflight-stale')
+      logger('handoff taking over an abandoned turn', { sessionId, idleMs: idle })
+      const generation = await rebuild(sessionId, 'open-turn-abandoned')
       return { action: 'rebuilt', check: current, generation }
     }
 
-    // fresh: an open turn is only this replica's own turn when the live Agent
-    // is actually driving it. Queueing a followup into a running turn is
-    // normal; an idle Agent with an open log is crash residue (or a turn that
-    // was just resumed) and must not be continued silently.
-    if (turnState === 'open' && agentStatus !== 'running') {
-      throw new HandoffBusyError(sessionId, current, 'open-turn')
+    if (current.state === 'stale') {
+      const generation = await rebuild(sessionId, 'preflight-stale')
+      return { action: 'rebuilt', check: current, generation }
     }
     return { action: 'run', check: current }
   }
@@ -184,8 +200,18 @@ export function createHandoffController({ persistence, host, logger = () => {} }
    * caller decides whether the failed turn may be retried.
    */
   async function recover(sessionId, reason = 'conflict') {
-    const generation = await rebuild(sessionId, reason)
-    return { action: 'rebuilt', check: await check(sessionId), generation }
+    try {
+      const generation = await rebuild(sessionId, reason, false)
+      return { action: 'rebuilt', check: await check(sessionId), generation }
+    } catch (error) {
+      // The losing generation is disposed, but the winner may still be running.
+      // Resume will reject its open turn. Wait for a later request to cold-load
+      // the completed history instead of repairing or replaying it.
+      if (error?.name !== 'HandoffBusyError' && error?.code !== 'session/agent-busy'
+        && error?.name !== 'SessionPersistenceConflictError'
+        && error?.code !== 'session/handoff-busy') throw error
+      return { action: 'blocked', check: error.check ?? await persistence.handoffCheck(sessionId, 0) }
+    }
   }
 
   return { preflight, recover, rebuild, check }

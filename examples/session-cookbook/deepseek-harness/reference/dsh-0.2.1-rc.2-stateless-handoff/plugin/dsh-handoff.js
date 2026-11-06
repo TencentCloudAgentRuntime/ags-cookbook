@@ -21,14 +21,18 @@
  */
 
 import { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
+import { DEFAULT_OPEN_TURN_TIMEOUT_MS } from './constants.js'
 
-export function createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger }) {
+export function createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger, openTurnTimeoutMs }) {
   if (!generation || typeof generation.invalidate !== 'function' || typeof generation.resume !== 'function') {
     throw new TypeError('generation must provide invalidate() and resume()')
   }
 
   const host = {
-    localEventCount: sessionId => persistence.writerCursor(sessionId),
+    localEventCount: async sessionId => {
+      await persistence.flushWriter?.(sessionId)
+      return persistence.writerCursor(sessionId)
+    },
     invalidate: sessionId => generation.invalidate(sessionId),
     resume: sessionId => generation.resume(sessionId),
   }
@@ -37,7 +41,7 @@ export function createDshHandoff({ persistence, generation, liveAgentStatus, liv
   }
   if (typeof liveAgentStatus === 'function') host.liveAgentStatus = liveAgentStatus
   if (typeof liveTurnState === 'function') host.liveTurnState = liveTurnState
-  return createHandoffController({ persistence, host, logger })
+  return createHandoffController({ persistence, host, logger, openTurnTimeoutMs })
 }
 
 /**
@@ -49,10 +53,15 @@ export function createDshHandoff({ persistence, generation, liveAgentStatus, liv
  *
  * @returns {{ controller: ReturnType<typeof createHandoffController>, dispose: () => void }}
  */
-export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
+export function attachDshHandoff(ctx, { generation, logger = () => {}, openTurnTimeoutMs = DEFAULT_OPEN_TURN_TIMEOUT_MS } = {}) {
   if (!ctx || typeof ctx.on !== 'function') throw new TypeError('ctx.on is required')
   const persistence = ctx.sessionPersistence
   if (!persistence) throw new TypeError('ctx.sessionPersistence is required')
+  // The persistence layer applies the same timeout when a Session is opened for
+  // writing, before DSH's own crash repair can run. The previous value is
+  // restored when this plugin unloads.
+  const previousTimeout = persistence.openTurnTimeoutMs
+  persistence.openTurnTimeoutMs = openTurnTimeoutMs
 
   const liveAgentStatus = sessionId => ctx.get?.('agents')?.get?.(sessionId)?.status
   const liveTurnState = sessionId => {
@@ -64,7 +73,7 @@ export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
     return boundary.lastTurn === 0 ? 'none' : 'closed'
   }
 
-  const controller = createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger })
+  const controller = createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger, openTurnTimeoutMs })
   // The DSH source patch calls this before admitting a non-steer prompt, after
   // resolving the Agent. `rebuilt` tells the caller to resolve again because
   // the Agent it held was disposed.
@@ -75,13 +84,16 @@ export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
   const handoff = {
     beforePrompt: async sessionId => {
       const decision = await controller.preflight(sessionId)
-      logger('handoff preflight', {
-        sessionId,
-        action: decision.action,
-        state: decision.check?.state,
-        turnState: decision.check?.turnState,
-      })
-      if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check, 'open-turn')
+      // The common case (`run`) is not worth a log line per prompt.
+      if (decision.action !== 'run') {
+        logger('handoff preflight', {
+          sessionId,
+          action: decision.action,
+          state: decision.check?.state,
+          turnState: decision.check?.turnState,
+        })
+      }
+      if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check, 'local-ahead')
       return decision
     },
   }
@@ -92,6 +104,10 @@ export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
     ctx.set('sessionHandoff', handoff)
   }
   logger('handoff service registered', {})
-  const dispose = attachConflictRecovery(ctx, controller, { logger })
+  const stopRecovery = attachConflictRecovery(ctx, controller, { logger })
+  const dispose = () => {
+    stopRecovery()
+    persistence.openTurnTimeoutMs = previousTimeout
+  }
   return { controller, dispose }
 }

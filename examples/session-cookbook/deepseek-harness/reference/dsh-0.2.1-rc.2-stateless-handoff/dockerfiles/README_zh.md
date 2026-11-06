@@ -1,188 +1,61 @@
-# DSH 源码补丁与镜像构建（dsh-v0.2.1-rc.2）
+# DSH 切换镜像：构建说明
 
-## 1. 为什么必须打补丁
+返回 [DSH 切换参考实现](../README_zh.md)。
 
-persistence 插件能检测冲突、停止写入，但它看不到 turn 边界，也拿不到销毁 live generation 的 capability：
+## 为什么必须从源码构建
 
-- `session/event` 是提交后的事件，监听器失败不会阻止 loop；
-- `AgentHandle.dispose()` 只属于 `ctx.agents.create/resume` 的持有者；
-- `session-controller` 没有公开的“按 sessionId 失效 generation”入口。
+基础示例直接安装已发布的 `@deepseek-ai/dsh` 包。本方案要改 DSH 框架自身的代码（保留 Agent 的销毁句柄、新输入前的检查点、`turn/start` 的持久化屏障），已发布的包里没有这些，所以必须：
 
-所以要实现“执行前检查 + 冲突后重建”，必须在 `session-controller` 里补三个点。
+1. 取固定版本的 DSH 源码（tag `dsh-v0.2.1-rc.2`，并校验提交 `687f282e8625c6b8d11ff58211a90524be2e4317`）；
+2. 应用 [`0001-stateless-handoff.patch`](./0001-stateless-handoff.patch)；
+3. 按锁文件安装依赖，跑测试，用官方方式构建；
+4. 把编译好的工作区复制到运行阶段，再安装本目录的插件。
 
-## 2. 补丁内容
+做法与 `deployment-cookbook` 里 all-in-one 镜像给 DSH 打补丁的方式相同。
 
-### 2.1 保留 `AgentHandle`
+## 构建
 
-`ApiSessionAgentController` 原来只取 `ctx.agents.create/resume` 返回的 `.agent`，把 handle 丢掉了。补丁按 Session 保存 handle，并在 create/resume 的三条路径上写入。
+在 reference 根目录（不是本目录）执行：
 
-### 2.2 失效与重建 generation
-
-```ts
-async invalidateGeneration(sessionId): Promise<void> {
-  // 先等待进行中的 resolve/claim 结束（handle 是它们写入的）
-  // 幂等：没有 live handle 时，清理完状态直接返回
-  // 删除 handles / resumes / claims，然后 await handle.dispose()
-}
-
-async resumeGeneration(sessionId): Promise<Agent> {
-  await this.invalidateGeneration(sessionId)
-  // resolveAgent() → ctx.agents.resume() 从持久化重读
-}
+```sh
+docker build --build-arg DSH_GATE_CONCURRENCY=1 -f dockerfiles/Dockerfile -t dsh-session-handoff:local .
 ```
 
-`SessionController` 上有同名的委托方法，供集成插件调用。
+构建过程中会运行两组测试，任何一组失败，构建都会中止：
 
-### 2.3 pre-prompt hook
+- 安装依赖之后、长时间构建之前：`session-controller` 的三个测试文件（Agent 句柄、新输入受理、控制器）；
+- `build:official` 之后：`agent-loop` 的全部测试（保护 `turn/start` 的同步追加和占位屏障）。这组测试里有一部分要用 DSH 的 native 插件做文件锁，而 native 插件是 `build:official` 编译出来的，所以只能放在构建之后。
 
-调用点在 `SessionCommandController.prompt`，**在 `resolveAgent` 之后、admission 之前**：
+## 构建参数
 
-```ts
-let agent = await this.resolveAgent(request.sessionId)
-if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
-if (request.mode !== 'steer') {
-  const handoff = this.ctx.get('sessionHandoff')
-  if (handoff !== undefined) {
-    const decision = await handoff.beforePrompt(request.sessionId)
-    if (decision.action === 'rebuilt') agent = await this.resolveAgent(request.sessionId)
-  }
-}
-```
+| 参数 | 默认值 | 什么时候改 |
+| --- | --- | --- |
+| `DSH_GATE_CONCURRENCY` | 不设置（按 CPU 数并行） | Docker 虚拟机内存约 8 GB 时设为 `1`。否则并行的构建步骤会内存不足，BuildKit 报 `error reading from server: EOF` |
+| `BUILD_IMAGE` | `node:24.22.2-bookworm-slim` | 内网镜像源里的同版本 Node 镜像 |
+| `RUNTIME_IMAGE` | `node:24.8.0-bookworm-slim` | 同上 |
+| `DSH_MODULES` | `/opt/deepseek-harness/apps/cli/node_modules/@deepseek-ai` | 一般不用改。DSH 的 `@deepseek-ai/*` 包不在这个路径时才改 |
 
-为什么不在 `SessionController.prompt` 更早的位置：
+构建阶段和运行阶段使用不同的 Node 镜像：`node:24.8.0-bookworm-slim` 自带的 Debian 密钥早于 bookworm 的归档密钥轮换，`apt-get update` 会报 `NoPubKey`，构建阶段需要 `apt` 安装 `git` / `g++` / `make` / `python3`，所以用较新的镜像；运行阶段沿用基础示例的版本。
 
-- 首次 prompt 时本副本还没有 writer handle，`writerCursor()` 是 `undefined`，检查会失败；
-- `resolveAgent` 之后 writer 一定存在，`invalidate` 也一定有真实 generation 可销毁；
-- hook 抛出非 `RemoteError` 时，补丁映射为 `session/agent-busy`。
+## 常见问题
 
-`steer` 必须跳过：它是在当前回合内插入的，重建会把正在跑的回合拆掉。
+**`pnpm install` 停在 SheetJS 上，很久不动。**
+DSH 的锁文件里有一个包（`xlsx`）只能从 `cdn.sheetjs.com` 下载，不在 npm 仓库里。这个地址在部分网络下很慢（实测每秒几百字节到几十 KB）。Dockerfile 已把 pnpm 的存储放进 BuildKit 缓存，并把下载超时放宽到 30 分钟，**第二次构建会复用已下载的内容**。如果仍然卡住：保持构建缓存，换一个能直连该地址的网络重试，或者在内网镜像里预置这个包。不要用空包替代，也不要关闭锁文件校验，否则构建结果不可信。
 
-补丁同时声明了 `SessionHandoffService` 和 `SessionHandoffDecision`，未安装该服务时行为与原文一致。
+**`apt-get update` 报 `NoPubKey` / `not signed`。**
+构建阶段用的 Node 镜像太旧。保持默认的 `BUILD_IMAGE`，或换成较新的 bookworm 镜像。
 
-## 3. 源码来源与版本
+**构建到一半 Docker 报 `error reading from server: EOF`，或安装步骤出现 `Killed`。**
+Docker 虚拟机内存不足。构建步骤设置 `DSH_GATE_CONCURRENCY=1`；运行阶段的镜像直接复制已编译的工作区，不再对几百个包做一次全局安装，就是为了避免这类内存峰值。
 
-和 `deployment-cookbook/deepseek-harness/all-in-one/dockerfiles/Dockerfile` 使用同一套方式：从 GitHub clone 固定 tag，并校验 commit。
+**镜像很大。**
+运行阶段保留了完整的已编译工作区和依赖图，以避免重新解析依赖；代价是体积。按实际运行架构（`amd64` / `arm64`）构建，原生依赖与架构绑定。
 
-| 项 | 值 |
-| --- | --- |
-| tag | `dsh-v0.2.1-rc.2` |
-| commit | `687f282e8625c6b8d11ff58211a90524be2e4317` |
-| pnpm | `11.28.5`（DSH 根 `package.json` 的 `packageManager`） |
+## 升级 DSH 版本
 
-## 4. 构建镜像
+补丁只针对 `dsh-v0.2.1-rc.2`，不要假设它能直接用于别的版本。升级时：
 
-构建上下文是本参考目录（`dsh-0.2.1-rc.2-stateless-handoff/`），不是仓库根：
-
-```bash
-cd examples/session-cookbook/deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff
-docker build -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
-```
-
-镜像分两阶段：
-
-1. **build**：clone tag、校验 commit、`git apply` 补丁、`pnpm install --frozen-lockfile`；
-2. 跑 session-controller 的 `agent` / `commands-queue-attachment` / `controller` 测试；
-3. `pnpm run build:official`，再用 `release:pack` 打出 vendor 和 dsh 两套 tarball；
-4. **runtime**：安装 tarball，安装本目录插件，把 `@deepseek-ai` peer 依赖链接到 DSH 自己的副本，最后放入 Cordis 配置和 entrypoint。
-
-第一次构建会编译整个 DSH，耗时较长。
-
-构建阶段需要 apt 安装 `git` / `g++` / `make` / `python3`。`node:24.8.0-bookworm-slim` 的 Debian keyring 早于 bookworm 的归档密钥轮换，`apt-get update` 会报 `NoPubKey`，因此构建阶段默认使用 `node:24.22.2-bookworm-slim`，运行阶段仍使用基础示例的 `24.8.0`。需要内网镜像时覆盖：
-
-```bash
-docker build \
-  --build-arg BUILD_IMAGE=your-registry/node:24.22.2-bookworm-slim \
-  --build-arg RUNTIME_IMAGE=your-registry/node:24.8.0-bookworm-slim \
-  -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
-```
-
-若某个版本把 `@deepseek-ai` 包提升到别的路径，覆盖 `DSH_MODULES`：
-
-```bash
-docker build --build-arg DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai ...
-```
-
-`build:official` 默认按 CPU 数并行执行构建 gate。内存较小的 Docker VM（例如 8G）可能在 `host compiler` 之后的 bundle / aggregate check 阶段 OOM，表现为 BuildKit 报 `error reading from server: EOF`。这时限制 gate 并发：
-
-```bash
-docker build --build-arg DSH_GATE_CONCURRENCY=1 -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
-```
-
-`pnpm install` 会从 `cdn.sheetjs.com` 拉取一个 xlsx tarball；慢网络下默认 60s 的 fetch 超时不够。Dockerfile 已把 `--fetch-timeout` 提高到 600s，不需要额外参数。
-
-## 5. 运行时加载
-
-[`agent-runtime-session.cordis.yml`](./agent-runtime-session.cordis.yml) 在基础示例的基础上多插入一个插件：
-
-```yaml
-- id: dsh-stateless-handoff
-  name: '@tencentcloud/ags-dsh-session-persistence/handoff'
-```
-
-它必须在 `session-persistence-agent-runtime` 之后加载。集成插件（[`../plugin/dsh-handoff-plugin.js`](../plugin/dsh-handoff-plugin.js)）会：
-
-- 调用 `attachDshHandoff`，把 `localEventCount` 接到 `writerCursor`；
-- 从 `ctx.agents.get(id)?.status` 和 `ctx.sessionProjections.stateOf(session, 'turnBoundary')` 提供 liveness 端口；
-- 注册 `sessionHandoff` 服务，供补丁中的 `prompt` 调用 `beforePrompt`；
-- 订阅 `session-persistence/conflict`，冲突时 `invalidateGeneration` → `releaseWriter` → `resumeGeneration`。
-
-## 6. 验证
-
-构建阶段已经会跑三个 session-controller 测试文件。构建完成后，至少手工验证三条链路：
-
-1. **A→B→A（无冲突）**
-   - A 完成一轮并 flush；
-   - B 在同一会话上完成一轮；
-   - 下一轮回到 A：`preflight` 应返回 `stale` + `closed`，触发 `invalidateGeneration` + `resumeGeneration`，不进入模型调用前就完成重建。
-2. **冲突恢复**
-   - 让 A 在旧 generation 上继续写，触发 `ResourceInUse.EventIdDuplicate`；
-   - 插件应标记 conflicted、停止重试、发 `session-persistence/conflict`；
-   - 集成插件应完成重建，后续写入成功。
-3. **未结束回合**
-   - 制造一个没有 `turn/end` 的日志；
-   - 新请求应返回 busy，而不是自动补 closer；
-   - 如果 live Agent 正在驱动该回合（`status === 'running'`），同一副本的 followup 应正常排队。
-
-## 7. 兼容性
-
-- 补丁只针对 `dsh-v0.2.1-rc.2` / `687f282e...`，不要假设它能直接应用到最新版本。
-- 升级 DSH 时重新 clone 新 tag，先 `git apply --check`；冲突通常只出现在四个位置：
-  - `ApiSessionAgentController` 的 create/resume 与 handle 保存；
-  - `SessionCommandController.prompt` 的 admission 路径；
-  - `SessionController` 的委托方法；
-  - Cordis `Context` 的服务声明。
-- 如果上游后续提供原生的 pre-prompt / generation-invalidate hook，应删除补丁，直接注册服务。
-- 如果同时需要 AGS 部署补丁（`0001-support-ags-deployment-web.patch`），先应用部署补丁再应用本补丁，并重新跑测试。
-
-## 8. 验证状态
-
-已在本机 Docker 环境完成以下验证（2026-11-05）：
-
-| 项 | 结果 |
-| --- | --- |
-| 镜像构建 | ✅ `ags-dsh-stateless-handoff` 2.15GB |
-| 构建期 session-controller 测试 | ✅ 3 files / 40 tests |
-| `build:official` | ✅ 9 个 gate 全部 PASS，包含 host / client aggregate check |
-| web profile 插件加载 | ✅ `[dsh-stateless-handoff] handoff service registered` |
-| A→B→A | ✅ 副本 A → B → A 的回合全部 `completed`，无 EventId 冲突 |
-| stale 交接 | ✅ A 的第三次请求日志：`handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}`，并出现 `rebuild started/finished` |
-
-日志中的关键证据：
-
-```text
-[dsh-stateless-handoff] handoff rebuild started  {"reason":"preflight-stale"}
-[dsh-stateless-handoff] handoff rebuild finished {"reason":"preflight-stale"}
-[dsh-stateless-handoff] handoff preflight {"action":"rebuilt","state":"stale","turnState":"closed"}
-```
-
-未覆盖：
-
-- 真实写入冲突（`ResourceInUse.EventIdDuplicate`）触发的 `recover()` 只在单测和插件级集成测试里覆盖，没有在镜像里人为制造；
-- 未结束回合的 busy 行为只在单测覆盖；
-- 工作区状态和工具副作用幂等不在本方案范围内。
-
-构建环境注意：
-
-- 8G 左右的 Docker VM 需要 `DSH_GATE_CONCURRENCY=1`，否则 `build:official` 的并行 gate 会 OOM；
-- 运行阶段一次安装 700+ 个全局 tarball 也会 OOM；Dockerfile 已限制 V8 堆、先装 vendor 再装 dsh，并使用 `--legacy-peer-deps`；
-- `xlsx@0.20.3` 只从 `cdn.sheetjs.com` 分发，慢网络下会拖慢 `pnpm install`；Dockerfile 已用 pnpm store cache mount 和 30 分钟 fetch timeout 缓解。
+1. 取新的 tag，先执行 `git apply --check`；
+2. 冲突通常出现在四个位置：`ApiSessionAgentController` 的 create/resume 与句柄保存、`SessionCommandController.prompt` 的受理路径、`SessionController` 的转发方法、`agent-loop` 的 `turn()`；
+3. 如果上游已经提供了等价的"新输入前钩子"和"按会话销毁 Agent"的原生接口，直接删除补丁，改用原生接口注册服务；
+4. 如果同时需要 AGS 部署补丁（`0001-support-ags-deployment-web.patch`），先应用部署补丁，再应用本补丁，并重新运行测试。

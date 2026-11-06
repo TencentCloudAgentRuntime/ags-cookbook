@@ -13,4 +13,6 @@ check:
 	node --check plugin/handoff-controller.js
 	node --check plugin/dsh-handoff.js
 	node --check plugin/dsh-handoff-plugin.js
-	node --test plugin/index.test.js plugin/handoff-controller.test.js plugin/dsh-handoff.test.js
+	sh -n scripts/verify-handoff.sh
+	node --test plugin/session-titles.test.js plugin/cloud-title-hints.test.js
+	node --test plugin/index.test.js plugin/handoff-controller.test.js plugin/dsh-handoff.test.js plugin/constants.test.js

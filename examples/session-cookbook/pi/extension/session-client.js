@@ -1,3 +1,4 @@
+import { withSessionTitles, piEventTitle } from './session-titles.js'
 import TencentCloudSdk from 'tencentcloud-sdk-nodejs-ags'
 import { seqOfEvent } from './session-codec.js'
 
@@ -46,12 +47,14 @@ export class SessionClient {
     })
   }
 
+  titleRequest = withSessionTitles((action, payload) => this.client.request(action, payload), piEventTitle)
+
   // Rate-limited calls were not executed, so retrying them is safe. AppendEvent is
   // also idempotent through its stable EventId.
   async request(action, payload) {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.client.request(action, payload)
+        return await this.titleRequest(action, payload)
       } catch (error) {
         if (!isRateLimited(error) || attempt >= MAX_RATE_LIMIT_RETRIES) throw error
         await new Promise(resolve => setTimeout(resolve, 200 * 2 ** attempt + Math.random() * 100))
@@ -91,6 +94,10 @@ export class SessionClient {
       const existing = await this.describeSession(sessionId)
       if (existing?.State?.CustomState !== state) throw error
     }
+  }
+
+  async flushTitle(sessionId) {
+    await this.titleRequest.flush(this.key(sessionId))
   }
 
   async appendEvent(sessionId, event) {

@@ -6,6 +6,12 @@
 
 容器里运行的是官方 `pi` 可执行文件。pi 自带的会话命令（`/resume`、`/fork`、`/tree`、`/compact`）仍然可用，因为 pi 读写的仍是它自己的会话文件。
 
+## 选择 pi 1.4.0 接入方式
+
+本文介绍 **文件/RPC 实现**：使用官方 pi 可执行文件、本地 JSONL 会话，在新进程启动时从云端恢复；同一 Session 需要单 writer。
+
+需要两个常驻实例在完整轮次之间 A → B → A 切换时，使用独立的 [pi 1.4.0 SDK/HTTP 参考实现](./reference/pi-1.4.0-stateless-handoff/README_zh.md)。它每次请求重建内存会话，不修改 pi 源码，使用独立镜像和适配器；其 README 说明生命周期、接口范围、请求成本及与文件/RPC 实现的区别。本目录文件/RPC 与 minimal 示例保持既有行为。
+
 ## 快速开始
 
 pi 1.4.0 没有预构建镜像，需要在本目录自行构建。你需要 Docker、Python 3，以及按 [AGR CLI 凭证初始化](https://github.com/TencentCloudAgentRuntime/ags-cli#initialize-cli-credentials)配置好的 `agr` v0.7.0 或更高版本。
@@ -28,6 +34,10 @@ make resume                     # 启动全新容器；模型返回该标记即�
 ```
 
 `make seed` 和 `make resume` 各自用 `docker run --rm` 启动容器，命令返回时容器已删除，容器磁盘上的内容不会保留。完成后按[第 8 节](#8-清理)清理。
+
+## 原生标题同步
+
+在 pi 里改了会话名称（包括把名称清空），云端 Session 的 `Title` 会随之更新。行为、失败时的处理和额外请求成本见[会话标题同步](../title-sync_zh.md)。
 
 ## 1. 集成原理
 
@@ -243,7 +253,7 @@ seed 的一轮会保存五个 Event：模型变更、思考级别、系统提示
 | `switch_session`，参数为已恢复文件的路径 | 切换到已恢复的会话及其历史；`get_state` 返回其 ID 和消息数 |
 | `get_fork_messages`，然后 `fork` | 从较早的用户消息创建新会话。扩展把它保存为带独立 ID 的新云端 Session |
 | `clone` | 把当前分支复制到新会话。扩展把它保存为新的云端 Session，包含复制的历史和之后的对话 |
-| `new_session` | 开始一个空会话。包含对话后，扩展把它保存为独立的云端 Session |
+| `new_session` | 开始一个空会话。包含对话或显式命名后，扩展把它保存为独立的云端 Session |
 
 fork 出的会话，其会话头里的 `parentSession` 是创建该 fork 的容器内源文件路径。这个路径在其他容器里没有意义，云端 Session 只把它作为记录保存。
 
@@ -349,3 +359,5 @@ make check      # shell 语法、扩展测试、演示脚本测试
 ```
 
 扩展测试覆盖：每种条目与 Event 的往返转换、大小限制、基于内存 Session 服务的同步与恢复逻辑、Session API 客户端和模型配置。测试不调用云端。
+
+标题同步失败会使当前 flush 报错，即使原生事件已经保存；下次 flush 重试。读取到较新云端标题标记后会放弃旧的待重试标题。ModifySession 没有版本条件，读后发生的跨实例竞争仍无法原子消除。非法可选 JSON 按无标记处理；原生标题事件的 StateDelta 必须是 JSON 对象，否则发送前明确拒绝，避免破坏状态。

@@ -1,7 +1,7 @@
 import { entryToEvent, headerToState, isTruncatedEvent, stateToHeader } from './session-codec.js'
 
-// pi writes a session file only once it holds a conversation. Cloud Sessions follow
-// the same rule, so starting pi never creates an empty Session.
+// Starting pi alone creates no cloud Session. A conversation or an explicit
+// native session_info rename is persistence activity and materializes the Session.
 function hasConversation(entries) {
   return entries.some(entry => entry.type === 'message' && (entry.message.role === 'user' || entry.message.role === 'assistant'))
 }
@@ -43,11 +43,14 @@ export class SessionSync {
   }
 
   async send(header, entries) {
-    if (!hasConversation(entries)) return
+    if (!hasConversation(entries) && !entries.some(entry => entry.type === 'session_info')) return
     if (entries.length < this.synced) {
       throw new Error(`Session ${this.sessionId} holds ${this.synced} entries in the cloud but only ${entries.length} locally`)
     }
-    if (entries.length === this.synced) return
+    if (entries.length === this.synced) {
+      await this.client.flushTitle?.(this.sessionId)
+      return
+    }
     if (!this.created) {
       await this.client.createSession(this.sessionId, headerToState(header))
       this.created = true

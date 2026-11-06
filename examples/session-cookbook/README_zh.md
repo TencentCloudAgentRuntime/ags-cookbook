@@ -13,6 +13,18 @@
 
 `make run` 显示导航。
 
-需要事先说明：Session 负责保存历史，但不负责决定由谁写入。多个实例写入同一会话，或进行中的回合需要由另一个实例接续时，需要额外的协调机制，详见[限制与边界](./deepseek-harness/dsh-0.2.1-rc.2/README_zh.md#8-限制与边界)。无状态交接的参考实现见 [dsh-0.2.1-rc.2-stateless-handoff](./deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md)。
+
+需要事先说明：Session 负责保存历史，但不负责决定由谁写入。如果多个实例可能轮流处理同一个会话，请从下面表格里选择切换参考实现；基础示例假定每个会话只有一个写入者。
 
 扩缩容、亲和性和工作区关联请看 [Deployment Cookbook](../deployment-cookbook/README_zh.md)。Brain/Hands 分离、由云端 Session 保存对话和 Hands 工作区路由的组合示例在 [brain-hands-session](../deployment-cookbook/brain-hands-session/README_zh.md)。
+
+## 按框架版本与实现方式选择
+
+| 实现 | 适用场景 | 框架改动 | 文档 |
+| --- | --- | --- | --- |
+| DSH 0.2.1-rc.2 基础持久化 | 单 writer，新进程恢复云端历史 | 无框架源码补丁 | [接入与运行](./deepseek-harness/dsh-0.2.1-rc.2/README_zh.md) |
+| DSH 0.2.1-rc.2 切换参考实现 | 常驻实例在完整轮次之间 A → B → A；检查并重建过期内存 generation | 独立目录、源码补丁与镜像 | [生命周期、改动与版本实现对比](./deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md) |
+| pi 1.4.0 文件/RPC | 官方 pi RPC、本地 JSONL、新进程恢复；单 writer | 无框架源码修改 | [接入与运行](./pi/README_zh.md) |
+| pi 1.4.0 SDK/HTTP 参考实现 | 每请求重建内存会话；常驻实例在完整轮次之间切换 | 独立目录和镜像；SDK 外层 HTTP host，无框架源码修改 | [生命周期、改动与版本实现对比](./pi/reference/pi-1.4.0-stateless-handoff/README_zh.md) |
+
+两个参考实现都不会让另一个实例接着执行到一半的轮次，不重放工具，也不复制工作区文件。实例崩溃留下的未结束轮次，在静默超过超时时间（默认 10 分钟）后会被自动收尾；Session 服务保持不改。选择参考实现需要构建对应目录的镜像，不会替换基础示例的入口。

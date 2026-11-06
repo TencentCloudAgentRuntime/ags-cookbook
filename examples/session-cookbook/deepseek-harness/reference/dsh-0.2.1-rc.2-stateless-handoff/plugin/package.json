@@ -15,7 +15,9 @@
     "constants.js",
     "handoff-controller.js",
     "dsh-handoff.js",
-    "dsh-handoff-plugin.js"
+    "dsh-handoff-plugin.js",
+    "session-titles.js",
+    "cloud-title-hints.js"
   ],
   "dependencies": {
     "tencentcloud-sdk-nodejs-ags": "4.1.302"

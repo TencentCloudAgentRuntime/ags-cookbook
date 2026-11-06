@@ -6,6 +6,12 @@
 
 The container runs the official `pi` binary. pi's own session commands (`/resume`, `/fork`, `/tree`, `/compact`) keep working because pi still reads and writes its normal session files.
 
+## Choose a pi 1.4.0 integration
+
+This guide describes the **file/RPC implementation**: the official pi executable, local JSONL sessions, and cloud restoration in a fresh process. Keep one writer per Session.
+
+For completed-turn A → B → A handoff between persistent replicas, use the independent [pi 1.4.0 SDK/HTTP reference](./reference/pi-1.4.0-stateless-handoff/README.md). It loads a fresh in-memory session per request and does not modify pi source. It has its own image and adapter; its README explains the lifecycle, API surface, request cost, and differences from this implementation. This directory's file/RPC and minimal examples retain their existing behavior.
+
 ## Quick start
 
 pi 1.4.0 is not in a pre-built image; build the image from this directory. You need Docker, Python 3, and the `agr` CLI v0.7.0 or later, initialized as described in the [AGR CLI credential setup](https://github.com/TencentCloudAgentRuntime/ags-cli#initialize-cli-credentials).
@@ -28,6 +34,10 @@ make resume                     # start a fresh container; success when the mode
 ```
 
 `make seed` and `make resume` each start their own container with `docker run --rm`, so the container is gone when the command returns and nothing on its disk survives. Clean up with [section 8](#8-clean-up) when you are done.
+
+## Native title synchronization
+
+When a conversation is renamed in pi (including clearing the name), the cloud Session's `Title` follows. Behavior, failure handling, and extra request cost are in [Session title synchronization](../title-sync.md).
 
 ## 1. How the integration works
 
@@ -243,7 +253,7 @@ Checked against pi 1.4.0 in this image, driving pi over RPC:
 | `switch_session` with the restored file's path | Switches to the restored session and its history; `get_state` reports its ID and message count |
 | `get_fork_messages`, then `fork` | Creates a new session from an earlier user message. The extension saves it as a new cloud Session with its own ID |
 | `clone` | Copies the active branch into a new session. The extension saves it as a new cloud Session holding the copied history and later turns |
-| `new_session` | Starts an empty session. The extension saves it as a separate cloud Session once it holds a conversation |
+| `new_session` | Starts an empty session. The extension saves it as a separate cloud Session once it holds a conversation or an explicit native name |
 
 A forked session's header holds `parentSession`, the path of the source file inside the container that created the fork. The path means nothing in another container; the cloud Session keeps it only as a record.
 
@@ -349,3 +359,5 @@ make check      # shell syntax, extension tests, demo script tests
 ```
 
 The extension tests cover the entry-to-Event conversion with a round trip for every entry kind, the size limit, the sync and restore logic against an in-memory Session service, the Session API client, and the model configuration. They do not call the cloud.
+
+A title update failure fails the current flush even if the native event was saved; a later flush retries it. A newer observed cloud marker supersedes an older pending title. ModifySession has no version condition, so races after the read cannot be eliminated atomically. Invalid optional JSON is treated as absent; a native title event requires an object StateDelta and is rejected before sending otherwise to avoid corrupting state.

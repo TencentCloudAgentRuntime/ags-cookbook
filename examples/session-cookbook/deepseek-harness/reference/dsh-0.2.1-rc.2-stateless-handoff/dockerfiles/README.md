@@ -1,188 +1,61 @@
-# DSH source patch and image build (dsh-v0.2.1-rc.2)
+# DSH handoff image: build notes
 
-## 1. Why a source patch is required
+Back to the [DSH handoff reference](../README.md).
 
-The persistence plugin can detect conflicts and stop writing, but it cannot see the turn boundary and does not hold the capability that disposes a live generation:
+## Why the image must be built from source
 
-- `session/event` is a post-commit notification; a listener failure does not stop the loop;
-- `AgentHandle.dispose()` belongs to the owner of `ctx.agents.create/resume`;
-- `session-controller` has no public per-session generation-invalidate entry point.
+The base example installs the published `@deepseek-ai/dsh` package. This scheme changes DSH itself (it keeps the Agent's teardown handle, adds a checkpoint before each new input, and adds a persistence barrier for `turn/start`), and the published package has none of that. So the build must:
 
-The patch adds the three missing pieces to `session-controller`.
+1. fetch the pinned DSH source (tag `dsh-v0.2.1-rc.2`, verifying commit `687f282e8625c6b8d11ff58211a90524be2e4317`);
+2. apply [`0001-stateless-handoff.patch`](./0001-stateless-handoff.patch);
+3. install dependencies from the lockfile, run tests, and build the official way;
+4. copy the compiled workspace into the runtime stage, then install this directory's plugin.
 
-## 2. Patch contents
+This is the same way the all-in-one image in `deployment-cookbook` patches DSH.
 
-### 2.1 Keep the `AgentHandle`
+## Build
 
-`ApiSessionAgentController` used to take only `.agent` from `ctx.agents.create/resume` and discard the handle. The patch stores it per Session on all three create/resume paths.
+Run from the reference root (not this directory):
 
-### 2.2 Invalidate and rebuild a generation
-
-```ts
-async invalidateGeneration(sessionId): Promise<void> {
-  // wait for an in-flight resolve/claim first (it stores the handle)
-  // idempotent: no live handle satisfies the postcondition
-  // deletes handles / resumes / claims, then awaits handle.dispose()
-}
-
-async resumeGeneration(sessionId): Promise<Agent> {
-  await this.invalidateGeneration(sessionId)
-  // resolveAgent() -> ctx.agents.resume() re-reads durable state
-}
+```sh
+docker build --build-arg DSH_GATE_CONCURRENCY=1 -f dockerfiles/Dockerfile -t dsh-session-handoff:local .
 ```
 
-`SessionController` exposes delegating methods with the same names for the integration plugin.
+Two groups of tests run during the build, and either one failing aborts it:
 
-### 2.3 Pre-prompt hook
+- after dependencies are installed and before the long build: three `session-controller` test files (Agent handle, prompt admission, controller);
+- after `build:official`: the whole `agent-loop` suite (it guards the synchronous `turn/start` append and the claim barrier). Part of that suite takes file locks through DSH's native addon, which `build:official` compiles, so it can only run after the build.
 
-The call site is `SessionCommandController.prompt`, **after `resolveAgent` and before admission**:
+## Build arguments
 
-```ts
-let agent = await this.resolveAgent(request.sessionId)
-if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
-if (request.mode !== 'steer') {
-  const handoff = this.ctx.get('sessionHandoff')
-  if (handoff !== undefined) {
-    const decision = await handoff.beforePrompt(request.sessionId)
-    if (decision.action === 'rebuilt') agent = await this.resolveAgent(request.sessionId)
-  }
-}
-```
+| Argument | Default | When to change it |
+| --- | --- | --- |
+| `DSH_GATE_CONCURRENCY` | unset (one per CPU) | Set to `1` on a Docker VM of about 8 GB. Otherwise the parallel build steps run out of memory and BuildKit reports `error reading from server: EOF` |
+| `BUILD_IMAGE` | `node:24.22.2-bookworm-slim` | A same-version Node image from your internal mirror |
+| `RUNTIME_IMAGE` | `node:24.8.0-bookworm-slim` | Same |
+| `DSH_MODULES` | `/opt/deepseek-harness/apps/cli/node_modules/@deepseek-ai` | Usually never. Only if DSH's `@deepseek-ai/*` packages are not at that path |
 
-Why not earlier in `SessionController.prompt`:
+The build and runtime stages use different Node images. The Debian keys in `node:24.8.0-bookworm-slim` predate the bookworm archive key rotation, so `apt-get update` fails with `NoPubKey`. The build stage needs `apt` to install `git`, `g++`, `make`, and `python3`, so it uses a newer image; the runtime stage keeps the base example's version.
 
-- on the first prompt in a replica there is no writer handle yet, so `writerCursor()` is `undefined` and the check would fail;
-- after `resolveAgent` the writer always exists and `invalidate` always has a real generation to dispose;
-- a non-`RemoteError` from the hook is mapped to `session/agent-busy`.
+## Troubleshooting
 
-`steer` must be skipped: it is inserted into the running turn, and a rebuild would tear that turn down.
+**`pnpm install` sits on SheetJS for a long time.**
+One package in DSH's lockfile (`xlsx`) is only available from `cdn.sheetjs.com`, not the npm registry. That host is very slow on some networks (hundreds of bytes to tens of KB per second in our tests). The Dockerfile keeps pnpm's store in a BuildKit cache and raises the download timeout to 30 minutes, so **a second build reuses what was already downloaded**. If it still stalls: keep the build cache and retry from a network that can reach that host directly, or pre-seed the package in your internal mirror. Do not substitute an empty package or disable lockfile verification; the resulting build cannot be trusted.
 
-The patch also declares `SessionHandoffService` and `SessionHandoffDecision`. When no such service is installed, behaviour is unchanged.
+**`apt-get update` reports `NoPubKey` / `not signed`.**
+The build-stage Node image is too old. Keep the default `BUILD_IMAGE`, or use a newer bookworm image.
 
-## 3. Source and version
+**Docker reports `error reading from server: EOF` mid-build, or an install step prints `Killed`.**
+The Docker VM ran out of memory. Set `DSH_GATE_CONCURRENCY=1`. The runtime stage copies the compiled workspace instead of globally installing hundreds of packages again precisely to avoid this kind of memory peak.
 
-Same approach as `deployment-cookbook/deepseek-harness/all-in-one/dockerfiles/Dockerfile`: clone a pinned tag from GitHub and verify the commit.
+**The image is large.**
+The runtime stage keeps the complete compiled workspace and dependency graph to avoid re-resolving dependencies; the price is size. Build for the architecture you actually run (`amd64` / `arm64`), since native dependencies are tied to it.
 
-| Item | Value |
-| --- | --- |
-| tag | `dsh-v0.2.1-rc.2` |
-| commit | `687f282e8625c6b8d11ff58211a90524be2e4317` |
-| pnpm | `11.28.5` (the DSH root `package.json` `packageManager`) |
+## Upgrading DSH
 
-## 4. Build the image
+The patch targets `dsh-v0.2.1-rc.2` only; do not assume it works for another version. To upgrade:
 
-The build context is this reference directory, not the repository root:
-
-```bash
-cd examples/session-cookbook/deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff
-docker build -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
-```
-
-The image has two stages:
-
-1. **build**: clone the tag, verify the commit, `git apply` the patch, `pnpm install --frozen-lockfile`;
-2. run the session-controller `agent` / `commands-queue-attachment` / `controller` tests;
-3. `pnpm run build:official`, then `release:pack` for the vendor and dsh tarballs;
-4. **runtime**: install the tarballs and this plugin, link the `@deepseek-ai` peers to DSH's own copy, then add the Cordis config and entrypoint.
-
-The first build compiles all of DSH and takes a while.
-
-The build stage needs apt for `git`, `g++`, `make`, and `python3`. The `node:24.8.0-bookworm-slim` image predates the Debian archive key rotation, so `apt-get update` fails with `NoPubKey`. The build stage therefore defaults to `node:24.22.2-bookworm-slim`, while the runtime stage keeps the base example's `24.8.0`. Override both for an internal mirror:
-
-```bash
-docker build \
-  --build-arg BUILD_IMAGE=your-registry/node:24.22.2-bookworm-slim \
-  --build-arg RUNTIME_IMAGE=your-registry/node:24.8.0-bookworm-slim \
-  -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
-```
-
-If a release hoists the `@deepseek-ai` packages elsewhere, override `DSH_MODULES`:
-
-```bash
-docker build --build-arg DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai ...
-```
-
-`build:official` runs build gates up to the CPU count. A small Docker VM (for example 8 GB) can OOM after `host compiler`, while the bundle and aggregate check run in parallel; BuildKit reports `error reading from server: EOF`. Cap the gate concurrency:
-
-```bash
-docker build --build-arg DSH_GATE_CONCURRENCY=1 -t ags-dsh-stateless-handoff -f dockerfiles/Dockerfile .
-```
-
-`pnpm install` fetches one xlsx tarball from `cdn.sheetjs.com`; on a slow network the default 60 s fetch timeout is not enough. The Dockerfile raises `--fetch-timeout` to 600 s, so no extra flag is needed.
-
-## 5. Runtime wiring
-
-[`agent-runtime-session.cordis.yml`](./agent-runtime-session.cordis.yml) adds one plugin to the base example:
-
-```yaml
-- id: dsh-stateless-handoff
-  name: '@tencentcloud/ags-dsh-session-persistence/handoff'
-```
-
-It must load after `session-persistence-agent-runtime`. The integration plugin ([`../plugin/dsh-handoff-plugin.js`](../plugin/dsh-handoff-plugin.js)):
-
-- calls `attachDshHandoff` and binds `localEventCount` to `writerCursor`;
-- supplies liveness from `ctx.agents.get(id)?.status` and `ctx.sessionProjections.stateOf(session, 'turnBoundary')`;
-- registers the `sessionHandoff` service the patched `prompt` calls;
-- subscribes to `session-persistence/conflict` and runs `invalidateGeneration` → `releaseWriter` → `resumeGeneration`.
-
-## 6. Verification
-
-The build already runs three session-controller test files. After the image is built, verify at least these three flows by hand:
-
-1. **A→B→A, no conflict**
-   - A finishes a turn and flushes;
-   - B finishes a turn on the same Session;
-   - the next turn returns to A: `preflight` should report `stale` + `closed` and rebuild before any model call.
-2. **Conflict recovery**
-   - let A keep writing on a stale generation and trigger `ResourceInUse.EventIdDuplicate`;
-   - the plugin should mark the handle conflicted, stop retrying, and emit `session-persistence/conflict`;
-   - the integration plugin should rebuild and later writes should succeed.
-3. **Open turn**
-   - produce a log with no `turn/end`;
-   - a new request must return busy instead of closing it automatically;
-   - if a live Agent is driving that turn (`status === 'running'`), a followup on the same replica must still queue normally.
-
-## 7. Compatibility
-
-- The patch targets `dsh-v0.2.1-rc.2` / `687f282e...`; do not assume it applies to the latest version.
-- On upgrade, clone the new tag and run `git apply --check` first. Conflicts usually appear in four places:
-  - `ApiSessionAgentController` create/resume and handle storage;
-  - the `SessionCommandController.prompt` admission path;
-  - the `SessionController` delegating methods;
-  - the Cordis `Context` service declarations.
-- If upstream later provides a native pre-prompt / generation-invalidate hook, delete the patch and register the service directly.
-- If the AGS deployment patch (`0001-support-ags-deployment-web.patch`) is also needed, apply it before this patch and re-run the tests.
-
-## 8. Verification status
-
-Verified in a local Docker environment on 2026-11-05:
-
-| Item | Result |
-| --- | --- |
-| Image build | ✅ `ags-dsh-stateless-handoff`, 2.15 GB |
-| Build-time session-controller tests | ✅ 3 files / 40 tests |
-| `build:official` | ✅ all 9 gates passed, including the host and client aggregate checks |
-| Web-profile plugin load | ✅ `[dsh-stateless-handoff] handoff service registered` |
-| A→B→A | ✅ every replica turn completed, no EventId conflict |
-| Stale handoff | ✅ A's third request logged `handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}` with `rebuild started/finished` |
-
-Key log lines:
-
-```text
-[dsh-stateless-handoff] handoff rebuild started  {"reason":"preflight-stale"}
-[dsh-stateless-handoff] handoff rebuild finished {"reason":"preflight-stale"}
-[dsh-stateless-handoff] handoff preflight {"action":"rebuilt","state":"stale","turnState":"closed"}
-```
-
-Not covered:
-
-- the `recover()` path for a real `ResourceInUse.EventIdDuplicate` write conflict (covered by unit and plugin-level integration tests only, not induced in the image);
-- the busy behaviour for an open turn (unit tests only);
-- workspace state and tool-side-effect idempotency are outside this design.
-
-Build notes:
-
-- an 8 GB Docker VM needs `DSH_GATE_CONCURRENCY=1`, otherwise the parallel `build:official` gates are OOM-killed;
-- the runtime stage's single install of 700+ global tarballs also OOMs; the Dockerfile caps the V8 heap, installs vendor and dsh separately, and uses `--legacy-peer-deps`;
-- `xlsx@0.20.3` is distributed only from `cdn.sheetjs.com`, which slows `pnpm install` on a slow network; the Dockerfile mitigates it with a pnpm store cache mount and a 30-minute fetch timeout.
+1. fetch the new tag and run `git apply --check` first;
+2. conflicts usually appear in four places: create/resume and handle storage in `ApiSessionAgentController`, the admission path of `SessionCommandController.prompt`, the forwarding methods of `SessionController`, and `turn()` in `agent-loop`;
+3. if upstream has since provided equivalent native "before new input" and "tear down an Agent by session" interfaces, delete the patch and register the service against the native interfaces;
+4. if you also need the AGS deployment patch (`0001-support-ags-deployment-web.patch`), apply it first, then this one, and rerun the tests.

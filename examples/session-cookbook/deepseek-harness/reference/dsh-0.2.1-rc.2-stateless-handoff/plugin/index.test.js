@@ -542,7 +542,7 @@ test('handoffCheck reports no turn for a Session with no events', async () => {
   await handle.close()
 })
 
-test('handoffCheck reads the cloud tail only when the local view is behind', async () => {
+test('handoffCheck validates equal-count content and reads the tail when behind', async () => {
   const store = sessionStore()
   const persistence = backend(store)
   const handle = await persistence.create(header('session-one-read'))
@@ -551,7 +551,7 @@ test('handoffCheck reads the cloud tail only when the local view is behind', asy
   const freshStart = store.calls.length
   await persistence.handoffCheck('session-one-read', 2)
   const freshReads = store.calls.slice(freshStart).filter(call => call.action === 'DescribeEvents')
-  assert.equal(freshReads.length, 1)
+  assert.equal(freshReads.length, 2)
 
   const other = backend(store)
   const otherHandle = await other.open('session-one-read', 'write')
@@ -809,4 +809,149 @@ test('request retries Session API calls rejected by the rate limit', async () =>
 
   persistence.client = { request: async () => { throw apiError('AuthFailure') } }
   await assert.rejects(persistence.request('DescribeSession', {}), /AuthFailure/)
+})
+
+
+test('write-open refuses an unfinished turn that was active recently', async () => {
+  const store = sessionStore()
+  const first = backend(store)
+  const handle = await first.create(header('session-cold-open'))
+  await handle.append([{ type: 'turn/start', seq: 0, time: Date.now() - 5_000, data: { turn: 1 } }])
+  await handle.close()
+  const next = backend(store)
+  next.openTurnTimeoutMs = 60_000
+  const before = store.calls.length
+  const failure = await next.open('session-cold-open', 'write').catch(error => error)
+  assert.equal(failure.name, 'HandoffBusyError')
+  assert.equal(failure.code, 'session/handoff-busy')
+  assert.ok(failure.retryAfterMs > 50_000 && failure.retryAfterMs <= 55_000, `retryAfterMs was ${failure.retryAfterMs}`)
+  assert.equal(store.calls.slice(before).some(call => call.action === 'AppendEvent'), false)
+  assert.equal(next.tracker.writers.has('session-cold-open'), false, 'no write claim is kept')
+  const read = await next.open('session-cold-open', 'read')
+  assert.equal((await read.read()).events.length, 1)
+  await read.close()
+})
+
+test('write-open lets DSH close an unfinished turn that has been quiet for the whole timeout', async () => {
+  const store = sessionStore()
+  const first = backend(store)
+  const handle = await first.create(header('session-abandoned'))
+  await handle.append([{ type: 'turn/start', seq: 0, time: Date.now() - 120_000, data: { turn: 1 } }])
+  await handle.close()
+  const next = backend(store)
+  next.openTurnTimeoutMs = 60_000
+  const reopened = await next.open('session-abandoned', 'write')
+  assert.equal(next.tracker.writers.has('session-abandoned'), true, 'the open succeeds so DSH can run its crash repair')
+  await reopened.close()
+})
+
+test('without a timeout configured, write-open behaves like the base example', async () => {
+  const store = sessionStore()
+  const first = backend(store)
+  const handle = await first.create(header('session-no-timeout'))
+  await handle.append([{ type: 'turn/start', seq: 0, time: Date.now(), data: { turn: 1 } }])
+  await handle.close()
+  const next = backend(store)
+  const reopened = await next.open('session-no-timeout', 'write')
+  await reopened.close()
+})
+
+test('a closer written by the new owner fences the old executor out of the log', async () => {
+  const store = sessionStore()
+  const oldOwner = backend(store), newOwner = backend(store)
+  const first = await oldOwner.create(header('session-fenced'))
+  await first.append([{ type: 'turn/start', seq: 0, time: Date.now() - 120_000, data: { turn: 1 } }])
+  await first.flush()
+  newOwner.openTurnTimeoutMs = 60_000
+  const takeover = await newOwner.open('session-fenced', 'write')
+  const closer = { type: 'turn/end', seq: 1, time: Date.now(), data: { turn: 1, reason: { kind: 'interrupted' } } }
+  await takeover.append([closer])
+  // The old executor was alive after all and now tries to write at the same position.
+  await assert.rejects(
+    first.append([{ type: 'step/start', seq: 1, time: Date.now(), data: { turn: 1, step: 1 } }]),
+    SessionPersistenceConflictError,
+  )
+  await takeover.close()
+  await first.close()
+})
+
+test('initialization without a turn is safe only when the entire persisted history is visible', async () => {
+  const store = sessionStore()
+  const first = backend(store)
+  const handle = await first.create(header('session-init-only'))
+  await handle.append([{ type: 'permission/preset', seq: 0, time: 1, data: {} }])
+  const next = backend(store)
+  const check = await next.handoffCheck('session-init-only', 0)
+  assert.equal(check.turnState, 'none')
+  await handle.close()
+})
+
+
+test('equal event counts with a divergent persisted event require a generation rebuild', async () => {
+  const store = sessionStore()
+  const first = backend(store)
+  const handle = await first.create(header('session-equal-count'))
+  await handle.append([turn(0), turn(1)])
+  const remote = store.sessions.get('session-equal-count').events[1]
+  const extensions = JSON.parse(remote.Extensions)
+  extensions.dshEvent.time += 100
+  remote.Extensions = JSON.stringify(extensions)
+  const check = await first.handoffCheck('session-equal-count', 2)
+  assert.equal(check.state, 'stale')
+  assert.equal(check.turnState, 'closed')
+  await handle.close()
+})
+
+
+test('identical turn timestamps on different replicas still compete for one claim', async () => {
+  const store = sessionStore()
+  const a = backend(store), b = backend(store)
+  const first = await a.create(header('session-identical-claim'))
+  await first.flush()
+  const second = await b.open('session-identical-claim', 'write')
+  const claim = turn(0)
+  await first.append([claim])
+  await assert.rejects(second.append([structuredClone(claim)]), SessionPersistenceConflictError)
+  await first.close()
+  await second.close()
+})
+
+
+test('InternalError remains unchanged without conflict-confirmation reads', async () => {
+  const store = sessionStore()
+  const a = backend(store), b = backend(store)
+  const handle = await a.create(header('session-internal-error'))
+  await handle.append([turn(0)])
+  const original = apiError('InternalError')
+  store.failNext('AppendEvent', original)
+  const before = store.calls.length
+  await assert.rejects(b.appendEvents('session-internal-error', [turn(0)]), error => error === original)
+  assert.deepEqual(store.calls.slice(before).map(call => call.action), ['AppendEvent'])
+  await handle.close()
+})
+
+test('JSON object key ordering from the cloud does not make identical history stale', async () => {
+  const store = sessionStore(), a = backend(store)
+  const handle = await a.create(header('session-key-order'))
+  await handle.append([turn(0), turn(1)])
+  for (const row of store.sessions.get('session-key-order').events) {
+    const ext = JSON.parse(row.Extensions)
+    const event = ext.dshEvent
+    ext.dshEvent = { data: event.data, time: event.time, seq: event.seq, type: event.type }
+    row.Extensions = JSON.stringify(ext)
+  }
+  assert.equal((await a.handoffCheck('session-key-order', 2)).state, 'fresh')
+  await handle.close()
+})
+
+// The backend registers its release callback in its constructor, which needs a full
+// Cordis Context; that wiring is covered by running the image. What can be tested
+// here is the tracker side of the contract.
+test('the tracker keeps release callbacks that a disposed Session can trigger', () => {
+  const tracker = new AgentRuntimeBackendTracker('test')
+  const released = []
+  tracker.sessionReleased.add(id => released.push(id))
+  tracker.sessionReleased.add(id => released.push(`${id}!`))
+  for (const release of tracker.sessionReleased) release('session-gone')
+  assert.deepEqual(released, ['session-gone', 'session-gone!'])
 })

@@ -16,6 +16,7 @@
  */
 
 import { attachDshHandoff } from './dsh-handoff.js'
+import { openTurnTimeoutFromEnv } from './constants.js'
 
 export const name = 'dsh-stateless-handoff'
 
@@ -30,12 +31,17 @@ export function apply(ctx, config = {}) {
     ? config.logger
     : (message, fields) => console.error(`[dsh-stateless-handoff] ${message} ${JSON.stringify(fields)}`)
 
+  // An unfinished turn is taken over once it has shown no activity for this long.
+  const openTurnTimeoutMs = openTurnTimeoutFromEnv()
+  logger('open-turn timeout', { openTurnTimeoutMs })
+
   const { dispose } = attachDshHandoff(ctx, {
     generation: {
       invalidate: sessionId => ctx.sessionController.invalidateGeneration(sessionId),
       resume: sessionId => ctx.sessionController.resumeGeneration(sessionId),
     },
     logger,
+    openTurnTimeoutMs,
   })
 
   ctx.effect(() => dispose, 'dsh-stateless-handoff: conflict listener')

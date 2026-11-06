@@ -1,3 +1,7 @@
+import { withSessionTitles, dshEventTitle } from './session-titles.js'
+import { installCloudTitleHints } from './cloud-title-hints.js'
+import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import z from '@deepseek-ai/schemastery'
 import { SESSION_FORMAT_VERSION, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import {
@@ -17,7 +21,7 @@ import {
   validateStoredEvents,
 } from '@deepseek-ai/dsh-session-persistence'
 import TencentCloudSdk from 'tencentcloud-sdk-nodejs-ags'
-import { SESSION_PERSISTENCE_CONFLICT } from './constants.js'
+import { SESSION_PERSISTENCE_CONFLICT, idleMs } from './constants.js'
 
 const { Client } = TencentCloudSdk.ags.v20250920
 
@@ -218,6 +222,13 @@ function lastTurnBoundary(events) {
     if (event?.type === 'turn/start' || event?.type === 'turn/end') return event
   }
   return undefined
+}
+
+// Compare event logs the way the cloud stores them: as JSON. A local event may
+// carry `undefined` fields or a different key order; neither is a difference.
+function sameEvents(left, right) {
+  const plain = events => JSON.parse(JSON.stringify(events))
+  return isDeepStrictEqual(plain(left), plain(right))
 }
 
 function isSessionNotFound(error) {
@@ -501,6 +512,8 @@ export class AgentRuntimeBackendTracker {
   writers = new Map()
   pending = new Map()
   counter = 0
+  /** Called with a Session id when the Session is disposed, to release per-session memory. */
+  sessionReleased = new Set()
 
   constructor(name) {
     this.name = name
@@ -572,7 +585,7 @@ export class AgentRuntimeBackendTracker {
   }
 
   install(ctx) {
-    const { writers, openHandles, name } = this
+    const { writers, openHandles, name, sessionReleased } = this
     return ctx.effect(function* () {
       yield async () => {
         const errors = []
@@ -603,11 +616,20 @@ export class AgentRuntimeBackendTracker {
         const writer = writers.get(session.id)
         if (writer === null || writer === undefined) return undefined
         return (async () => {
-          await writer.drainLive()
-          await writer.flush()
+          try {
+            await writer.drainLive()
+            await writer.flush()
+          } catch (error) {
+            if (error instanceof SessionPersistenceConflictError && !writer.conflictReported) {
+              writer.conflictReported = true
+              ctx.emit?.(SESSION_PERSISTENCE_CONFLICT, session, error)
+            }
+            throw error
+          }
         })()
       })
       yield ctx.on('session/disposed', session => {
+        for (const release of sessionReleased) release(session.id)
         const writer = writers.get(session.id)
         if (writer === null || writer === undefined) return
         // Return the close promise so a dispatcher that awaits listeners releases
@@ -627,6 +649,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     super(ctx)
     this.config = config
     this.tracker = tracker
+    tracker.sessionReleased.add(id => this.titleRequest?.forget(this.sessionRequest(id)))
     const clientConfig = {
       credential: {
         secretId: required(config.secretId, 'TENCENTCLOUD_SECRET_ID'),
@@ -642,16 +665,25 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     this.spaceId = required(config.spaceId, 'SESSION_SPACE_ID')
     this.userId = required(config.userId, 'SESSION_USER_ID')
     this.agentId = config.agentId?.trim() || undefined
+    installCloudTitleHints(ctx, this.cloudTitles)
   }
 
+  cloudTitles = new Map()
+  titleRequest
+
   async request(action, payload) {
+    this.titleRequest ??= withSessionTitles((action, payload) => this.client.request(action, payload), dshEventTitle)
     // Session actions may be newer than the generated SDK surface. AbstractClient's
     // public request path still supplies TC3 signing, retries, and endpoint handling.
     // Rate-limited calls were not executed, so retrying them is safe; AppendEvent is
     // also idempotent through its stable EventId.
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.client.request(action, payload)
+        const response = await this.titleRequest(action, payload)
+        if (action === 'DescribeSessions') {
+          for (const row of response.Sessions ?? []) this.cloudTitles.set(row.SessionId, row.Title)
+        }
+        return response
       } catch (error) {
         if (!isRateLimited(error) || attempt >= MAX_RATE_LIMIT_RETRIES) throw error
         await new Promise(resolve => setTimeout(resolve, this.retryDelayMs(attempt)))
@@ -725,6 +757,24 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
     try {
       const stored = await this.requireStored(id, options?.signal)
       options?.signal?.throwIfAborted()
+      // With a timeout configured (the handoff plugin sets it), an unfinished turn
+      // that shows recent activity may still be running on another replica, so it is
+      // refused. One that has been quiet for the whole timeout is treated as a crash:
+      // the open succeeds and DSH's own crash repair closes it. If the old executor
+      // is in fact alive, its next write collides with the closer at the same
+      // position (EventId), so it can no longer write to the log.
+      if (this.openTurnTimeoutMs !== undefined && lastTurnBoundary(stored.events)?.type === 'turn/start') {
+        const idle = idleMs(stored.events.at(-1))
+        if (idle === undefined || idle < this.openTurnTimeoutMs) {
+          const retryAfterMs = idle === undefined ? this.openTurnTimeoutMs : this.openTurnTimeoutMs - idle
+          const error = new Error(`session "${id}" has a turn that is still active or only recently went quiet; it is treated as abandoned after ${Math.ceil(this.openTurnTimeoutMs / 1000)}s without activity`)
+          error.name = 'HandoffBusyError'
+          error.code = 'session/handoff-busy'
+          error.sessionId = id
+          error.retryAfterMs = Math.ceil(retryAfterMs)
+          throw error
+        }
+      }
       return this.tracker.adopt(new AgentRuntimeSessionHandle(this, stored.meta, 'write', {
         cursor: stored.events.length,
         materialized: true,
@@ -847,7 +897,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       }
       throw error
     }
-    const state = cloudEventCount === localEventCount
+    let state = cloudEventCount === localEventCount
       ? 'fresh'
       : cloudEventCount > localEventCount
         ? 'stale'
@@ -861,18 +911,28 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       events = await this.lastDshEvents(id, cloudEventCount, signal)
     } else {
       // fresh or local-ahead: the in-process write handle already holds the
-      // latest DSH events, so the common path costs one event-count read.
+      // latest DSH events. Equal counts still require the content check below.
       const writer = this.tracker.writerOf(id)
+      // Copy: the writer's array keeps growing while we await the cloud below.
       events = writer !== undefined
-        ? writer.state.events
+        ? [...writer.state.events]
         : await this.lastDshEvents(id, cloudEventCount, signal)
+    }
+    if (state === 'fresh' && cloudEventCount > 0 && this.tracker.writerOf(id) !== undefined) {
+      const cloud = await this.describeEvents(id, signal)
+      if (!sameEvents(cloud, events)) {
+        state = 'stale'
+        events = cloud
+      }
     }
     const lastBoundary = lastTurnBoundary(events)
     const turnState = cloudEventCount === 0
       ? 'none'
       : lastBoundary?.type === 'turn/end'
         ? 'closed'
-        : 'open'
+        : lastBoundary === undefined && events.length === cloudEventCount
+          ? 'none'
+          : 'open'
     return {
       state,
       cloudEventCount,
@@ -901,6 +961,14 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
         await handle.close()
         return
       }
+    }
+  }
+
+  async flushWriter(id) {
+    const writer = this.tracker.writerOf(id)
+    if (writer !== undefined) {
+      await writer.drainLive()
+      await writer.flush()
     }
   }
 
@@ -990,6 +1058,7 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
       const projection = contentProjection(event)
       const terminal = terminalProjection(event)
       const eventId = stableEventId(id, event.seq)
+      const writerIdentity = event.type === 'turn/start' ? this.writerIdentity ??= randomUUID() : undefined
       try {
         await this.request('AppendEvent', this.sessionRequest(id, {
           Event: {
@@ -1001,7 +1070,12 @@ export class AgentRuntimeSessionPersistence extends SessionPersistence {
             Metadata: JSON.stringify(terminal.Metadata),
             ErrorCode: terminal.ErrorCode,
             ErrorMessage: terminal.ErrorMessage,
-            Extensions: JSON.stringify({ dshEvent: event }),
+            Extensions: JSON.stringify({
+              dshEvent: event,
+              // Distinguish simultaneous claims even when their DSH timestamps
+              // and turn numbers are identical. Retries in this backend retain it.
+              ...(writerIdentity === undefined ? {} : { dshWriter: writerIdentity }),
+            }),
           },
         }))
       } catch (error) {

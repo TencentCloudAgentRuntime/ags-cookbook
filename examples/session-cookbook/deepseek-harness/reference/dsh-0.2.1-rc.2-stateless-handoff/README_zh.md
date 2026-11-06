@@ -1,253 +1,281 @@
-# 无状态会话交接参考实现（DSH 0.2.1-rc.2）
+# DSH 多实例会话切换（参考实现）
 
-[English](./README.md)
+[English](./README.md) · [DSH 基础持久化示例](../../dsh-0.2.1-rc.2/README_zh.md) · [Session 示例总览](../../README_zh.md)
 
-本目录是 [dsh-0.2.1-rc.2](../../dsh-0.2.1-rc.2/README_zh.md) 持久化插件的一个**参考实现**，用于讨论多副本部署下的无状态会话交接。这里的“无状态”指副本不长期绑定会话，可以在回合边界被其他副本接管；一轮执行期间仍然需要 live session。它不是新的 DSH 版本，也不是可直接独立部署的示例；基础示例的插件、镜像和文档保持不变。
+## 先看这里
 
-本参考实现覆盖无状态交接的插件侧部分：检测 EventId 冲突、停止重试、让出写句柄，并提供执行前检查和 teardown 辅助接口。它**不引入租约**，也**不能自行重建 live session**。
+**解决什么问题。** 你有两个常驻的 DSH 实例（A 和 B）。同一个会话，这一轮由 A 处理，下一轮由 B 处理，再下一轮又回到 A，全程不重启、不做会话粘滞（不要求固定把某个会话路由到某个实例）。
 
-## 1. 与基础示例的关系
+**不用这个方案会怎样。** 基础持久化示例里，A 的内存里一直留着它上次看到的会话历史。B 写了新内容之后，请求再回到 A，A 仍然用旧历史继续，写入时才发现冲突，之后这个会话在 A 上一直失败，只能重启 A。
 
-| 方面 | 基础示例 `dsh-0.2.1-rc.2` | 本参考实现 |
-| --- | --- | --- |
-| 正常写入路径 | 相同 | 相同 |
-| EventId 冲突 | 批次留在缓冲区，下一次 flush 继续重试；副本会持续失败，需要重启 | 标记写句柄为 conflicted，丢弃未提交批次，拒绝后续写入，并发出 `session-persistence/conflict` |
-| 恢复方式 | 重启副本 | 由上层销毁并重建 generation；本参考实现只提供检测和辅助接口 |
-| 部署形态 | 可直接构建镜像 | 参考插件，需自行集成到 DSH 镜像和会话生命周期 |
+**怎么解决。** 每次收到新输入，先检查云端历史是否比本实例内存里的更新。更新则丢掉本实例的内存状态，从云端重新加载，再执行。
 
-差异以补丁形式保留在 [stateless-handoff.patch](./stateless-handoff.patch)，便于对照基础插件审查。补丁以基础插件的路径为基准，可在仓库根执行：
+**你能得到：**
 
-```bash
-git apply examples/session-cookbook/deepseek-harness/reference/dsh-0.2.1-rc.2-stateless-handoff/stateless-handoff.patch
+- 在完整的一轮之后，下一轮可以交给任意实例；
+- 两个实例同时抢同一轮时，只有一个会执行，另一个在调用模型或工具**之前**就被拒绝；
+- 某个实例在执行中崩溃，留下没有结束记录的轮次时，超过超时时间（默认 10 分钟）后会被自动接管并收尾，不需要人工处理。
+
+**你得不到：**
+
+- 一轮执行到一半时，换另一个实例接手继续；
+- 已经执行过的工具被自动重放或撤销；
+- 工作区里的文件、正在运行的进程跟着会话搬走（会话只保存对话历史）；
+- 服务端的锁或租约。本方案依赖现有的 EventId 唯一性，没有新增任何服务端能力。
+
+**代价：**
+
+- 每次新输入前多读几次云端（见"成本"）；
+- 需要给 DSH 框架源码打一个补丁，并自己构建镜像（见"构建与运行"）。
+
+## 术语
+
+后文反复用到这几个词，先固定它们的含义。
+
+| 词 | 含义 |
+| --- | --- |
+| generation | 一个实例里与某个会话对应的那一整套内存运行对象（Agent、历史投影、写入句柄）。"丢弃 generation 再重建"就是"刷新这个会话在本实例里的内存状态" |
+| writer（写入句柄） | 本实例向云端追加该会话事件的通道。同一进程里，一个会话同一时刻只有一个 |
+| 占位（claim） | 每一轮开始时，先把 `turn/start` 写进云端，写成功了才去调用模型或工具。两个实例抢同一个位置时，云端只让一个写成功 |
+| EventId | 每个事件的唯一标识，由它在会话里的序号推出。云端对"相同 EventId、内容不同"的请求返回冲突，这是整个方案检测抢占的基础 |
+| 未结束的轮次（open turn） | 云端历史里有 `turn/start`，但还没有对应的 `turn/end` |
+| fresh / stale | 云端历史和本实例内存一致 / 云端比内存新（需要重建） |
+
+## 构建与运行
+
+### 前置条件
+
+- Docker，且 Docker 虚拟机内存建议 8 GB 以上；
+- 已创建的 SessionSpace，以及有 Session API 权限的云凭证；
+- 一个可用的模型接口。
+
+按[基础示例](../../dsh-0.2.1-rc.2/README_zh.md)的说明准备 `.env`（凭证、SessionSpace、模型）。
+
+### 构建镜像
+
+在本目录执行：
+
+```sh
+docker build --build-arg DSH_GATE_CONCURRENCY=1 -f dockerfiles/Dockerfile -t dsh-session-handoff:local .
 ```
 
-## 2. 插件行为
+`DSH_GATE_CONCURRENCY=1` 让 DSH 的构建步骤串行执行。DSH 默认按 CPU 数并行，在 8 GB 左右的 Docker 虚拟机上会内存不足而中断（报 `error reading from server: EOF`）。内存更大时可以省略。
 
-冲突发生时（Session API 返回 `ResourceInUse.EventIdDuplicate`）：
+首次构建要编译整个 DSH，耗时较长。镜像为什么必须从源码构建，以及构建中可能遇到的问题，见 [dockerfiles/README_zh.md](./dockerfiles/README_zh.md)。
 
-1. 抛出 `SessionPersistenceConflictError`，包含 `sessionId`、`eventId` 和原始错误。
-2. 写句柄永久进入 conflicted 状态：
-   - 后续 `append` / `flush` 直接以同一错误拒绝；
-   - `enqueueLive` 不再缓冲新事件，而是通过失败回调上报；
-   - 未提交的本地批次被丢弃，不重试、不改写序号。
-3. 前台冲突由调用方收到错误；后台冲突会记录 error 级别日志，并发出 Cordis 事件：
+### 启动两个实例
+
+两个实例使用**同一个** SessionSpace、用户和 Agent 过滤条件，端口不同：
+
+```sh
+docker run -d --name dsh-a --env-file .env -p 18091:3080 dsh-session-handoff:local
+docker run -d --name dsh-b --env-file .env -p 18092:3080 dsh-session-handoff:local
+```
+
+两个实例各自在启动日志里打印一行 `dsh web: http://…/?token=…`，记下 token，下一步要用。
+
+### 验证 A → B → A
+
+先在任一实例的网页里新建一个会话，记下会话 ID。然后：
+
+```sh
+scripts/verify-handoff.sh "http://127.0.0.1:18091/?token=<A 的 token>" \
+                          "http://127.0.0.1:18092/?token=<B 的 token>" <会话 ID>
+```
+
+脚本依次把三轮请求发给 A、B、A，每轮之间停下来等你确认上一轮已经结束。**预期结果：**
+
+1. 三个请求都返回 `{"ok":true,"value":{"accepted":true}}`；
+2. 网页里的回答依次是 `ACK`、`ALPHA-42`、`ALPHA-42`，说明 B 和第二次的 A 都看到了此前的内容；
+3. 第三轮（回到 A）时，A 的容器日志出现：
 
    ```text
-   session-persistence/conflict
+   [dsh-stateless-handoff] handoff rebuild started   {"reason":"preflight-stale"}
+   [dsh-stateless-handoff] handoff rebuild finished  {"reason":"preflight-stale"}
    ```
 
-   监听参数为 `(session, error)`。
-4. `close()` 在 conflicted 状态下跳过排空，直接释放进程内写 claim，保证 teardown 能完成。
-5. 新增四个辅助接口：
-   - `handoffCheck(id, localEventCount)`：执行前检查云端状态，返回 `fresh` / `stale` / `local-ahead` / `not-found` 和 `turnClosed`；
-   - `eventCount(id)`：读取云端事件数；
-   - `writerCursor(id)`：读取本副本写句柄已持久化的游标；
-   - `releaseWriter(id)`：等待该会话的写句柄关闭并释放进程内 claim，供 generation 重建前调用。
+   这两行就是"A 发现自己的内存落后，丢弃并重建"的证据。可用 `docker logs dsh-a` 查看。
 
-## 3. 上层必须做的恢复动作
+> 示例服务没有身份验证。只在本机或可信网络内运行，不要直接暴露到公网。
 
-插件无法重建 live session，也无法取消正在执行的 turn。集成方需要：
+### 运行单元测试
 
-1. 监听 `session-persistence/conflict`，或捕获 `SessionPersistenceConflictError`。
-2. 停止该 generation 接收新输入，并取消（或等待）当前执行。
-3. 销毁当前 agent / generation。
-4. `await releaseWriter(sessionId)`，确保旧 writer 已关闭、进程内 claim 已释放。
-5. 通过 DSH 的恢复路径重新打开会话（预期是 `ctx.agents.resume({ resumeSessionId })`，需在 0.2.1-rc.2 上验证）。
-6. 按执行状态决定是否重跑：
-   - 本轮尚未开始执行：重建后可有界重试；
-   - 本轮已经开始执行：返回“执行结果不确定”，默认不自动重跑；
-   - 外部工具副作用无法由会话日志回滚，必要时需要工具自己的幂等键。
-
-> 文档中的 `ctx.agents.resume()`、`handle.dispose()`、session-controller 的 generation 语义来自 DSH 仓库文档；本仓库没有这些包的源码。**这些能力必须在 DSH 0.2.1-rc.2 上实际验证**，不能由插件行为推断。
-
-## 4. 控制器（handoff-controller.js）
-
-插件只提供原语。`handoff-controller.js` 把它们收敛成一个显式状态机，供持有 live session 的上层调用。
-
-集成方提供 host：
-
-| host 方法 | 职责 |
-| --- | --- |
-| `localEventCount(sessionId)` | 本副本已持久化的事件数；可直接用 `persistence.writerCursor(sessionId)` |
-| `invalidate(sessionId)` | 停止接收输入、取消或等待当前 turn、销毁 agent，并等待 teardown 完成 |
-| `resume(sessionId)` | 走 DSH 的恢复路径重新打开会话（预期是 `ctx.agents.resume({ resumeSessionId })`） |
-| `flush(sessionId)`（可选） | 在 `local-ahead` 时先执行 flush |
-| `liveAgentStatus(sessionId)`（可选） | `ctx.agents.get(id)?.status`：`'idle' \| 'running' \| undefined` |
-| `liveTurnState(sessionId)`（可选） | `sessionProjections.stateOf(session, 'turnBoundary')` 折算出的 `'none' \| 'open' \| 'closed'` |
-
-后两个是可选的 liveness 端口。没有它们时控制器保持保守：`fresh` 遇到未结束回合一律返回 busy。`attachDshHandoff` 会自动从 `ctx.agents` 和 `ctx.sessionProjections` 推导，不需要调用方手写。
-
-`dsh-handoff.js` 把接线收敛成一个 generation port：
-
-```js
-const { controller, dispose } = attachDshHandoff(ctx, {
-  generation: {
-    invalidate: id => ctx.sessionController.invalidateGeneration(id),
-    resume: id => ctx.sessionController.resumeGeneration(id),
-    flush: id => flushSession(id), // 可选
-  },
-})
+```sh
+make setup   # 安装依赖
+make check   # 语法检查和单元测试
 ```
 
-- `localEventCount` 自动接到 `persistence.writerCursor`；
-- liveness 端口自动来自 `ctx.agents` / `ctx.sessionProjections`；
-- `generation` 是唯一与 DSH 版本相关的部分；
-- `attachDshHandoff` 同时订阅 `session-persistence/conflict`，并注册 `sessionHandoff` 服务。
+单元测试不能代替上面的真实验证：它们不调用真实的云端和模型。
 
-控制器用法：
+## 工作原理
 
-```js
-const controller = createHandoffController({ persistence, host, logger })
-const decision = await controller.preflight(sessionId)
-// run | rebuilt | create | blocked；未结束回合抛 HandoffBusyError
+### 每次新输入之前
+
+```text
+本实例的 Agent 正在执行一轮吗？
+├─ 是 → 直接放行（后续输入排进这一轮）。本实例已经占住了这一轮，别的实例不可能同时在执行
+└─ 否 → 读云端历史，和本实例内存对比
+        ├─ 云端没有这个会话                 → 当作新会话创建
+        ├─ 一致（fresh）
+        │    ├─ 最后一轮没有结束            → 最近有动静则拒绝；静默超过超时则按崩溃接管（见"未结束的轮次"）
+        │    └─ 否则                        → 放行
+        ├─ 云端更新（stale）
+        │    ├─ 最后一轮没有结束            → 同上：有动静拒绝，静默超时则接管
+        │    └─ 否则                        → 丢弃 generation，释放 writer，从云端重建，再放行
+        └─ 本地比云端还新                    → 拒绝（正常不会出现：检查前已先写出本实例的缓冲）
 ```
 
-`preflight` 的决策：
+"一致"的判断同时比较事件数量和事件内容。数量相同不代表内容相同：两个实例可能各自在同一位置写了不同的事件。
 
-| 检查结果 | live agent | 回合边界 | 动作 |
-| --- | --- | --- | --- |
-| `not-found` | — | — | `create`，按新建会话处理 |
-| `local-ahead` | — | — | 有 `flush` 就先 flush 再检查，否则 `blocked` |
-| `stale` | `running` | — | 抛 `HandoffBusyError`（`local-turn-running`），不重建正在跑的回合 |
-| `stale` | idle / 无 | `open` | 抛 `HandoffBusyError`，不自动补 closer |
-| `stale` | idle / 无 | `closed` | 依次 `invalidate` → `releaseWriter` → `resume`，返回 `rebuilt` |
-| `fresh` | `running` | `open` | `run`：本副本正在跑，followup 正常排队 |
-| `fresh` | idle / 无 | `open` | 抛 `HandoffBusyError`：无人驱动但回合开口 = 崩溃残留或刚 resume |
-| `fresh` | 任意 | `closed` / `none` | `run` |
+### 抢占：为什么两个实例不会同时执行同一轮
 
-`recover(sessionId)` 用于冲突事件：只重建 generation，不重跑 turn。并发调用会合并为一次重建；`invalidate` 或 `releaseWriter` 失败时不会 `resume`。`preflight` 的检查也会等待进行中的重建结束，避免在 generation 拆到一半时读 writer cursor。
+每一轮开始时，先写入 `turn/start`，**等它写成功了才调用模型或工具**。两个实例在同一个位置写入时，云端按 EventId 只接受一个：失败的那个实例在调用模型、执行工具**之前**就收到冲突，不会有副作用。
 
-Cordis 集成可以直接订阅冲突事件：
+两个实例的 `turn/start` 的内容有可能完全相同（时间戳、轮次号都一样），云端会把它当成"同一个事件的重试"而两个都接受。为避免这一点，`turn/start` 里额外带了一个每个实例各自独立的 `dshWriter` 标识，让两边的内容必然不同。
 
-```js
-const dispose = attachConflictRecovery(ctx, controller)
-```
+这一步需要改 DSH 的 agent loop（见下文"对 DSH 的改动"）。
 
-它监听 `session-persistence/conflict`，对出错的会话调用 `recover(sessionId, 'conflict')`，并返回 disposer。
+### 冲突之后
 
-接入点：
+抢占失败的实例会：
 
-1. 部署时加载 [`plugin/dsh-handoff-plugin.js`](./plugin/dsh-handoff-plugin.js)（Cordis 名 `@tencentcloud/ags-dsh-session-persistence/handoff`）。它调用 `attachDshHandoff`，创建 controller、注册 `sessionHandoff` 服务并订阅冲突事件。
-2. 补丁在 `SessionCommandController.prompt` 中、`resolveAgent` 之后、admission 之前调用 `sessionHandoff.beforePrompt(sessionId)`；返回 `rebuilt` 时重新 resolve Agent 再继续。`steer` 不经过这个检查。
-3. 冲突事件：由 `attachConflictRecovery` 调用 `recover`；这一轮不要继续写入。
-4. 轮结束后：确保 `session/flush` 成功，下一轮 `preflight` 才能看到 durable cursor。
+1. 停止写入，丢弃还没写进云端的本地尾部；
+2. 发出 `session-persistence/conflict` 事件；
+3. 丢弃失败的 generation，释放 writer；
+4. 如果胜出的那一轮已经结束，就从云端重建；如果还没结束，就暂时不可用，**等后续请求**再加载。
 
-`invalidate` / `resume` / liveness 端口都基于 0.2.1-rc.2 的公开 API；控制器本身仍用 fake host 覆盖状态机、执行顺序和失败路径。真实构建与 A→B→A 验证见 [dockerfiles/README_zh.md](./dockerfiles/README_zh.md)。
+不会自动重跑失败的输入，也不会把根据旧历史生成的回答重新编号后写进去。
 
-## 5. 执行前检查
+### 对 DSH 的改动
 
-集成方可以在每轮开始前调用 `handoffCheck(id, localEventCount)`：
+补丁 [`dockerfiles/0001-stateless-handoff.patch`](./dockerfiles/0001-stateless-handoff.patch) 针对 DSH `dsh-v0.2.1-rc.2`（提交 `687f282e8625c6b8d11ff58211a90524be2e4317`）：
 
-| state | 含义 | 建议动作 |
+| 位置 | 改动 | 为什么需要 |
 | --- | --- | --- |
-| `fresh` | 云端与本地已持久化的事件数一致 | 正常执行 |
-| `stale` | 云端领先，另一个 writer 已经写入 | 先重建 generation，再执行 |
-| `local-ahead` | 本地领先，可能有未 flush 的事件 | 先 flush 或重建，不要直接执行 |
-| `not-found` | 会话尚不存在 | 按新建处理 |
+| `session-controller` 的 `agent.ts` | 保存 create/resume 返回的 `AgentHandle`；新增幂等的 `invalidateGeneration` / `resumeGeneration` | 只有持有 handle 才能销毁一个运行中的 Agent。框架原来把 handle 丢掉了 |
+| `session-controller` 的 `commands.ts` | 新输入在 Agent 解析之后、受理之前调用 `sessionHandoff.beforePrompt`；返回"已重建"时重新解析 Agent；`steer` 不检查 | 必须在写入前发现落后。放在 Agent 解析之后，是因为此时本实例的 writer 一定存在 |
+| `session-controller` 的 `index.ts` | 声明可选的 `sessionHandoff` 服务和 `invalidateGeneration` 等方法 | 没有安装插件时行为与原来完全一致 |
+| `agent-loop` 的 `agent.ts` | 第一个 step 之前，等 `turn/start` 持久化成功 | 抢占失败要在任何模型或工具调用之前暴露 |
+| `agent-loop` 的 `tests/claim-barrier.spec.ts` | 新增测试：占位失败时不调用模型；`turn/start` 仍是同步追加 | 保护上一条不被改坏（见下） |
 
-`handoffCheck` 还返回三态 `turnState`、派生的 `turnClosed` 和 `lastEvent`：
+关于"第一个 step 之前"：DSH 的约定是 `steer()` / `followup()` 唤醒空闲 Agent 时，`turn/start` 在同一个调用里**同步**追加，已有测试依赖这一点。所以屏障放在 `turn/start` 之后、第一个 `step/start` 之前，而不是紧贴 `turn/start`。
 
-| `turnState` | 含义 |
+DSH 的 `agent-loop` 整套测试（含补丁新增的 2 个用例，共 452 个）和 `session-controller` 的相关测试（40 个）在补丁之后全部通过。构建镜像时会重新跑这两组测试。
+
+### 对持久化插件的改动
+
+[`plugin/index.js`](./plugin/index.js) 相对基础示例的主要变化：
+
+- 把 `ResourceInUse.EventIdDuplicate` 转成带原始原因的 `SessionPersistenceConflictError`；冲突后写入句柄永久停止写入；
+- `handoffCheck`：对比云端与本地历史（数量和内容）；
+- 打开写入句柄时，如果最后一轮没有结束就拒绝（见下一节）；
+- `turn/start` 带上 `dshWriter` 标识；
+- 冲突通过 `session-persistence/conflict` 事件通知拥有者。
+
+## 未结束的轮次
+
+云端历史里有 `turn/start` 却没有 `turn/end`，可能有两种原因：另一个实例**正在**执行，或者执行它的实例**崩溃**了（被强杀、OOM、缩容）。云端历史本身分不出来，所以本方案看**有没有动静**：
+
+| 这一轮最后一条事件距现在 | 判定 | 处理 |
+| --- | --- | --- |
+| 不到超时时间 | 可能还在跑 | 拒绝，返回 `session/agent-busy`，并带 `retryAfterMs` 提示还要等多久 |
+| 超过超时时间 | 执行者已经崩溃 | **自动接管**：丢弃本实例的内存状态，重新打开会话，由 DSH 自带的崩溃修复补一条"被中断"的结束记录，然后正常执行这个请求 |
+
+也就是说，崩溃的轮次不需要人工处理：等过了超时时间，下一个请求就会自动把它收尾。
+
+### 超时时间
+
+默认 **10 分钟**，通过环境变量 `OPEN_TURN_TIMEOUT_MS`（毫秒）调整，例如 `OPEN_TURN_TIMEOUT_MS=120000` 是 2 分钟。 在 `.env` 里加一行，或用 `docker run -e OPEN_TURN_TIMEOUT_MS=120000 …` 传给容器。设成非正数或非数字会在启动时报错，而不是悄悄用默认值。
+
+怎么选：**它必须比一个健康的轮次里最长的"无动静"时间长。** 一个轮次里，模型调用或工具执行期间可能很久不产生新事件：
+
+- 设得太短：一个只是慢的轮次会被当成崩溃接管；
+- 设得太长：真正崩溃之后，这个会话要等这么久才能恢复。
+
+如果你的工具调用可能超过 10 分钟，请相应调大。
+
+### 这个设计接受了什么风险
+
+超时只是对"执行者死了"的**推断**，不是确认。因此：
+
+- **被误判的轮次会失败。** 如果旧执行者其实只是慢，它之后的写入会撞上接管者已经写下的结束记录（相同位置、相同 EventId），云端会拒绝，这一轮以冲突失败。**云端历史不会被写坏。**
+- **它已经启动的工具不会被停止。** 接管只能挡住它往日志里写，挡不住它已经在做的事。它的副作用可能和新一轮的执行同时发生。所以工具仍然需要自己保证幂等，超时时间也不应设得太激进。
+- **依赖各实例的时钟大体一致。** 判断用的是事件里记录的写入时间，时钟偏差接近超时时间时会误判。
+
+本方案没有做心跳。心跳可以把超时压到几十秒并避免慢工具被误判，但需要额外的写入通道，不在这个参考实现的范围内。
+
+### 为什么不直接让 DSH 自动修复
+
+DSH 自带崩溃修复：重新打开有未结束轮次的会话时，会立刻补一条"被中断"的记录。如果不加限制，一个只是慢、仍在执行的轮次会被立即关掉。所以本插件在**打开写入句柄**这一步先看动静：没到超时就拒绝，超过超时才放行给 DSH 去修复。
+
+## 验证情况
+
+以下是实际跑过的场景，日期 2026-11-06，DSH `dsh-v0.2.1-rc.2`，用本目录的 Dockerfile 构建的镜像，两个常驻实例，真实云端 Session 与真实模型。
+
+| 场景 | 结果 |
 | --- | --- |
-| `none` | 还没有任何事件，会话从未开始过回合 |
-| `closed` | 扫描窗口内最后一个回合边界是 `turn/end` |
-| `open` | 最后边界是 `turn/start`，或非空窗口内没有任何边界（回合比窗口长） |
+| 镜像构建（含构建期测试） | 成功。`agent-loop` 452 个、`session-controller` 40 个用例通过 |
+| A → B → A | 三轮都完成，回复依次是 `ACK`、`ALPHA-42`、`ALPHA-42`；回到 A 时日志出现 `handoff rebuild started/finished` |
+| 一个实例正在执行轮次，另一个实例收到同一会话的请求 | 返回 `session/agent-busy`，带 `retryAfterMs`；不再是 `gateway/internal` |
+| 实例在执行工具时被强杀 | 超时之前另一个实例返回忙碌；超时之后 DSH 补出 `turn/end`（`reason.kind: interrupted`），随后新的一轮正常完成。测试时把 `OPEN_TURN_TIMEOUT_MS` 设为 15000，默认仍是 10 分钟 |
 
-`turnState` 只是持久化日志的尾部判断，**不是 liveness 信号**：`open` 无法区分“另一个副本还在跑”和“崩溃残留”。真正的死活由 live Agent 的 `status` 决定（见第 4 节状态表）。拿不到 live 状态时保持保守：`fresh + open` 返回 busy。
+**没有覆盖的场景：**
 
-限制与成本：
+- 两个实例**同时**从空闲状态收到同一会话的请求、互相抢占位。"抢占失败的一方在调用模型/工具前被拒绝"这一点由单元测试和 `agent-loop` 里新增的回归测试保证，没有在镜像里做同时发起的实测；
+- 旧执行者其实只是慢、被超时误判之后的行为，只有单元测试（旧执行者的写入被 EventId 冲突挡住）；
+- 默认的 10 分钟超时、长历史下的请求量。
 
-- 这个检查不是锁，检查和写入之间仍可能竞争；写时的 EventId 冲突检测是最后一道防线。
-- `turnClosed` 不是 liveness 信号，无法区分“旧执行已经崩溃”和“仍在另一个副本执行”；它也不能替代 DSH 自己的中断修复逻辑。
-- “上一轮已结束”还要求 `turn/end` 已成功持久化（flush 完成）；只写入 `turn/end` 但 flush 失败不算完成。
-- 读取成本：`fresh` / `local-ahead` 只发 1 次 `DescribeEvents`，`turnClosed` 从本地 write handle 的日志尾部判断；只有 `stale` 需要第 2 次读取云端尾部。
+## 已知限制
 
-## 6. 第一阶段边界
+| 场景 | 现在的行为 | 你需要做什么 |
+| --- | --- | --- |
+| 两个实例同时抢同一轮 | 一个执行，另一个在调用模型/工具前被拒绝（`session/agent-busy`） | 客户端稍后重试 |
+| 实例崩溃、被缩容或重启，正好有轮次在执行 | 留下未结束的轮次。超时之前其他实例拒绝接手；超时之后自动接管并收尾 | 无需处理；等待时间由 `OPEN_TURN_TIMEOUT_MS` 决定 |
+| 旧执行者其实只是慢，被超时误判 | 它的下一次写入因冲突失败；它已启动的工具不会被停止 | 工具保证幂等；把超时设得比最长的无动静时间更长 |
+| 工具已经执行，但随后保存失败 | 工具的副作用无法撤销，也不会重放 | 工具自己保证幂等 |
+| 云端历史很长 | 每次新输入读云端的次数随历史增长 | 见"成本" |
+| 空闲实例的内存落后于云端 | 允许。后台不会主动刷新，下一次收到输入时才检查并更新 | 无需处理 |
+| 标题服务故障 | 当前保存报错，下次重试 | 见[标题同步](../../../title-sync_zh.md) |
+| 混入不遵守本约定的写入者（外部客户端、基础示例的实例） | 不受保护，可能破坏历史 | 同一会话只让遵守本方案的实例写入 |
 
-本参考实现只覆盖“回合之间切换”的场景：
+关于保护范围：本方案依赖"所有写入者遵守同一套 EventId 与只追加约定"。它不是锁，也不是租约：判断执行者是否还活着靠的是超时推断，不是确认。外部写入者、删除会话、原地修改历史，都不在保护范围内。
 
-**支持**
+## 成本
 
-- A 执行完一轮、完整持久化后，B 接手下一轮；
-- 旧 generation 仍然存活但云端已经被别人写过的冲突检测与止损；
-- 冲突后由上层重建 generation，再继续。
+每次新输入前（本实例当前没有在执行轮次时）：
 
-**不支持**
+- 1 次读取事件总数；
+- 内存与云端数量相等时，再**完整读取一遍云端历史**并逐条比较内容，约 `ceil(事件数 / 100)` 次分页请求。1000 条事件约是 1 次计数加 10 次分页；
+- 等待本实例尚未写出的缓冲写完。
 
-- 同一会话的重叠执行；
-- 冲突轮自动重跑；
-- 崩溃后自动接续进行中的回合；
-- 工作区文件、进程和模型连接的迁移；
-- 从日志判断另一个副本是否仍在执行。仅凭事件日志无法区分“崩溃中断”和“活跃回合”，因此不要自动终结未结束的回合。
+只比较尾部会漏掉"较早位置数量相同但内容不同"的分歧，所以保留完整比较。**这不是低请求成本的方案**，长会话下读量会明显高于基础示例。要降低读量，需要服务端提供版本游标或摘要，这超出了本示例（不改 Session 服务）的范围。
 
-## 7. 需要验证的 DSH 能力
+## 对基础示例的区别
 
-已在 `dsh-v0.2.1-rc.2` 源码上确认：
+| 项目 | 基础示例 | 本示例 |
+| --- | --- | --- |
+| 内存缓存 | 常驻 Agent 一直复用，不管云端有没有变化 | 保留缓存，但新输入前先验证它是否过期 |
+| 云端比内存新 | 继续用旧历史，写入时才冲突 | 丢弃 generation 并从云端重建 |
+| 一致性判断 | 无 | 同时比较数量与内容 |
+| 销毁运行中的 Agent | 框架没有对外接口 | 保存 `AgentHandle`，等待清理和 writer 释放后再重建 |
+| 未结束的轮次 | 框架恢复时立即自动补写"被中断"，可能关掉仍在执行的轮次 | 有动静就拒绝，静默超过超时才接管并交给框架补写 |
+| 抢占 | 靠写入失败才发现，此时模型可能已经调用 | `turn/start` 写成功后才执行 |
+| 冲突后 | 旧 writer 持续失败 | 销毁并释放，远端结束后恢复 |
+| 构建 | 安装已发布的 DSH 包 | 从固定的 DSH 源码构建，需应用补丁 |
+| 使用场景 | 单 writer，新进程恢复历史 | 常驻实例在完整轮次之间切换 |
 
-1. `ctx.agents.resume()`、`ctx.agents.create()` 返回 `AgentHandle`，`handle.dispose()` 存在；它是销毁 live generation 的唯一 capability。
-2. `Agent` 公开 `status: 'idle' | 'running'`（`agent/status` 同步发布），这是判断“本副本是否仍在驱动回合”的 liveness 信号。
-3. `ctx.sessionProjections.stateOf(session, 'turnBoundary')` 提供 `openTurnStartSeq` / `lastTurn`，可无歧义地区分 `none` / `open` / `closed`。
-4. 0.2.1-rc.2 没有自动补 `turn/end` 的中断修复；`turn()` 追加 `turn/start` 时也不检查已有开口。因此“未结束回合”必须由上层显式处理。
-5. `session-controller` 没有 retain/release generation 的公开语义；generation 的生命周期由 `ctx.agents` 中的 handle 决定，本参考实现通过保存并 dispose handle 来失效。
+## 涉及文件
 
-仍需在真实构建后验证：
-
-- `handle.dispose()` 是否等待写句柄关闭（本实现随后调用 `persistence.releaseWriter` 作为显式屏障）；
-- `turn/end` 之后是否保证一次成功的 `session/flush`；
-- 恢复后 inbox / queued prompt 是否保留；`agent/*` 是实时控制状态，不保证随会话日志恢复。
-
-已在 Docker 镜像中验证（2026-11-05）：镜像构建成功，`build:official` 9 个 gate 全部通过，session-controller 40/40；web profile 加载 handoff 插件后，A→B→A 的回合全部完成，A 回到 stale generation 时日志为 `handoff preflight {action:"rebuilt",state:"stale",turnState:"closed"}`，并出现 `rebuild started/finished`。详见 [dockerfiles/README_zh.md](./dockerfiles/README_zh.md#8-验证状态)。
-
-本目录已针对 `dsh-v0.2.1-rc.2`（commit `687f282e8625c6b8d11ff58211a90524be2e4317`）生成源码补丁 [0001-stateless-handoff.patch](./dockerfiles/0001-stateless-handoff.patch)，做法与 deployment cookbook all-in-one 一致：clone 固定 tag、校验 commit、`git apply` 后构建。补丁：
-
-- 保留 `ctx.agents.create/resume` 返回的 `AgentHandle`，并按 Session 保存；
-- 新增幂等的 `invalidateGeneration(sessionId)` 和 `resumeGeneration(sessionId)`；
-- 在 `SessionCommandController.prompt` 中、`resolveAgent` 之后、admission 之前调用 `sessionHandoff.beforePrompt(sessionId)`；`rebuilt` 时重新 resolve Agent；`steer` 跳过。
-
-补丁已通过 `git apply --check`，并提供了从源码构建的 [Dockerfile](./dockerfiles/Dockerfile)，但尚未在本仓库实际构建/运行 DSH。补丁针对固定 tag，升级 DSH 时需要重新 clone、`git apply --check` 并复核插入点；不要假设它直接适用于最新版本。
-
-## 8. 测试
-
-```bash
-make setup   # 安装基础示例锁定的 peer 依赖
-make check   # node --check + node --test
-```
-
-测试覆盖：
-
-- EventId 冲突后句柄永久 conflicted、拒绝后续写入；
-- 后台 drain 冲突丢弃未提交批次，而不是继续重试；
-- `releaseWriter` 关闭写句柄并释放进程内 claim；
-- `writerCursor` 返回本副本写句柄的持久化游标；
-- `handoffCheck` 返回 `fresh` / `stale` / `local-ahead` / `not-found` 和三态 `turnState`；
-- 空日志返回 `turnState: 'none'`，不会再被当成“未结束回合”；
-- `handoffCheck` 的读取成本：`fresh` / `local-ahead` 只发 1 次 `DescribeEvents`，`stale` 发 2 次；
-- 两个副本在回合边界交接后，旧 writer 的下一轮写入冲突并停止；
-- 控制器：`preflight` 的全部决策分支，包括 `fresh + open + running` 放行、`fresh + open + idle` 拒绝、`stale + running` 拒绝重建；`recover` 的重建顺序、并发重建合并、`invalidate` / `releaseWriter` 失败时不 `resume`、`attachConflictRecovery` 的事件路由；
-- `dsh-handoff`：generation port 校验、`writerCursor` 接线、`flush` 透传、liveness 端口接线、从 `ctx.agents` / `ctx.sessionProjections` 推导回合状态、冲突事件接线；
-- 集成插件：`apply` 注册 `sessionHandoff` 和冲突监听，冲突走 `invalidateGeneration` → `resumeGeneration`；
-- 端到端：A 的日志落后 → `controller.preflight` 重建 → `resume` 后继续追加；
-- 端到端：A 发生写入冲突 → `controller.recover` 重建 → `resume` 后继续追加；
-- 瞬时错误仍保留批次重试（与基础插件一致）。
-
-## 9. 文件说明
-
-| 文件 | 说明 |
+| 文件 | 作用 |
 | --- | --- |
-| [`plugin/index.js`](./plugin/index.js) | 参考插件 |
-| [`plugin/constants.js`](./plugin/constants.js) | 共享事件名 |
-| [`plugin/handoff-controller.js`](./plugin/handoff-controller.js) | 无状态交接状态机 |
-| [`plugin/dsh-handoff.js`](./plugin/dsh-handoff.js) | DSH generation port、liveness 端口与 Cordis 接线 |
-| [`plugin/dsh-handoff-plugin.js`](./plugin/dsh-handoff-plugin.js) | 运行时集成插件（`.../handoff` 导出） |
-| [`plugin/index.test.js`](./plugin/index.test.js) | 插件与端到端测试 |
-| [`plugin/handoff-controller.test.js`](./plugin/handoff-controller.test.js) | 控制器测试 |
-| [`plugin/dsh-handoff.test.js`](./plugin/dsh-handoff.test.js) | generation port、liveness 与集成插件测试 |
-| [`plugin/package.json`](./plugin/package.json) | 依赖声明与 `./handoff` 子路径导出 |
-| [`stateless-handoff.patch`](./stateless-handoff.patch) | 相对基础插件的差异 |
-| [`dockerfiles/0001-stateless-handoff.patch`](./dockerfiles/0001-stateless-handoff.patch) | DSH 0.2.1-rc.2 源码补丁 |
-| [`dockerfiles/Dockerfile`](./dockerfiles/Dockerfile) | 从源码构建带补丁的 DSH 镜像 |
-| [`dockerfiles/agent-runtime-session.cordis.yml`](./dockerfiles/agent-runtime-session.cordis.yml) | 加载 persistence + handoff 两个插件 |
-| [`dockerfiles/entrypoint.sh`](./dockerfiles/entrypoint.sh) | 与基础示例相同的入口 |
-| [`.dockerignore`](./.dockerignore) | 构建时排除 `plugin/node_modules` 链接 |
-| [`dockerfiles/README_zh.md`](./dockerfiles/README_zh.md) | 源码获取、构建与验证 |
-| [`Makefile`](./Makefile) | `setup` / `check` |
+| `plugin/index.js` | 云端持久化、历史对比、冲突检测、打开写入句柄时按超时判断未结束的轮次 |
+| `plugin/handoff-controller.js` | 每次新输入前的判断（上面的流程图） |
+| `plugin/dsh-handoff.js`、`plugin/dsh-handoff-plugin.js` | 把控制器接到 DSH：销毁/重建 generation、读取 Agent 状态、注册 `sessionHandoff` 服务 |
+| `plugin/session-titles.js`、`plugin/cloud-title-hints.js` | 标题同步，见[标题同步](../../../title-sync_zh.md) |
+| `dockerfiles/0001-stateless-handoff.patch` | DSH 源码补丁 |
+| `dockerfiles/Dockerfile`、`dockerfiles/agent-runtime-session.cordis.yml`、`dockerfiles/entrypoint.sh` | 镜像构建与启动配置 |
+| `scripts/verify-handoff.sh` | 本文"验证 A → B → A"用的脚本 |
+| `stateless-handoff.patch` | 本目录插件相对基础示例插件的差异，便于评审 |
+| `Makefile` | `setup` / `check` |
+
+旧执行者发生迟到写入冲突后会释放旧会话；冲突恢复不会重新打开仍未结束的新轮次，即使它的静默时间也已超时。只有新的显式请求才允许发起下一次超时接管。

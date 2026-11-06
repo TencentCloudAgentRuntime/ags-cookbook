@@ -2,8 +2,8 @@
 #
 # Unlike the base 0.2.1-rc.2 example, this image cannot install the published
 # @deepseek-ai/dsh release: the handoff hook lives in a source patch to
-# session-controller. Build DSH from the pinned tag, then install the packed
-# workspace the same way the deployment cookbook's all-in-one image does.
+# session-controller and the turn admission barrier. Build the pinned source
+# and preserve its compiled workspace dependency graph.
 #
 # Build context: this directory (the reference root).
 
@@ -16,7 +16,7 @@ ARG DEEPSEEK_HARNESS_COMMIT=687f282e8625c6b8d11ff58211a90524be2e4317
 # predates the Debian archive key rotation, so its keyring cannot verify the
 # current bookworm repository. The build image is therefore newer than the
 # runtime image; override BUILD_IMAGE if your registry mirrors a different one.
-FROM --platform=${BUILDPLATFORM} ${BUILD_IMAGE} AS build
+FROM ${BUILD_IMAGE} AS build
 
 ARG DEEPSEEK_HARNESS_TAG
 ARG DEEPSEEK_HARNESS_COMMIT
@@ -53,8 +53,8 @@ RUN git apply --check /tmp/0001-stateless-handoff.patch \
 RUN --mount=type=cache,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store --fetch-timeout=1800000
 
-# Guard the two behaviours the patch changes: Agent handle ownership and the
-# prompt admission path.
+# Fast guard before the long build: the session-controller changes (Agent handle
+# ownership, prompt admission) need no native addon.
 RUN pnpm exec vitest run \
       packages/api/session-controller/tests/agent.host.spec.ts \
       packages/api/session-controller/tests/commands-queue-attachment.host.spec.ts \
@@ -66,30 +66,24 @@ RUN if [ -n "$DSH_GATE_CONCURRENCY" ]; then \
       pnpm run build:official; \
     fi
 
-RUN pnpm release:pack --family vendor --out dist/npm-vendor \
-    && pnpm release:pack --family dsh --out dist/npm-dsh
+# The agent-loop suite protects the turn-claim barrier and the synchronous
+# turn/start append that steer() relies on. Part of it takes file locks through
+# the native system addon, which `build:official` compiles, so it must run after
+# the build rather than before it.
+RUN pnpm exec vitest run packages/core/agent-loop/tests
 
 FROM ${RUNTIME_IMAGE}
 
-COPY --from=build /opt/deepseek-harness/dist/npm-vendor /tmp/vendor-tarballs
-COPY --from=build /opt/deepseek-harness/dist/npm-dsh /tmp/dsh-tarballs
-
-# 700+ global tarballs in one npm resolution peak above a small Docker VM.
-# Cap the V8 heap so it collects instead of being OOM-killed by the kernel, and
-# install the vendor set first to shrink the second resolution.
-ENV NODE_OPTIONS=--max-old-space-size=4096
-
-RUN npm install --global --no-audit --no-fund --omit=optional --legacy-peer-deps \
-      /tmp/vendor-tarballs/*.tgz \
-    && npm install --global --no-audit --no-fund --omit=optional --legacy-peer-deps \
-      /tmp/dsh-tarballs/*.tgz \
-    && rm -rf /tmp/vendor-tarballs /tmp/dsh-tarballs /root/.npm
+# Preserve the already-built workspace dependency graph. Installing every packed
+# package globally re-resolves hundreds of packages and can exhaust builder RAM.
+# This runtime deliberately keeps the workspace layout used by the verified build.
+COPY --from=build /opt/deepseek-harness /opt/deepseek-harness
+RUN ln -s /opt/deepseek-harness/apps/cli/lib/bin.js /usr/local/bin/dsh
 
 ENV DSH_HOME=/root/.dsh
 
-# Where DSH's own @deepseek-ai packages are installed. npm 11 nests them under
-# the dsh package. If a future release hoists them, override this build arg.
-ARG DSH_MODULES=/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai
+# Packages shared with the compiled DSH workspace.
+ARG DSH_MODULES=/opt/deepseek-harness/apps/cli/node_modules/@deepseek-ai
 ARG PLUGIN_DIR=/usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence
 
 COPY plugin /tmp/ags-dsh-session-persistence
@@ -107,6 +101,7 @@ RUN npm install --global pnpm@11.19.0 \
     && for package in cordis dsh-session dsh-session-persistence schemastery; do \
          ln -s "$DSH_MODULES/$package" "$PLUGIN_DIR/node_modules/@deepseek-ai/$package"; \
        done \
+    && ln -sfn /opt/deepseek-harness/packages/session/session-persistence "$PLUGIN_DIR/node_modules/@deepseek-ai/dsh-session-persistence" \
     && rm -rf /root/.npm /root/.local/share/pnpm/store
 
 COPY dockerfiles/agent-runtime-session.cordis.yml /opt/dsh/agent-runtime-session.cordis.yml

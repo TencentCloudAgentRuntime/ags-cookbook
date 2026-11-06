@@ -41,8 +41,6 @@ The plugin depends on DSH's internal modules, so DSH and those modules must be e
 - `npm install -g @deepseek-ai/dsh` without a version installs whatever is newest on npm, which may not be the version the plugin targets.
 - On a mismatch, DSH fails at startup, for example with `does not provide an export named 'PersistenceCoordinator'`.
 
-## Stateless session handoff (reference)
+## Two DSH 0.2.1-rc.2 implementations
 
-The base plugin handles the single-writer path only. Under multiple replicas, an EventId conflict makes the plugin retry forever and leaves the conversation unusable on that replica.
-
-[dsh-0.2.1-rc.2-stateless-handoff](./reference/dsh-0.2.1-rc.2-stateless-handoff/README.md) is a reference toward stateless handoff: it detects the conflict, stops retrying, releases the write handle, and exposes `handoffCheck` / `releaseWriter` helpers. It also ships a `dsh-v0.2.1-rc.2` session-controller source patch, a runtime integration plugin, and a source-build Dockerfile. It does not introduce a lease: when the pre-turn check finds the cloud ahead, it rebuilds the generation with `invalidateGeneration` + `resumeGeneration`; a conflict takes the same path. It still does not cover overlapping execution or automatic reruns of a conflicted turn. It is a reference rather than a standalone deployment example, and the base example is unchanged.
+The 0.2.1-rc.2 row above describes the unpatched base persistence example. For completed-turn handoff across persistent replicas, choose the independent [DSH 0.2.1-rc.2 handoff reference](./reference/dsh-0.2.1-rc.2-stateless-handoff/README.md). It keeps the in-memory session cache, checks cloud history before input, disposes/rebuilds stale generations, and persists a turn claim before model/tool execution. It uses a source patch and its own image; base version directories are unaffected. Its README covers changed files, framework lifecycle, request cost and unfinished-turn boundaries.

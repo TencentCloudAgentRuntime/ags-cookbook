@@ -1,8 +1,7 @@
 diff --git a/packages/api/session-controller/src/agent.ts b/packages/api/session-controller/src/agent.ts
-index aaacc886..ea51645c 100644
 --- a/packages/api/session-controller/src/agent.ts
 +++ b/packages/api/session-controller/src/agent.ts
-@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises'
+@@ -5,7 +5,7 @@
  import type { Context } from '@deepseek-ai/cordis'
  import { installModelSelection } from '@deepseek-ai/dsh-agent'
  import type {
@@ -11,19 +10,23 @@ index aaacc886..ea51645c 100644
  } from '@deepseek-ai/dsh-agent'
  import type {} from '@deepseek-ai/dsh-agent-default-model'
  import type {} from '@deepseek-ai/dsh-agent-preset-registry'
-@@ -170,6 +170,8 @@ export async function inspectApiSession(
+@@ -170,6 +170,12 @@
  export class ApiSessionAgentController {
    private readonly resumes = new Map<SessionId, Promise<Agent>>()
    private readonly claims = new Map<SessionId, Promise<void>>()
-+  /** Handles created/resumed here; the disposer is a capability this owner keeps. */
++  /**
++   * Handles created/resumed here; the disposer is a capability this owner keeps.
++   * An entry can outlive its agent if the agent is torn down elsewhere; calling
++   * dispose() on such a handle again is harmless.
++   */
 +  private readonly handles = new Map<SessionId, AgentHandle>()
    private readonly selections = new WeakMap<Agent, InstalledSelection>()
    private readonly imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
- 
-@@ -210,6 +212,43 @@ export class ApiSessionAgentController {
+
+@@ -210,6 +216,43 @@
      return this.resolve(observation.header.id, observation)
    }
- 
+
 +  /**
 +   * Tear down the live generation for one Session so the next resolve/resume
 +   * rebuilds it from durable state. Idempotent: a Session with no live
@@ -64,7 +67,19 @@ index aaacc886..ea51645c 100644
    private async resolve(
      sessionId: SessionId,
      observation?: SessionObservation,
-@@ -437,11 +476,13 @@ export class ApiSessionAgentController {
+@@ -244,6 +287,11 @@
+       const racedSession = this.ctx.sessions.get(sessionId)
+       if (racedSession !== undefined && hasApiSessionSubagentOwner(this.ctx, racedSession, undefined)) {
+         return { error: apiSessionSubagentOwnershipError(sessionId) }
++      }
++      if (error instanceof Error && (error.name === 'HandoffBusyError' || error.name === 'SessionPersistenceConflictError')) {
++        const retryAfterMs = (error as Error & { retryAfterMs?: unknown }).retryAfterMs
++        const details = { reason: error.message, ...(typeof retryAfterMs === 'number' ? { retryAfterMs } : {}) }
++        return { error: new RemoteError('session/agent-busy', error.message, details) }
+       }
+       if (error instanceof Error && error.name === 'SessionAlreadyOwnedError') {
+         return { error: new RemoteError('session/writer-held', error.message, { sessionId }) }
+@@ -437,11 +485,13 @@
      if (published !== undefined && hasApiSessionSubagentOwner(this.ctx, published, live)) {
        throw new ApiSessionSubagentOwnership(sessionId)
      }
@@ -78,9 +93,9 @@ index aaacc886..ea51645c 100644
 +    this.handles.set(sessionId, handle)
 +    return handle.agent
    }
- 
+
    private async inOrder<Value>(sessionId: SessionId, operation: () => Promise<Value>): Promise<Value> {
-@@ -491,11 +532,13 @@ export class ApiSessionAgentController {
+@@ -491,11 +541,13 @@
      if (!reusable) return this.createMinted(request.cwd, composition)
      this.assertPresetApplicable(sessionId, request.agentPreset)
      try {
@@ -96,7 +111,7 @@ index aaacc886..ea51645c 100644
      } catch (error: unknown) {
        if (error instanceof ApiSessionStartedSinceObserved) return this.createMinted(request.cwd, composition)
        if (!(error instanceof Error) || error.name !== 'SessionAlreadyOwnedError') throw error
-@@ -566,7 +609,7 @@ export class ApiSessionAgentController {
+@@ -566,7 +618,7 @@
      } catch (error: unknown) {
        throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
      }
@@ -105,7 +120,7 @@ index aaacc886..ea51645c 100644
        sessionId,
        agentOptions: this.agentOptions(),
        meta: {
-@@ -574,7 +617,9 @@ export class ApiSessionAgentController {
+@@ -574,7 +626,9 @@
          ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }),
        },
        setup: composition.setup,
@@ -114,13 +129,12 @@ index aaacc886..ea51645c 100644
 +    this.handles.set(sessionId, handle)
 +    return handle.agent
    }
- 
+
    private agentOptions(): AgentOptions {
 diff --git a/packages/api/session-controller/src/commands.ts b/packages/api/session-controller/src/commands.ts
-index 8dd38573..75cac170 100644
 --- a/packages/api/session-controller/src/commands.ts
 +++ b/packages/api/session-controller/src/commands.ts
-@@ -317,8 +317,25 @@ export class SessionCommandController {
+@@ -317,8 +317,34 @@
     * @returns acknowledgement that the Agent accepted the prompt.
     */
    async prompt(request: SessionPromptRequest, source: MessageSource): Promise<SessionPromptValue> {
@@ -140,7 +154,16 @@ index 8dd38573..75cac170 100644
 +          if (decision.action === 'rebuilt') agent = await this.resolveAgent(request.sessionId)
 +        } catch (error: unknown) {
 +          if (error instanceof RemoteError) throw error
-+          throw new RemoteError('session/agent-busy', 'session handoff pending', { reason: String(error) })
++          // Only an expected "cannot take a turn now" answer is a retryable busy.
++          // Anything else (Session API failure, a bug in the hook) must stay
++          // visible instead of being disguised as busy.
++          if ((error as { code?: unknown } | null)?.code === 'session/handoff-busy') {
++            const reason = error instanceof Error ? error.message : 'session handoff pending'
++            const retryAfterMs = (error as { retryAfterMs?: unknown }).retryAfterMs
++            const details = { reason, ...(typeof retryAfterMs === 'number' ? { retryAfterMs } : {}) }
++            throw new RemoteError('session/agent-busy', reason, details)
++          }
++          throw error
 +        }
 +      }
 +    }
@@ -148,13 +171,12 @@ index 8dd38573..75cac170 100644
      const admit = async (): Promise<SessionPromptValue> => {
        try {
 diff --git a/packages/api/session-controller/src/index.ts b/packages/api/session-controller/src/index.ts
-index 2362bce2..7953bcaf 100644
 --- a/packages/api/session-controller/src/index.ts
 +++ b/packages/api/session-controller/src/index.ts
-@@ -73,10 +73,32 @@ export { ApiSessionNotFound } from './agent.ts'
+@@ -73,10 +73,32 @@
  export { SessionFileReferences } from './file-references.ts'
  export { SessionSkillCatalog } from './skill-catalog.ts'
- 
+
 +/**
 + * Optional pre-prompt hook installed by a stateless handoff plugin. It runs
 + * after the Agent is resolved and before a new turn is admitted; the decision
@@ -183,12 +205,11 @@ index 2362bce2..7953bcaf 100644
 +    sessionHandoff?: SessionHandoffService
    }
  }
- 
-@@ -244,6 +266,24 @@ export class SessionController extends TypertRemoteService {
-     return this.agents.resolveAgent(sessionId)
+
+@@ -245,6 +267,24 @@
    }
- 
-+  /**
+
+   /**
 +   * Tear down the live generation so the next resolve/resume rebuilds it from
 +   * durable state. Idempotent when no generation is live.
 +   * @param sessionId - Session whose live Agent generation is invalidated.
@@ -206,6 +227,93 @@ index 2362bce2..7953bcaf 100644
 +    return this.agents.resumeGeneration(sessionId)
 +  }
 +
-   /**
++  /**
     * Inspect one attached or persisted Session without activating its Agent.
     * @param sessionId - durable Session identity.
+    * @param signal - optional caller cancellation for persistence reads.
+diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
+--- a/packages/core/agent-loop/src/agent.ts
++++ b/packages/core/agent-loop/src/agent.ts
+@@ -327,6 +327,13 @@
+           turnEnds = { kind: 'completed' }
+           return false
+         }
++        signal.throwIfAborted()
++        // The first step is the first point that can call a model or a tool.
++        // Persist the turn claim before it: a competing replica appends the same
++        // stable EventId at the turn/start position and must lose here, before
++        // any side effect. turn/start itself stays a synchronous append, which
++        // callers of steer()/followup() rely on.
++        if (phase.step === 0) await this.ctx.sessions.flush(this.session)
+         signal.throwIfAborted()
+         this.session.append('step/start', { turn, step })
+         phase.step = step
+diff --git a/packages/core/agent-loop/tests/claim-barrier.spec.ts b/packages/core/agent-loop/tests/claim-barrier.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/packages/core/agent-loop/tests/claim-barrier.spec.ts
+@@ -0,0 +1,64 @@
++import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
++import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
++import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
++import ToolRuntime from '@deepseek-ai/dsh-tools'
++import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
++import AgentLoop from '@deepseek-ai/dsh-agent-loop'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++import { MockAdapter, textResponse } from './mock-adapter.ts'
++
++async function harness(adapter: MockAdapter) {
++  const ctx = new Context()
++  await ctx.plugin(LlmRuntime)
++  await ctx.plugin(SessionStore)
++  await ctx.plugin(SessionProjectionRegistry)
++  await ctx.plugin(SystemPrompt, { personaPrefix: '' })
++  await ctx.plugin(ToolRuntime)
++  await ctx.plugin(AgentRegistry)
++  await ctx.plugin(AgentLoop, { agents: [] })
++  ctx.llm.registerAdapter(['mock'], adapter)
++  return ctx
++}
++
++function nextIdle(ctx: Context, agent: Agent): Promise<void> {
++  return new Promise((resolve) => {
++    const stop = ctx.on('agent/status', ({ agent: subject, status }) => {
++      if (subject === agent && status === 'idle') { stop(); resolve() }
++    })
++  })
++}
++
++/**
++ * Stateless handoff relies on the turn claim (turn/start) being persisted before
++ * any model call or tool, so that a competing replica loses at the claim.
++ */
++describe('turn claim barrier', () => {
++  it('does not call the model when the claim cannot be persisted', async () => {
++    const adapter = new MockAdapter([textResponse('must not run')])
++    const ctx = await harness(adapter)
++    let flushes = 0
++    ctx.on('session/flush', () => { flushes += 1; throw new Error('claim lost: EventId already taken') })
++    const agent = await ctx.agentLoop.create(SessionId('claim-lost'), { provider: 'mock', model: 'mock' })
++
++    const idle = nextIdle(ctx, agent)
++    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
++    await idle
++
++    expect(flushes).toBeGreaterThan(0)
++    expect(adapter.requests).toHaveLength(0)
++  })
++
++  it('still appends turn/start synchronously when input wakes an idle agent', async () => {
++    const adapter = new MockAdapter([textResponse('ok')])
++    const ctx = await harness(adapter)
++    const agent = await ctx.agentLoop.create(SessionId('sync-start'), { provider: 'mock', model: 'mock' })
++
++    const idle = nextIdle(ctx, agent)
++    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }))
++    expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/start')).toHaveLength(1)
++    await idle
++    expect(adapter.requests).toHaveLength(1)
++  })
++})

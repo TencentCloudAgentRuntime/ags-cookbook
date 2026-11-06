@@ -265,3 +265,26 @@ test('the integration plugin registers the handoff service and conflict recovery
     ['resumeGeneration', 'session-plugin'],
   ])
 })
+
+
+test('the open-turn timeout is applied while the plugin is attached and restored on dispose', () => {
+  const persistence = fakePersistence(check('fresh'))
+  persistence.openTurnTimeoutMs = undefined
+  const ctx = fakeCtx(persistence)
+  const { dispose } = attachDshHandoff(ctx, { generation: fakeGeneration() })
+  assert.equal(persistence.openTurnTimeoutMs, 10 * 60 * 1000)
+  dispose()
+  assert.equal(persistence.openTurnTimeoutMs, undefined)
+})
+
+test('the open-turn timeout can be configured', () => {
+  const persistence = fakePersistence(check('fresh'))
+  attachDshHandoff(fakeCtx(persistence), { generation: fakeGeneration(), openTurnTimeoutMs: 90_000 })
+  assert.equal(persistence.openTurnTimeoutMs, 90_000)
+})
+
+test('a blocked local-ahead state is reported as such, not as an open turn', async () => {
+  const ctx = fakeCtx(fakePersistence(check('local-ahead')))
+  attachDshHandoff(ctx, { generation: fakeGeneration() })
+  await assert.rejects(ctx.get('sessionHandoff').beforePrompt('s'), error => error.reason === 'local-ahead')
+})

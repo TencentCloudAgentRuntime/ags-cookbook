@@ -1,18 +1,79 @@
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/.gitignore b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/.gitignore
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/.gitignore	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/.gitignore	2026-11-05 16:38:48
-@@ -0,0 +1 @@
-+node_modules
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js	2026-11-04 10:56:35
-@@ -0,0 +1,2 @@
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.js
+@@ -0,0 +1,37 @@
 +/** Cordis event emitted when a write handle detects an EventId conflict. */
 +export const SESSION_PERSISTENCE_CONFLICT = 'session-persistence/conflict'
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js	2026-11-05 19:53:49
-@@ -0,0 +1,42 @@
++
++/**
++ * How long an unfinished turn may show no new event before it is treated as
++ * abandoned (its executor crashed) and closed so the conversation can continue.
++ *
++ * It must be longer than the longest quiet stretch of a healthy turn, such as a
++ * slow model call or a long-running tool. Too short a value takes over turns that
++ * are still running; too long a value leaves a crashed conversation unusable for
++ * that long. Set `OPEN_TURN_TIMEOUT_MS` to change it.
++ */
++export const DEFAULT_OPEN_TURN_TIMEOUT_MS = 10 * 60 * 1000
++
++/**
++ * Read the open-turn timeout from the environment.
++ * @throws when the value is set but is not a positive number, so a typo fails at startup.
++ */
++export function openTurnTimeoutFromEnv(env = process.env) {
++  const raw = env.OPEN_TURN_TIMEOUT_MS
++  if (raw === undefined || raw.trim() === '') return DEFAULT_OPEN_TURN_TIMEOUT_MS
++  const value = Number(raw)
++  if (!Number.isFinite(value) || value <= 0) {
++    throw new Error(`OPEN_TURN_TIMEOUT_MS must be a positive number of milliseconds, got "${raw}"`)
++  }
++  return value
++}
++
++/**
++ * Milliseconds since the last event of an unfinished turn, or undefined when it
++ * cannot be told. `time` is the writer's Unix epoch milliseconds, so this assumes
++ * the replicas' clocks agree to well within the timeout.
++ */
++export function idleMs(lastEvent, now = Date.now()) {
++  const time = lastEvent?.time
++  return Number.isFinite(time) ? Math.max(0, now - time) : undefined
++}
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.test.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/constants.test.js
+@@ -0,0 +1,24 @@
++import assert from 'node:assert/strict'
++import test from 'node:test'
++import { DEFAULT_OPEN_TURN_TIMEOUT_MS, idleMs, openTurnTimeoutFromEnv } from './constants.js'
++
++test('the open-turn timeout defaults to ten minutes and can be set from the environment', () => {
++  assert.equal(DEFAULT_OPEN_TURN_TIMEOUT_MS, 600_000)
++  assert.equal(openTurnTimeoutFromEnv({}), 600_000)
++  assert.equal(openTurnTimeoutFromEnv({ OPEN_TURN_TIMEOUT_MS: '  ' }), 600_000)
++  assert.equal(openTurnTimeoutFromEnv({ OPEN_TURN_TIMEOUT_MS: '90000' }), 90_000)
++})
++
++test('an invalid timeout fails at startup instead of silently using the default', () => {
++  for (const value of ['abc', '0', '-5', 'Infinity']) {
++    assert.throws(() => openTurnTimeoutFromEnv({ OPEN_TURN_TIMEOUT_MS: value }), /OPEN_TURN_TIMEOUT_MS/)
++  }
++})
++
++test('idleMs reads the event time as epoch milliseconds and is undefined when unknown', () => {
++  assert.equal(idleMs({ time: 1_000 }, 4_000), 3_000)
++  assert.equal(idleMs({ time: 5_000 }, 4_000), 0, 'a writer clock slightly ahead is not a negative idle time')
++  assert.equal(idleMs({}, 4_000), undefined)
++  assert.equal(idleMs(undefined, 4_000), undefined)
++  assert.equal(idleMs({ time: 'x' }, 4_000), undefined)
++})
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff-plugin.js
+@@ -0,0 +1,48 @@
 +/**
 + * Cordis runtime plugin for stateless session handoff.
 + *
@@ -31,6 +92,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 + */
 +
 +import { attachDshHandoff } from './dsh-handoff.js'
++import { openTurnTimeoutFromEnv } from './constants.js'
 +
 +export const name = 'dsh-stateless-handoff'
 +
@@ -45,20 +107,26 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +    ? config.logger
 +    : (message, fields) => console.error(`[dsh-stateless-handoff] ${message} ${JSON.stringify(fields)}`)
 +
++  // An unfinished turn is taken over once it has shown no activity for this long.
++  const openTurnTimeoutMs = openTurnTimeoutFromEnv()
++  logger('open-turn timeout', { openTurnTimeoutMs })
++
 +  const { dispose } = attachDshHandoff(ctx, {
 +    generation: {
 +      invalidate: sessionId => ctx.sessionController.invalidateGeneration(sessionId),
 +      resume: sessionId => ctx.sessionController.resumeGeneration(sessionId),
 +    },
 +    logger,
++    openTurnTimeoutMs,
 +  })
 +
 +  ctx.effect(() => dispose, 'dsh-stateless-handoff: conflict listener')
 +}
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js	2026-11-05 19:54:05
-@@ -0,0 +1,97 @@
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.js
+@@ -0,0 +1,113 @@
 +/**
 + * Minimal DSH wiring for the handoff controller.
 + *
@@ -82,14 +150,18 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 + */
 +
 +import { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
++import { DEFAULT_OPEN_TURN_TIMEOUT_MS } from './constants.js'
 +
-+export function createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger }) {
++export function createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger, openTurnTimeoutMs }) {
 +  if (!generation || typeof generation.invalidate !== 'function' || typeof generation.resume !== 'function') {
 +    throw new TypeError('generation must provide invalidate() and resume()')
 +  }
 +
 +  const host = {
-+    localEventCount: sessionId => persistence.writerCursor(sessionId),
++    localEventCount: async sessionId => {
++      await persistence.flushWriter?.(sessionId)
++      return persistence.writerCursor(sessionId)
++    },
 +    invalidate: sessionId => generation.invalidate(sessionId),
 +    resume: sessionId => generation.resume(sessionId),
 +  }
@@ -98,7 +170,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +  }
 +  if (typeof liveAgentStatus === 'function') host.liveAgentStatus = liveAgentStatus
 +  if (typeof liveTurnState === 'function') host.liveTurnState = liveTurnState
-+  return createHandoffController({ persistence, host, logger })
++  return createHandoffController({ persistence, host, logger, openTurnTimeoutMs })
 +}
 +
 +/**
@@ -110,10 +182,15 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 + *
 + * @returns {{ controller: ReturnType<typeof createHandoffController>, dispose: () => void }}
 + */
-+export function attachDshHandoff(ctx, { generation, logger = () => {} } = {}) {
++export function attachDshHandoff(ctx, { generation, logger = () => {}, openTurnTimeoutMs = DEFAULT_OPEN_TURN_TIMEOUT_MS } = {}) {
 +  if (!ctx || typeof ctx.on !== 'function') throw new TypeError('ctx.on is required')
 +  const persistence = ctx.sessionPersistence
 +  if (!persistence) throw new TypeError('ctx.sessionPersistence is required')
++  // The persistence layer applies the same timeout when a Session is opened for
++  // writing, before DSH's own crash repair can run. The previous value is
++  // restored when this plugin unloads.
++  const previousTimeout = persistence.openTurnTimeoutMs
++  persistence.openTurnTimeoutMs = openTurnTimeoutMs
 +
 +  const liveAgentStatus = sessionId => ctx.get?.('agents')?.get?.(sessionId)?.status
 +  const liveTurnState = sessionId => {
@@ -125,7 +202,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +    return boundary.lastTurn === 0 ? 'none' : 'closed'
 +  }
 +
-+  const controller = createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger })
++  const controller = createDshHandoff({ persistence, generation, liveAgentStatus, liveTurnState, logger, openTurnTimeoutMs })
 +  // The DSH source patch calls this before admitting a non-steer prompt, after
 +  // resolving the Agent. `rebuilt` tells the caller to resolve again because
 +  // the Agent it held was disposed.
@@ -136,13 +213,16 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +  const handoff = {
 +    beforePrompt: async sessionId => {
 +      const decision = await controller.preflight(sessionId)
-+      logger('handoff preflight', {
-+        sessionId,
-+        action: decision.action,
-+        state: decision.check?.state,
-+        turnState: decision.check?.turnState,
-+      })
-+      if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check, 'open-turn')
++      // The common case (`run`) is not worth a log line per prompt.
++      if (decision.action !== 'run') {
++        logger('handoff preflight', {
++          sessionId,
++          action: decision.action,
++          state: decision.check?.state,
++          turnState: decision.check?.turnState,
++        })
++      }
++      if (decision.action === 'blocked') throw new HandoffBusyError(sessionId, decision.check, 'local-ahead')
 +      return decision
 +    },
 +  }
@@ -153,13 +233,18 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +    ctx.set('sessionHandoff', handoff)
 +  }
 +  logger('handoff service registered', {})
-+  const dispose = attachConflictRecovery(ctx, controller, { logger })
++  const stopRecovery = attachConflictRecovery(ctx, controller, { logger })
++  const dispose = () => {
++    stopRecovery()
++    persistence.openTurnTimeoutMs = previousTimeout
++  }
 +  return { controller, dispose }
 +}
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js	2026-11-05 16:39:48
-@@ -0,0 +1,267 @@
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh-handoff.test.js
+@@ -0,0 +1,290 @@
 +import assert from 'node:assert/strict'
 +import test from 'node:test'
 +import { attachDshHandoff, createDshHandoff } from './dsh-handoff.js'
@@ -427,10 +512,34 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/dsh
 +    ['resumeGeneration', 'session-plugin'],
 +  ])
 +})
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js	2026-11-05 16:43:40
-@@ -0,0 +1,210 @@
++
++
++test('the open-turn timeout is applied while the plugin is attached and restored on dispose', () => {
++  const persistence = fakePersistence(check('fresh'))
++  persistence.openTurnTimeoutMs = undefined
++  const ctx = fakeCtx(persistence)
++  const { dispose } = attachDshHandoff(ctx, { generation: fakeGeneration() })
++  assert.equal(persistence.openTurnTimeoutMs, 10 * 60 * 1000)
++  dispose()
++  assert.equal(persistence.openTurnTimeoutMs, undefined)
++})
++
++test('the open-turn timeout can be configured', () => {
++  const persistence = fakePersistence(check('fresh'))
++  attachDshHandoff(fakeCtx(persistence), { generation: fakeGeneration(), openTurnTimeoutMs: 90_000 })
++  assert.equal(persistence.openTurnTimeoutMs, 90_000)
++})
++
++test('a blocked local-ahead state is reported as such, not as an open turn', async () => {
++  const ctx = fakeCtx(fakePersistence(check('local-ahead')))
++  attachDshHandoff(ctx, { generation: fakeGeneration() })
++  await assert.rejects(ctx.get('sessionHandoff').beforePrompt('s'), error => error.reason === 'local-ahead')
++})
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.js
+@@ -0,0 +1,236 @@
 +/**
 + * Turns the persistence plugin's handoff primitives into an explicit state
 + * machine for the owner of the live session.
@@ -456,9 +565,14 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 + * another replica look identical. A live Agent's `status` is the liveness
 + * signal, and its Session projection is the authoritative turn boundary for
 + * the fresh case.
++ *
++ * When this replica's own Agent is running a turn, preflight returns `run`
++ * without reading the cloud. The turn already holds its claim (turn/start is
++ * persisted before any work), so another writer cannot be running one, and a
++ * read would only race this replica's own in-flight appends.
 + */
 +
-+import { SESSION_PERSISTENCE_CONFLICT } from './constants.js'
++import { SESSION_PERSISTENCE_CONFLICT, idleMs } from './constants.js'
 +
 +/**
 + * A new turn was refused because the stored log or the live generation is in
@@ -470,12 +584,15 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +   * @param check - the handoffCheck() value the decision was made from.
 +   * @param reason - why the turn was refused.
 +   */
-+  constructor(sessionId, check, reason = 'open-turn') {
++  constructor(sessionId, check, reason = 'open-turn', retryAfterMs = undefined) {
 +    super(`session "${sessionId}" cannot start a new turn: ${describe(check, reason)}`)
 +    this.name = 'HandoffBusyError'
++    this.code = 'session/handoff-busy'
 +    this.sessionId = sessionId
 +    this.check = check
 +    this.reason = reason
++    /** When set, a retry after this many milliseconds is expected to succeed if the turn really crashed. */
++    this.retryAfterMs = retryAfterMs
 +  }
 +}
 +
@@ -486,9 +603,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +}
 +
 +function describe(check, reason) {
-+  if (reason === 'local-turn-running') {
-+    return 'this replica is still driving a turn while the stored log is ahead'
-+  }
++  if (reason === 'local-ahead') return 'this replica holds events that are not stored yet'
 +  const turnState = turnStateOf(check)
 +  if (turnState === 'open') {
 +    return check.state === 'stale'
@@ -498,7 +613,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +  return check.state
 +}
 +
-+export function createHandoffController({ persistence, host, logger = () => {} }) {
++export function createHandoffController({ persistence, host, logger = () => {}, openTurnTimeoutMs, now = Date.now }) {
 +  if (!persistence || typeof persistence.handoffCheck !== 'function' || typeof persistence.releaseWriter !== 'function') {
 +    throw new TypeError('persistence must provide handoffCheck() and releaseWriter()')
 +  }
@@ -524,7 +639,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +    return persistence.handoffCheck(sessionId, localEventCount)
 +  }
 +
-+  async function rebuild(sessionId, reason) {
++  async function rebuild(sessionId, reason, allowOpenTurn = true) {
 +    const running = rebuilding.get(sessionId)
 +    if (running !== undefined) return running
 +
@@ -534,6 +649,13 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +      // in-process write claim and the live Session object.
 +      await host.invalidate(sessionId)
 +      await persistence.releaseWriter(sessionId)
++      if (!allowOpenTurn) {
++        // A losing executor may discard its generation, but conflict recovery
++        // must not take the winner's turn back, even after its quiet timeout.
++        // Only an explicit new prompt is allowed to initiate timeout takeover.
++        const current = await persistence.handoffCheck(sessionId, 0)
++        if (turnStateOf(current) === 'open') throw new HandoffBusyError(sessionId, current)
++      }
 +      const generation = await host.resume(sessionId)
 +      logger('handoff rebuild finished', { sessionId, reason })
 +      return generation
@@ -572,10 +694,13 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +   * - `blocked`  local is ahead (flush failed or was unavailable)
 +   *
 +   * Throws HandoffBusyError when the stored log is ahead and its turn is open,
-+   * or when an open turn has no driver in this replica. An open turn is not a
-+   * liveness signal and is never closed automatically.
++   * or when an open turn has no driver here and has not reached the configured
++   * quiet timeout. Older open turns are rebuilt through native crash repair.
 +   */
 +  async function preflight(sessionId) {
++    // Our own turn is running: queueing more input is normal and needs no cloud read.
++    if (await resolveAgentStatus(sessionId) === 'running') return { action: 'run' }
++
 +    let current = await check(sessionId)
 +
 +    if (current.state === 'local-ahead' && typeof host.flush === 'function') {
@@ -587,27 +712,27 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +    if (current.state === 'local-ahead') return { action: 'blocked', check: current }
 +
 +    const turnState = await resolveTurnState(sessionId, current)
-+    const agentStatus = await resolveAgentStatus(sessionId)
-+
-+    if (current.state === 'stale') {
-+      // Never rebuild underneath a turn this replica is still driving. The
-+      // running turn will surface its own conflict on append.
-+      if (agentStatus === 'running') {
-+        throw new HandoffBusyError(sessionId, current, 'local-turn-running')
++    // Here this replica's Agent is idle, so an open turn has no driver in this
++    // process. Either another replica is running it or it was left by a crash,
++    // and the log cannot tell which. Activity tells: a turn that recently wrote an
++    // event may be alive and is refused; one quiet for the whole timeout is
++    // treated as a crash and closed by rebuilding, which makes DSH's own crash
++    // repair run when the Session is reopened for writing. Without a configured
++    // timeout nothing is ever taken over.
++    if (turnState === 'open') {
++      const idle = idleMs(current.lastEvent, now())
++      if (openTurnTimeoutMs === undefined || idle === undefined || idle < openTurnTimeoutMs) {
++        const retryAfterMs = openTurnTimeoutMs === undefined ? undefined : Math.ceil(openTurnTimeoutMs - (idle ?? 0))
++        throw new HandoffBusyError(sessionId, current, 'open-turn', retryAfterMs)
 +      }
-+      // The remote writer's turn is open, or a crashed turn was left open.
-+      // This replica cannot tell which, and must not close it.
-+      if (turnState !== 'closed') throw new HandoffBusyError(sessionId, current, 'open-turn')
-+      const generation = await rebuild(sessionId, 'preflight-stale')
++      logger('handoff taking over an abandoned turn', { sessionId, idleMs: idle })
++      const generation = await rebuild(sessionId, 'open-turn-abandoned')
 +      return { action: 'rebuilt', check: current, generation }
 +    }
 +
-+    // fresh: an open turn is only this replica's own turn when the live Agent
-+    // is actually driving it. Queueing a followup into a running turn is
-+    // normal; an idle Agent with an open log is crash residue (or a turn that
-+    // was just resumed) and must not be continued silently.
-+    if (turnState === 'open' && agentStatus !== 'running') {
-+      throw new HandoffBusyError(sessionId, current, 'open-turn')
++    if (current.state === 'stale') {
++      const generation = await rebuild(sessionId, 'preflight-stale')
++      return { action: 'rebuilt', check: current, generation }
 +    }
 +    return { action: 'run', check: current }
 +  }
@@ -617,8 +742,18 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +   * caller decides whether the failed turn may be retried.
 +   */
 +  async function recover(sessionId, reason = 'conflict') {
-+    const generation = await rebuild(sessionId, reason)
-+    return { action: 'rebuilt', check: await check(sessionId), generation }
++    try {
++      const generation = await rebuild(sessionId, reason, false)
++      return { action: 'rebuilt', check: await check(sessionId), generation }
++    } catch (error) {
++      // The losing generation is disposed, but the winner may still be running.
++      // Resume will reject its open turn. Wait for a later request to cold-load
++      // the completed history instead of repairing or replaying it.
++      if (error?.name !== 'HandoffBusyError' && error?.code !== 'session/agent-busy'
++        && error?.name !== 'SessionPersistenceConflictError'
++        && error?.code !== 'session/handoff-busy') throw error
++      return { action: 'blocked', check: error.check ?? await persistence.handoffCheck(sessionId, 0) }
++    }
 +  }
 +
 +  return { preflight, recover, rebuild, check }
@@ -641,10 +776,11 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +    })
 +  })
 +}
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js	1970-01-01 08:00:00
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js	2026-11-05 16:43:44
-@@ -0,0 +1,273 @@
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js
+new file mode 100644
+--- /dev/null
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/handoff-controller.test.js
+@@ -0,0 +1,366 @@
 +import assert from 'node:assert/strict'
 +import test from 'node:test'
 +import { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
@@ -731,7 +867,9 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +
 +  const result = await controller.preflight('session-queue')
 +  assert.equal(result.action, 'run')
-+  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'liveTurnState', 'liveAgentStatus'])
++  // No cloud read: our own running turn already holds its claim.
++  assert.deepEqual(host.calls.map(call => call[0]), ['liveAgentStatus'])
++  assert.equal(persistence.calls.length, 0)
 +})
 +
 +test('preflight refuses a fresh open turn when the live Agent is idle', async () => {
@@ -768,7 +906,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +  const result = await controller.preflight('session-b')
 +  assert.equal(result.action, 'rebuilt')
 +  assert.deepEqual(result.generation, { generation: 'session-b-new' })
-+  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'liveAgentStatus', 'invalidate', 'resume'])
++  assert.deepEqual(host.calls.map(call => call[0]), ['liveAgentStatus', 'localEventCount', 'invalidate', 'resume'])
 +  assert.deepEqual(persistence.calls.map(call => call[0]), ['handoffCheck', 'releaseWriter'])
 +})
 +
@@ -778,20 +916,19 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +  const controller = createHandoffController({ persistence, host })
 +
 +  await assert.rejects(controller.preflight('session-c'), HandoffBusyError)
-+  assert.deepEqual(host.calls.map(call => call[0]), ['localEventCount', 'liveAgentStatus'])
++  assert.deepEqual(host.calls.map(call => call[0]), ['liveAgentStatus', 'localEventCount'])
 +  assert.equal(persistence.calls.some(call => call[0] === 'releaseWriter'), false)
 +})
 +
-+test('preflight never rebuilds underneath a turn this replica is running', async () => {
++test('a turn this replica is running is never rebuilt, even when the cloud log is ahead', async () => {
 +  const persistence = fakePersistence(check('stale'))
 +  const host = fakeHost({ liveAgentStatus: 'running' })
 +  const controller = createHandoffController({ persistence, host })
 +
-+  await assert.rejects(controller.preflight('session-running'), error => {
-+    assert.equal(error.reason, 'local-turn-running')
-+    return true
-+  })
++  const result = await controller.preflight('session-running')
++  assert.equal(result.action, 'run')
 +  assert.equal(host.calls.some(call => call[0] === 'invalidate'), false)
++  assert.equal(persistence.calls.length, 0, 'no cloud read while our own turn is running')
 +})
 +
 +test('preflight flushes a local-ahead log and rechecks', async () => {
@@ -834,7 +971,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +  assert.equal(result.action, 'rebuilt')
 +  assert.equal(result.check.state, 'fresh')
 +  assert.deepEqual(host.calls.map(call => call[0]), ['invalidate', 'resume', 'localEventCount'])
-+  assert.deepEqual(persistence.calls.map(call => call[0]), ['releaseWriter', 'handoffCheck'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['releaseWriter', 'handoffCheck', 'handoffCheck'])
 +})
 +
 +test('concurrent recover calls share one rebuild', async () => {
@@ -918,26 +1055,125 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/han
 +  dispose()
 +  assert.equal(handlers.has('session-persistence/conflict'), false)
 +})
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js	2026-11-03 21:19:26
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js	2026-11-05 16:32:56
-@@ -17,9 +17,12 @@
++
++// DSH cold resume rejects open remote turns with its public RemoteError code.
++test('remote busy during conflict recovery blocks without failing the event listener', async () => {
++  const failure = Object.assign(new Error('winner is still running'), { code: 'session/agent-busy' })
++  const persistence = fakePersistence([check('fresh'), check('stale', 'open')])
++  const host = fakeHost({ resume: async () => { throw failure } })
++  const controller = createHandoffController({ persistence, host })
++  let listener
++  attachConflictRecovery({ on(_event, callback) { listener = callback } }, controller)
++  const result = await listener({ id: 'session-remote-busy' }, new Error('conflict'))
++  assert.equal(result.action, 'blocked')
++  assert.equal(result.check.turnState, 'open')
++  assert.deepEqual(host.calls.map(call => call[0]), ['invalidate', 'resume'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['releaseWriter', 'handoffCheck', 'handoffCheck'])
++})
++
++
++test('releaseWriter conflict blocks recovery without resuming or failing the listener', async () => {
++ const failure=Object.assign(new Error('conflict during close'),{name:'SessionPersistenceConflictError'})
++ const persistence=fakePersistence(check('stale','open'),{releaseError:failure})
++ const host=fakeHost();const controller=createHandoffController({persistence,host})
++ let listener;attachConflictRecovery({on(_event,callback){listener=callback}},controller)
++ const result=await listener({id:'close-conflict'},failure)
++ assert.equal(result.action,'blocked')
++ assert.equal(host.calls.some(call=>call[0]==='resume'),false)
++})
++
++
++function openCheck(state, ageMs, now = 1_000_000) {
++  return { state, cloudEventCount: 3, localEventCount: 3, turnState: 'open', turnClosed: false,
++    lastEvent: { type: 'step/start', seq: 2, time: now - ageMs } }
++}
++
++test('an open turn that was active within the timeout is refused with a retry hint', async () => {
++  const persistence = fakePersistence(openCheck('stale', 20_000))
++  const host = fakeHost({ liveAgentStatus: 'idle' })
++  const controller = createHandoffController({ persistence, host, openTurnTimeoutMs: 60_000, now: () => 1_000_000 })
++
++  await assert.rejects(controller.preflight('s'), error => {
++    assert.equal(error.name, 'HandoffBusyError')
++    assert.equal(error.retryAfterMs, 40_000)
++    return true
++  })
++  assert.equal(host.calls.some(call => call[0] === 'invalidate'), false)
++})
++
++test('an open turn quiet for the whole timeout is treated as a crash and taken over', async () => {
++  const persistence = fakePersistence(openCheck('stale', 90_000))
++  const host = fakeHost({ liveAgentStatus: 'idle' })
++  const controller = createHandoffController({ persistence, host, openTurnTimeoutMs: 60_000, now: () => 1_000_000 })
++
++  const result = await controller.preflight('s')
++  assert.equal(result.action, 'rebuilt')
++  assert.deepEqual(host.calls.map(call => call[0]), ['liveAgentStatus', 'localEventCount', 'invalidate', 'resume'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['handoffCheck', 'releaseWriter'])
++})
++
++test('a fresh open turn with an idle local Agent is also taken over once abandoned', async () => {
++  const persistence = fakePersistence(openCheck('fresh', 90_000))
++  const host = fakeHost({ liveAgentStatus: 'idle', liveTurnState: 'open' })
++  const controller = createHandoffController({ persistence, host, openTurnTimeoutMs: 60_000, now: () => 1_000_000 })
++  assert.equal((await controller.preflight('s')).action, 'rebuilt')
++})
++
++test('without a configured timeout an open turn is never taken over', async () => {
++  const persistence = fakePersistence(openCheck('stale', 86_400_000))
++  const host = fakeHost({ liveAgentStatus: 'idle' })
++  const controller = createHandoffController({ persistence, host, now: () => 1_000_000 })
++  await assert.rejects(controller.preflight('s'), { name: 'HandoffBusyError' })
++})
++
++test('an open turn whose last event has no usable time is never taken over', async () => {
++  const check = openCheck('stale', 0); check.lastEvent = { type: 'step/start', seq: 2 }
++  const persistence = fakePersistence(check)
++  const host = fakeHost({ liveAgentStatus: 'idle' })
++  const controller = createHandoffController({ persistence, host, openTurnTimeoutMs: 1, now: () => 1_000_000 })
++  await assert.rejects(controller.preflight('s'), { name: 'HandoffBusyError' })
++})
++
++
++test('a losing executor never resumes an open winner even after its quiet timeout', async () => {
++  const persistence = fakePersistence(openCheck('stale', 90_000))
++  const host = fakeHost()
++  const controller = createHandoffController({ persistence, host, openTurnTimeoutMs: 60_000, now: () => 1_000_000 })
++  let listener
++  attachConflictRecovery({ on(_event, callback) { listener = callback } }, controller)
++  const result = await listener({ id: 'late-writer' }, new Error('late append conflict'))
++  assert.equal(result.action, 'blocked')
++  assert.equal(result.check.turnState, 'open')
++  assert.deepEqual(host.calls.map(call => call[0]), ['invalidate'])
++  assert.deepEqual(persistence.calls.map(call => call[0]), ['releaseWriter', 'handoffCheck'])
++})
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js
+--- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.js
+@@ -1,5 +1,7 @@
+ import { withSessionTitles, dshEventTitle } from './session-titles.js'
+ import { installCloudTitleHints } from './cloud-title-hints.js'
++import { randomUUID } from 'node:crypto'
++import { isDeepStrictEqual } from 'node:util'
+ import z from '@deepseek-ai/schemastery'
+ import { SESSION_FORMAT_VERSION, SessionLogOffset } from '@deepseek-ai/dsh-session'
+ import {
+@@ -19,8 +21,11 @@
    validateStoredEvents,
  } from '@deepseek-ai/dsh-session-persistence'
  import TencentCloudSdk from 'tencentcloud-sdk-nodejs-ags'
-+import { SESSION_PERSISTENCE_CONFLICT } from './constants.js'
- 
++import { SESSION_PERSISTENCE_CONFLICT, idleMs } from './constants.js'
+
  const { Client } = TencentCloudSdk.ags.v20250920
- 
-+export { SESSION_PERSISTENCE_CONFLICT }
 +
++export { SESSION_PERSISTENCE_CONFLICT }
+
  export const name = 'session-persistence-agent-runtime'
- 
- function required(value, name) {
-@@ -209,6 +212,14 @@
+
+@@ -211,6 +216,21 @@
    return SessionPersistenceRevision(`agent-runtime:${sessionId}:${eventCount}`)
  }
- 
+
 +function lastTurnBoundary(events) {
 +  for (let index = events.length - 1; index >= 0; index -= 1) {
 +    const event = events[index]
@@ -946,21 +1182,28 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +  return undefined
 +}
 +
++// Compare event logs the way the cloud stores them: as JSON. A local event may
++// carry `undefined` fields or a different key order; neither is a difference.
++function sameEvents(left, right) {
++  const plain = events => JSON.parse(JSON.stringify(events))
++  return isDeepStrictEqual(plain(left), plain(right))
++}
++
  function isSessionNotFound(error) {
    return error?.code === 'ResourceNotFound.SessionNotExist'
  }
-@@ -240,10 +251,34 @@
+@@ -242,8 +262,32 @@
  // Matches the official JSONL backend: the first routed live event opens a fixed batching window.
  const LIVE_BATCH_WINDOW_MS = 200
- 
+
 +// How far handoffCheck scans back for the last turn boundary. A turn longer than
 +// this window reports no boundary and the caller stays conservative.
 +const HANDOFF_TAIL_EVENTS = 20
 +
  function isRateLimited(error) {
    return String(error?.code ?? '').startsWith('RequestLimitExceeded')
- }
- 
++}
++
 +function isEventIdDuplicate(error) {
 +  return error?.code === 'ResourceInUse.EventIdDuplicate'
 +}
@@ -979,12 +1222,10 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +    this.sessionId = sessionId
 +    this.eventId = eventId
 +  }
-+}
-+
+ }
+
  /**
-  * One open channel onto a stored Session. Mutations serialize on a per-handle
-  * promise chain. A write handle is the Session's only writer in this process,
-@@ -260,6 +295,10 @@
+@@ -262,6 +306,10 @@
    /** Set when a drain failed; the automatic timer stays quiet until the next drain. */
    drainPaused = false
    draining
@@ -992,19 +1233,19 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +  conflict
 +  /** Report a conflict only once; later live events stop and stay quiet. */
 +  conflictReported = false
- 
+
    constructor(backend, header, access, state) {
      this.backend = backend
-@@ -290,7 +329,7 @@
+@@ -292,7 +340,7 @@
    }
- 
+
    async append(events, options) {
 -    this.assertOpen('append')
 +    this.assertWritable('append')
      const batch = materializeAppendBatch(events)
      return this.run('append', async () => {
        options?.signal?.throwIfAborted()
-@@ -310,19 +349,25 @@
+@@ -312,19 +360,25 @@
    close() {
      return this.closing ??= (async () => {
        let drainFailure
@@ -1038,10 +1279,10 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +      }
      })()
    }
- 
-@@ -331,6 +376,13 @@
+
+@@ -333,6 +387,13 @@
    }
- 
+
    enqueueLive(event, reportBackgroundFailure) {
 +    if (this.conflict !== undefined) {
 +      if (!this.conflictReported) {
@@ -1053,7 +1294,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
      this.buffered.push(structuredClone(event))
      if (this.batchTimer !== undefined || this.drainPaused) return
      this.batchTimer = setTimeout(() => {
-@@ -357,6 +409,13 @@
+@@ -359,6 +420,13 @@
          try {
            await this.persistContiguous(materializeAppendBatch(batch))
          } catch (error) {
@@ -1067,7 +1308,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
            // Keep the batch in order; session/flush or close retries it and rejects loudly.
            this.buffered = batch.concat(this.buffered)
            this.drainPaused = true
-@@ -370,10 +429,16 @@
+@@ -372,10 +440,16 @@
    // events that already landed; AppendEvent accepts an identical EventId retry.
    async persistContiguous(batch) {
      if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'append')
@@ -1085,9 +1326,9 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
      for (const event of batch) this.state.events.push(deepFreeze(event))
      this.state.cursor += batch.length
    }
-@@ -392,13 +457,34 @@
+@@ -394,11 +468,32 @@
    }
- 
+
    async run(operation, op) {
 -    this.assertOpen(operation)
 +    this.assertWritable(operation)
@@ -1096,8 +1337,8 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +      this.assertWritable(operation)
        return op()
      })
-   }
- 
++  }
++
 +  // Permanent for this handle: the owning generation must be rebuilt, not retried.
 +  markConflicted(error) {
 +    this.conflict ??= error
@@ -1117,12 +1358,10 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +
 +  assertNotConflicted() {
 +    if (this.conflict !== undefined) throw this.conflict
-+  }
-+
-   assertOpen(operation) {
-     if (this.closing !== undefined) throw new SessionHandleClosedError(this.id, operation)
    }
-@@ -500,7 +586,16 @@
+
+   assertOpen(operation) {
+@@ -504,7 +599,16 @@
          if (errors.length > 0) throw new AggregateError(errors, `${name} dispose failed`)
        }
        yield ctx.on('session/event', (session, event) => {
@@ -1140,8 +1379,26 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
            ctx.logger.warn(`session-persistence: background write for session "${session.id}" failed (buffered events retained): ${String(error)}`)
          })
        })
-@@ -515,7 +610,9 @@
+@@ -512,15 +616,25 @@
+         const writer = writers.get(session.id)
+         if (writer === null || writer === undefined) return undefined
+         return (async () => {
+-          await writer.drainLive()
+-          await writer.flush()
++          try {
++            await writer.drainLive()
++            await writer.flush()
++          } catch (error) {
++            if (error instanceof SessionPersistenceConflictError && !writer.conflictReported) {
++              writer.conflictReported = true
++              ctx.emit?.(SESSION_PERSISTENCE_CONFLICT, session, error)
++            }
++            throw error
++          }
+         })()
+       })
        yield ctx.on('session/disposed', session => {
+         for (const release of sessionReleased) release(session.id)
          const writer = writers.get(session.id)
          if (writer === null || writer === undefined) return
 -        writer.close().catch(error => {
@@ -1151,9 +1408,34 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
            ctx.logger.warn(`session-persistence: final drain for session "${session.id}" failed: ${String(error)}`)
          })
        })
-@@ -703,14 +800,119 @@
+@@ -643,6 +757,24 @@
+     try {
+       const stored = await this.requireStored(id, options?.signal)
+       options?.signal?.throwIfAborted()
++      // With a timeout configured (the handoff plugin sets it), an unfinished turn
++      // that shows recent activity may still be running on another replica, so it is
++      // refused. One that has been quiet for the whole timeout is treated as a crash:
++      // the open succeeds and DSH's own crash repair closes it. If the old executor
++      // is in fact alive, its next write collides with the closer at the same
++      // position (EventId), so it can no longer write to the log.
++      if (this.openTurnTimeoutMs !== undefined && lastTurnBoundary(stored.events)?.type === 'turn/start') {
++        const idle = idleMs(stored.events.at(-1))
++        if (idle === undefined || idle < this.openTurnTimeoutMs) {
++          const retryAfterMs = idle === undefined ? this.openTurnTimeoutMs : this.openTurnTimeoutMs - idle
++          const error = new Error(`session "${id}" has a turn that is still active or only recently went quiet; it is treated as abandoned after ${Math.ceil(this.openTurnTimeoutMs / 1000)}s without activity`)
++          error.name = 'HandoffBusyError'
++          error.code = 'session/handoff-busy'
++          error.sessionId = id
++          error.retryAfterMs = Math.ceil(retryAfterMs)
++          throw error
++        }
++      }
+       return this.tracker.adopt(new AgentRuntimeSessionHandle(this, stored.meta, 'write', {
+         cursor: stored.events.length,
+         materialized: true,
+@@ -718,12 +850,135 @@
    }
- 
+
    async revision(id, signal) {
 +    return revisionFromEventCount(id, await this.eventCount(id, signal))
 +  }
@@ -1168,8 +1450,8 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
      }))
 -    return revisionFromEventCount(id, Number(response.TotalCount ?? 0))
 +    return Number(response.TotalCount ?? 0)
-   }
- 
++  }
++
 +  // Pre-turn state-machine input for stateless handoff. `localEventCount` is the
 +  // number of events this replica has durably persisted (the write handle cursor).
 +  //
@@ -1203,7 +1485,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +      }
 +      throw error
 +    }
-+    const state = cloudEventCount === localEventCount
++    let state = cloudEventCount === localEventCount
 +      ? 'fresh'
 +      : cloudEventCount > localEventCount
 +        ? 'stale'
@@ -1217,18 +1499,28 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +      events = await this.lastDshEvents(id, cloudEventCount, signal)
 +    } else {
 +      // fresh or local-ahead: the in-process write handle already holds the
-+      // latest DSH events, so the common path costs one event-count read.
++      // latest DSH events. Equal counts still require the content check below.
 +      const writer = this.tracker.writerOf(id)
++      // Copy: the writer's array keeps growing while we await the cloud below.
 +      events = writer !== undefined
-+        ? writer.state.events
++        ? [...writer.state.events]
 +        : await this.lastDshEvents(id, cloudEventCount, signal)
++    }
++    if (state === 'fresh' && cloudEventCount > 0 && this.tracker.writerOf(id) !== undefined) {
++      const cloud = await this.describeEvents(id, signal)
++      if (!sameEvents(cloud, events)) {
++        state = 'stale'
++        events = cloud
++      }
 +    }
 +    const lastBoundary = lastTurnBoundary(events)
 +    const turnState = cloudEventCount === 0
 +      ? 'none'
 +      : lastBoundary?.type === 'turn/end'
 +        ? 'closed'
-+        : 'open'
++        : lastBoundary === undefined && events.length === cloudEventCount
++          ? 'none'
++          : 'open'
 +    return {
 +      state,
 +      cloudEventCount,
@@ -1260,6 +1552,14 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +    }
 +  }
 +
++  async flushWriter(id) {
++    const writer = this.tracker.writerOf(id)
++    if (writer !== undefined) {
++      await writer.drainLive()
++      await writer.flush()
++    }
++  }
++
 +  // Durable cursor of this replica's write handle, for host.localEventCount().
 +  // Undefined when this replica holds no write handle for the Session.
 +  writerCursor(id) {
@@ -1267,12 +1567,10 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +      if (handle.id === id && handle.access === 'write') return handle.state.cursor
 +    }
 +    return undefined
-+  }
-+
+   }
+
    async sessionExists(id) {
-     try {
-       await this.describeSession(id)
-@@ -787,19 +989,29 @@
+@@ -802,19 +1057,35 @@
      for (const event of events) {
        const projection = contentProjection(event)
        const terminal = terminalProjection(event)
@@ -1290,6 +1588,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 -        },
 -      }))
 +      const eventId = stableEventId(id, event.seq)
++      const writerIdentity = event.type === 'turn/start' ? this.writerIdentity ??= randomUUID() : undefined
 +      try {
 +        await this.request('AppendEvent', this.sessionRequest(id, {
 +          Event: {
@@ -1301,7 +1600,12 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +            Metadata: JSON.stringify(terminal.Metadata),
 +            ErrorCode: terminal.ErrorCode,
 +            ErrorMessage: terminal.ErrorMessage,
-+            Extensions: JSON.stringify({ dshEvent: event }),
++            Extensions: JSON.stringify({
++              dshEvent: event,
++              // Distinguish simultaneous claims even when their DSH timestamps
++              // and turn numbers are identical. Retries in this backend retain it.
++              ...(writerIdentity === undefined ? {} : { dshWriter: writerIdentity }),
++            }),
 +          },
 +        }))
 +      } catch (error) {
@@ -1314,23 +1618,23 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +      }
      }
    }
- 
-@@ -860,3 +1072,6 @@
+
+@@ -875,3 +1146,6 @@
    }, `${name} resources`)
    await service.await()
  }
 +
 +export { attachConflictRecovery, createHandoffController, HandoffBusyError } from './handoff-controller.js'
 +export { attachDshHandoff, createDshHandoff } from './dsh-handoff.js'
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js	2026-11-03 21:19:26
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js	2026-11-05 16:34:49
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js
+--- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/index.test.js
 @@ -10,9 +10,14 @@
    SessionReadOnlyError,
  } from '@deepseek-ai/dsh-session-persistence'
  import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 +import { createHandoffController } from './handoff-controller.js'
- 
+
  const modulePath = process.env.PLUGIN_MODULE ?? './index.js'
 -const { AgentRuntimeBackendTracker, AgentRuntimeSessionPersistence } = await import(modulePath)
 +const {
@@ -1338,15 +1642,13 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +  AgentRuntimeSessionPersistence,
 +  SessionPersistenceConflictError,
 +} = await import(modulePath)
- 
+
  function apiError(code) {
    return Object.assign(new Error(code), { code })
-@@ -394,6 +399,297 @@
-   await persistence.flush()
-   assert.equal(store.sessions.get('session-drain').events.length, 1)
+@@ -396,6 +401,297 @@
    await handle.close()
-+})
-+
+ })
+
 +test('an EventId conflict makes the handle permanent and stops further writes', async () => {
 +  const store = sessionStore()
 +  const persistence = backend(store)
@@ -1488,7 +1790,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +  await handle.close()
 +})
 +
-+test('handoffCheck reads the cloud tail only when the local view is behind', async () => {
++test('handoffCheck validates equal-count content and reads the tail when behind', async () => {
 +  const store = sessionStore()
 +  const persistence = backend(store)
 +  const handle = await persistence.create(header('session-one-read'))
@@ -1497,7 +1799,7 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +  const freshStart = store.calls.length
 +  await persistence.handoffCheck('session-one-read', 2)
 +  const freshReads = store.calls.slice(freshStart).filter(call => call.action === 'DescribeEvents')
-+  assert.equal(freshReads.length, 1)
++  assert.equal(freshReads.length, 2)
 +
 +  const other = backend(store)
 +  const otherHandle = await other.open('session-one-read', 'write')
@@ -1636,12 +1938,163 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/ind
 +  await resumed.append([turn(4, 3), turn(5, 3)])
 +  assert.equal(store.sessions.get('session-recover').events.length, 6)
 +  await resumed.close()
- })
- 
++})
++
  test('seeded Sessions store their inherited prefix length', async () => {
-diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json
---- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json	2026-10-22 20:42:46
-+++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json	2026-11-05 16:33:34
+   const store = sessionStore()
+   const persistence = backend(store)
+@@ -514,3 +810,148 @@
+   persistence.client = { request: async () => { throw apiError('AuthFailure') } }
+   await assert.rejects(persistence.request('DescribeSession', {}), /AuthFailure/)
+ })
++
++
++test('write-open refuses an unfinished turn that was active recently', async () => {
++  const store = sessionStore()
++  const first = backend(store)
++  const handle = await first.create(header('session-cold-open'))
++  await handle.append([{ type: 'turn/start', seq: 0, time: Date.now() - 5_000, data: { turn: 1 } }])
++  await handle.close()
++  const next = backend(store)
++  next.openTurnTimeoutMs = 60_000
++  const before = store.calls.length
++  const failure = await next.open('session-cold-open', 'write').catch(error => error)
++  assert.equal(failure.name, 'HandoffBusyError')
++  assert.equal(failure.code, 'session/handoff-busy')
++  assert.ok(failure.retryAfterMs > 50_000 && failure.retryAfterMs <= 55_000, `retryAfterMs was ${failure.retryAfterMs}`)
++  assert.equal(store.calls.slice(before).some(call => call.action === 'AppendEvent'), false)
++  assert.equal(next.tracker.writers.has('session-cold-open'), false, 'no write claim is kept')
++  const read = await next.open('session-cold-open', 'read')
++  assert.equal((await read.read()).events.length, 1)
++  await read.close()
++})
++
++test('write-open lets DSH close an unfinished turn that has been quiet for the whole timeout', async () => {
++  const store = sessionStore()
++  const first = backend(store)
++  const handle = await first.create(header('session-abandoned'))
++  await handle.append([{ type: 'turn/start', seq: 0, time: Date.now() - 120_000, data: { turn: 1 } }])
++  await handle.close()
++  const next = backend(store)
++  next.openTurnTimeoutMs = 60_000
++  const reopened = await next.open('session-abandoned', 'write')
++  assert.equal(next.tracker.writers.has('session-abandoned'), true, 'the open succeeds so DSH can run its crash repair')
++  await reopened.close()
++})
++
++test('without a timeout configured, write-open behaves like the base example', async () => {
++  const store = sessionStore()
++  const first = backend(store)
++  const handle = await first.create(header('session-no-timeout'))
++  await handle.append([{ type: 'turn/start', seq: 0, time: Date.now(), data: { turn: 1 } }])
++  await handle.close()
++  const next = backend(store)
++  const reopened = await next.open('session-no-timeout', 'write')
++  await reopened.close()
++})
++
++test('a closer written by the new owner fences the old executor out of the log', async () => {
++  const store = sessionStore()
++  const oldOwner = backend(store), newOwner = backend(store)
++  const first = await oldOwner.create(header('session-fenced'))
++  await first.append([{ type: 'turn/start', seq: 0, time: Date.now() - 120_000, data: { turn: 1 } }])
++  await first.flush()
++  newOwner.openTurnTimeoutMs = 60_000
++  const takeover = await newOwner.open('session-fenced', 'write')
++  const closer = { type: 'turn/end', seq: 1, time: Date.now(), data: { turn: 1, reason: { kind: 'interrupted' } } }
++  await takeover.append([closer])
++  // The old executor was alive after all and now tries to write at the same position.
++  await assert.rejects(
++    first.append([{ type: 'step/start', seq: 1, time: Date.now(), data: { turn: 1, step: 1 } }]),
++    SessionPersistenceConflictError,
++  )
++  await takeover.close()
++  await first.close()
++})
++
++test('initialization without a turn is safe only when the entire persisted history is visible', async () => {
++  const store = sessionStore()
++  const first = backend(store)
++  const handle = await first.create(header('session-init-only'))
++  await handle.append([{ type: 'permission/preset', seq: 0, time: 1, data: {} }])
++  const next = backend(store)
++  const check = await next.handoffCheck('session-init-only', 0)
++  assert.equal(check.turnState, 'none')
++  await handle.close()
++})
++
++
++test('equal event counts with a divergent persisted event require a generation rebuild', async () => {
++  const store = sessionStore()
++  const first = backend(store)
++  const handle = await first.create(header('session-equal-count'))
++  await handle.append([turn(0), turn(1)])
++  const remote = store.sessions.get('session-equal-count').events[1]
++  const extensions = JSON.parse(remote.Extensions)
++  extensions.dshEvent.time += 100
++  remote.Extensions = JSON.stringify(extensions)
++  const check = await first.handoffCheck('session-equal-count', 2)
++  assert.equal(check.state, 'stale')
++  assert.equal(check.turnState, 'closed')
++  await handle.close()
++})
++
++
++test('identical turn timestamps on different replicas still compete for one claim', async () => {
++  const store = sessionStore()
++  const a = backend(store), b = backend(store)
++  const first = await a.create(header('session-identical-claim'))
++  await first.flush()
++  const second = await b.open('session-identical-claim', 'write')
++  const claim = turn(0)
++  await first.append([claim])
++  await assert.rejects(second.append([structuredClone(claim)]), SessionPersistenceConflictError)
++  await first.close()
++  await second.close()
++})
++
++
++test('InternalError remains unchanged without conflict-confirmation reads', async () => {
++  const store = sessionStore()
++  const a = backend(store), b = backend(store)
++  const handle = await a.create(header('session-internal-error'))
++  await handle.append([turn(0)])
++  const original = apiError('InternalError')
++  store.failNext('AppendEvent', original)
++  const before = store.calls.length
++  await assert.rejects(b.appendEvents('session-internal-error', [turn(0)]), error => error === original)
++  assert.deepEqual(store.calls.slice(before).map(call => call.action), ['AppendEvent'])
++  await handle.close()
++})
++
++test('JSON object key ordering from the cloud does not make identical history stale', async () => {
++  const store = sessionStore(), a = backend(store)
++  const handle = await a.create(header('session-key-order'))
++  await handle.append([turn(0), turn(1)])
++  for (const row of store.sessions.get('session-key-order').events) {
++    const ext = JSON.parse(row.Extensions)
++    const event = ext.dshEvent
++    ext.dshEvent = { data: event.data, time: event.time, seq: event.seq, type: event.type }
++    row.Extensions = JSON.stringify(ext)
++  }
++  assert.equal((await a.handoffCheck('session-key-order', 2)).state, 'fresh')
++  await handle.close()
++})
++
++// The backend registers its release callback in its constructor, which needs a full
++// Cordis Context; that wiring is covered by running the image. What can be tested
++// here is the tracker side of the contract.
++test('the tracker keeps release callbacks that a disposed Session can trigger', () => {
++  const tracker = new AgentRuntimeBackendTracker('test')
++  const released = []
++  tracker.sessionReleased.add(id => released.push(id))
++  tracker.sessionReleased.add(id => released.push(`${id}!`))
++  for (const release of tracker.sessionReleased) release('session-gone')
++  assert.deepEqual(released, ['session-gone', 'session-gone!'])
++})
+diff --git a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json
+--- a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json
++++ b/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/package.json
 @@ -3,14 +3,19 @@
    "version": "0.2.0",
    "private": true,
@@ -1656,12 +2109,11 @@ diff -ruN a/examples/session-cookbook/deepseek-harness/dsh-0.2.1-rc.2/plugin/pac
 +    "./handoff": "./dsh-handoff-plugin.js"
    },
    "files": [
--    "index.js"
-+    "index.js",
+     "index.js",
 +    "constants.js",
 +    "handoff-controller.js",
 +    "dsh-handoff.js",
-+    "dsh-handoff-plugin.js"
++    "dsh-handoff-plugin.js",
+     "session-titles.js",
+     "cloud-title-hints.js"
    ],
-   "dependencies": {
-     "tencentcloud-sdk-nodejs-ags": "4.1.302"

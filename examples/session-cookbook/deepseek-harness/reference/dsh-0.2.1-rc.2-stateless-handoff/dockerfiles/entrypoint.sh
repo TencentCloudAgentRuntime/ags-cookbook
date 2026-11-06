@@ -3,6 +3,11 @@ set -eu
 
 : "${AGR_REGION:?AGR_REGION is required}"
 
+# Cordis may leave the web server running when one plugin fails to activate.
+# Validate the required handoff policy before starting DSH, so invalid config
+# cannot silently launch a server without the handoff guard.
+node --input-type=module -e "import { openTurnTimeoutFromEnv } from '/usr/local/lib/node_modules/@tencentcloud/ags-dsh-session-persistence/constants.js'; openTurnTimeoutFromEnv()"
+
 patch_file=/opt/dsh/agent-runtime-session.cordis.yml
 
 # The sample model entries live in the same patch. Deployments that keep their own
