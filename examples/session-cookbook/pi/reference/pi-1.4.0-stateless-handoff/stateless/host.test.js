@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { DEFAULT_SHUTDOWN_ABORT_MS, DEFAULT_SHUTDOWN_GRACE_MS, StatelessPiHost, SessionBusyError } from './host.js'
 import { FakeSessionService } from '../extension/fake-session-service.js'
@@ -121,6 +122,65 @@ test('shutdown refuses new turns, waits for running ones, then aborts the rest',
   const fresh = new StatelessPiHost({ client, createGeneration: async (id, stored) => generation(id, stored) })
   assert.equal((await fresh.prompt('slow', 'again')).reply, 'ACK')
 })
+
+test('shutdown waits for cleanup and aborts other turns when one abort throws synchronously', async () => {
+  const host = new StatelessPiHost({})
+  let abortedOther = false
+  host.active.set('throws', {
+    settled: new Promise(() => {}),
+    abort() { throw new Error('abort failed') },
+  })
+  let finish
+  const settled = new Promise(resolve => { finish = resolve })
+  host.active.set('other', {
+    settled,
+    abort() {
+      abortedOther = true
+      setTimeout(() => { host.active.delete('other'); finish() }, 10).unref()
+    },
+  })
+  assert.deepEqual(await host.shutdown({ graceMs: 0, abortMs: 50 }), ['throws'])
+  assert.equal(abortedOther, true)
+})
+
+for (const scenario of ['idle', 'deadline', 'settled-during-grace', 'settled-after-abort']) {
+  test(`standalone shutdown completes and releases timers: ${scenario}`, () => {
+    const script = `
+      import assert from 'node:assert/strict'
+      import { StatelessPiHost } from ${JSON.stringify(new URL('./host.js', import.meta.url).href)}
+      const scenario = ${JSON.stringify(scenario)}
+      const host = new StatelessPiHost({})
+      let finish
+      let aborted = false
+      const settled = new Promise(resolve => { finish = resolve })
+      const complete = () => { host.active.delete('pending'); finish() }
+      if (scenario !== 'idle') host.active.set('pending', { settled, abort() {
+        aborted = true
+        // Cleanup itself must not mask a missing referenced shutdown timer.
+        if (scenario === 'settled-after-abort') setTimeout(complete, 10).unref()
+      } })
+      if (scenario === 'settled-during-grace') queueMicrotask(complete)
+      const remaining = await host.shutdown({
+        graceMs: ['idle', 'settled-during-grace'].includes(scenario) ? 60_000 : 10,
+        abortMs: scenario === 'deadline' ? 10 : 60_000,
+      })
+      assert.equal(aborted, ['deadline', 'settled-after-abort'].includes(scenario))
+      assert.deepEqual(remaining, scenario === 'deadline' ? ['pending'] : [])
+      console.log('shutdown completed')
+    `
+    // A separate process has no test-runner handles to mask an unreferenced timer.
+    // Long deadlines also expose timers left behind after turns settle early.
+    // Expected waits are only tens of milliseconds; 5 seconds allows process startup
+    // overhead while still catching leaked 60-second timers.
+    const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+      encoding: 'utf8', timeout: 5_000,
+    })
+    const diagnostic = `${scenario}: error=${child.error?.code ?? 'none'}, status=${child.status}, signal=${child.signal}\nstdout: ${child.stdout}\nstderr: ${child.stderr}`
+    assert.ok(!child.error, diagnostic)
+    assert.equal(child.status, 0, diagnostic)
+    assert.match(child.stdout, /shutdown completed/)
+  })
+}
 
 // A replica left an open turn behind at wall-clock `at`.
 async function leaveOpenTurn(client, id, requestId = 'dead') {

@@ -192,13 +192,22 @@ export class StatelessPiHost {
    */
   async shutdown({ graceMs = DEFAULT_SHUTDOWN_GRACE_MS, abortMs = DEFAULT_SHUTDOWN_ABORT_MS } = {}) {
     this.shuttingDown = true
-    const waitFor = ms => Promise.race([
-      Promise.all([...this.active.values()].map(turn => turn.settled)),
-      new Promise(resolve => setTimeout(resolve, ms).unref?.()),
-    ])
+    const waitFor = async ms => {
+      let timer
+      try {
+        await Promise.race([
+          // settled only resolves, from prompt's finally block, even when the turn fails.
+          Promise.all([...this.active.values()].map(turn => turn.settled)),
+          // Pending promises alone do not keep Node alive through shutdown.
+          new Promise(resolve => { timer = setTimeout(resolve, ms) }),
+        ])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
     await waitFor(graceMs)
     if (this.active.size > 0) {
-      for (const turn of this.active.values()) void Promise.resolve(turn.abort()).catch(() => {})
+      for (const turn of this.active.values()) void Promise.resolve().then(() => turn.abort()).catch(() => {})
       await waitFor(abortMs)
     }
     return [...this.active.keys()]
