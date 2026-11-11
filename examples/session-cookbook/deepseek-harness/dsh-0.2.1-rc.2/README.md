@@ -6,6 +6,10 @@ DeepSeek Harness (DSH) stores conversations in JSONL files on local disk. When D
 
 This guide applies to **DSH 0.2.1-rc.2**. The plugin is tied to exact versions of DSH's internal modules, so check [section 2](#2-versions-and-dependencies) before you start.
 
+## Native title synchronization
+
+When the framework renames a conversation, the cloud Session's `Title` follows; a freshly started DSH replica also shows the cloud title when listing conversations. Behavior, failure handling, and extra request cost are in [Session title synchronization](../../title-sync.md).
+
 ## Quick start
 
 With this example's pre-built image, which is the official DSH 0.2.1-rc.2 plus the persistence plugin, you can save a conversation and restore it in a few commands. From this directory:
@@ -852,3 +856,5 @@ make check-image
 ```
 
 The plugin tests use DSH 0.2.1-rc.2's persistence interface and validation directly, and cover event projection, conversation creation and restore, single-writer ownership, failure retry, and history loading. They do not replace the real seed → new container → resume flow.
+
+A title update failure fails the current flush even if the native event was saved; a later flush retries it. A newer observed cloud marker supersedes an older pending title. ModifySession has no version condition, so races after the read cannot be eliminated atomically. Invalid optional JSON is treated as absent; a native title event requires an object StateDelta and is rejected before sending otherwise to avoid corrupting state.

@@ -10,7 +10,9 @@
     ".": "./index.js"
   },
   "files": [
-    "index.js"
+    "index.js",
+    "session-titles.js",
+    "cloud-title-hints.js"
   ],
   "dependencies": {
     "tencentcloud-sdk-nodejs-ags": "4.1.302"

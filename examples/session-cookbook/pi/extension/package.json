@@ -1,0 +1,11 @@
+{
+  "name": "@tencentcloud/ags-pi-session",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Example pi extension that persists pi conversations to Tencent Cloud Agent Runtime Session",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "tencentcloud-sdk-nodejs-ags": "4.1.332"
+  }
+}

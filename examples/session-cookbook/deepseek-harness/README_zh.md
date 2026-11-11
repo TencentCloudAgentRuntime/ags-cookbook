@@ -40,3 +40,13 @@ DSH 在不同版本之间调整过会话持久化接口，部分版本之间存�
 
 - `npm install -g @deepseek-ai/dsh` 不写版本号时，会安装 npm 上当前的最新版本，可能与插件适配的版本不同。
 - 版本不一致时，DSH 在启动阶段即报错，例如 `does not provide an export named 'PersistenceCoordinator'`。
+
+## 无状态会话交接（参考实现）
+
+基础示例的插件只处理单写者场景。多副本下发生 EventId 冲突时，插件会持续重试，导致该副本上的会话不可用。
+
+[dsh-0.2.1-rc.2-stateless-handoff](./reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md) 是面向无状态交接的参考实现：检测冲突后停止重试、让出写句柄，提供 `handoffCheck` / `releaseWriter` 辅助接口，并包含一个面向 `dsh-v0.2.1-rc.2` 的 session-controller 源码补丁、运行时集成插件和从源码构建的 Dockerfile。它不引入租约；执行前检查发现云端领先时，通过 `invalidateGeneration` + `resumeGeneration` 重建 generation，冲突后走同一路径。它仍不覆盖重叠执行和冲突轮自动重跑。该目录是参考实现而非独立部署示例，基础示例保持不变。
+
+## DSH 0.2.1-rc.2 的两种实现
+
+上面的 0.2.1-rc.2 行介绍未打框架补丁的基础持久化示例。需要常驻副本在完整轮次之间切换时，选择独立的 [DSH 0.2.1-rc.2 切换参考实现](./reference/dsh-0.2.1-rc.2-stateless-handoff/README_zh.md)：它保留内存会话缓存，输入前检查云端历史，过期时销毁并重建 generation，并在模型/工具执行前持久化轮次占位。该目录使用源码补丁和独立镜像；基础版本目录不受影响。其 README 说明具体修改文件、框架生命周期、请求成本及未完成轮次边界。

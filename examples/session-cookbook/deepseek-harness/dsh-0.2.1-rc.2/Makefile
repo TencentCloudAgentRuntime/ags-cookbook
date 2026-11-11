@@ -33,6 +33,7 @@ stop:
 check:
 	sh -n dockerfiles/entrypoint.sh
 	node --check plugin/index.js
+	node --test plugin/session-titles.test.js plugin/cloud-title-hints.test.js
 	node --test plugin/index.test.js
 	python3 -m unittest -v test_session_demo.py
 check-image:
