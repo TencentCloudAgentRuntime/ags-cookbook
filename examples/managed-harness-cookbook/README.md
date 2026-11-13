@@ -1,6 +1,6 @@
 # Managed Harness Cookbook
 
-This directory shows how to manage managed harnesses with `agr` through independent examples. With a managed harness, the platform provides the agent runtime image (the Harness Engine); you choose the engine, models, system prompt, and Skills, Plugins, and MCP servers from the tool market or a private Registry. The first publish creates a Sandbox Tool and a Deployment for you, and the harness is served over [ACP](https://agentclientprotocol.com).
+This directory introduces managed harnesses with `agr` through independently runnable examples. The platform provides the agent runtime image (the Harness Engine); you choose the engine, models, system prompt, and Skills, Plugins, and MCP servers from the tool market or a private Registry. The first publish creates a Sandbox Tool and a Deployment for you, and the harness is served over [ACP](https://agentclientprotocol.com).
 
 Compared with the [Deployment Cookbook](../deployment-cookbook/README.md): the Deployment Cookbook builds its own images and creates the Tool and Deployment itself. This directory builds no images; the harness manages the underlying Tool and Deployment.
 
@@ -17,27 +17,76 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
 
 ## Prerequisites
 
-- `agr` from the **preview channel**, with credentials initialized. The `harness` and `model-provider` commands exist only in preview builds. Download a release with a `-preview` suffix from [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases), or install from source:
+- `agr` from the **preview channel**, with credentials initialized, including the managed harness commands from [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171). Older preview builds may not include them. Download a release containing these commands with a `-preview` suffix from [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases), or install from source:
 
   ```bash
-  go install -tags=preview github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>
+  go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>'
   agr version   # channel: preview
+  agr harness --help
+  agr model-provider --help
   agr status
   agr doctor
   ```
 
-  `go install` must include `-tags=preview`; otherwise it installs the stable build without these commands.
+  Replace `<preview-tag>` with the desired preview release tag. `go install` must include `-tags=preview`; otherwise it installs the stable build without these commands.
+
+  If no release contains these commands yet, use Go 1.25 or newer to build the CLI PR in a separate directory, then use that binary for every example:
+
+  ```bash
+  git clone https://github.com/TencentCloudAgentRuntime/ags-cli.git
+  git -C ags-cli fetch origin pull/171/head
+  git -C ags-cli switch --detach FETCH_HEAD
+  (cd ags-cli && go build -tags preview -o ./build/agr ./cmd/agr)
+  export PATH="$PWD/ags-cli/build:$PATH"
+  agr version   # channel: preview
+  agr harness --help
+  agr model-provider --help
+  ```
 
 - Create an Agent Runtime CAM role by following the official [custom sandbox role and permission guide](https://cloud.tencent.com/document/product/1814/129691), and grant the CLI identity `cam:PassRole` on that role. The platform uses this role to create the Sandbox Tool and to read Agent Registry and TokenHub in the background.
 - The CLI identity can read and write harnesses and model providers, and can create, describe, and delete the underlying Sandbox Tools and Deployments and call `AcquireDeploymentToken`. Later publishes and deletes still manage the underlying resources with the identity of the harness creator.
 - A **VPC subnet and security group** in the target region. Managed harnesses support VPC networking only. Instances need outbound access to model services, Registry, and MCP servers, so make sure the VPC has a NAT gateway or another public egress.
-- The **ApiKeyId of a TokenHub API key** (for example `ak-...`). A model provider stores only the ApiKeyId; the key value is read by the platform at publish time and never stored in any resource.
+- The **ApiKeyId of a TokenHub API key** (for example `ak-...`). A model provider stores only the ApiKeyId; Harness, ModelProvider, and their revisions do not contain the key value. At publish time, the platform reads the key and writes it as a literal in the underlying Sandbox Tool's `NetworkPolicy` header-injection rules. Anyone with permission to describe that Tool can read the key, so treat Tool read access as access to the key.
 
 Every example runs in `ap-chongqing` and passes the region explicitly. Sample output masks account numbers, resource IDs, timestamps, and request IDs.
 
-Each example creates its own resources. Copy the IDs from the command output into the environment variables shown in the next step, and run the cleanup section when you finish.
+Each example creates its own resources. Creation commands use `scripts/resources.py` to call `agr`, capture the returned IDs and save them in `.state/<scenario>.json`. Other steps use `agr` directly. Run the cleanup section when finished.
 
 Run `make run` in this directory to list the scenarios. It only prints navigation and creates no cloud resources.
+
+## Configuration
+
+Install Python 3 and Bash for the helper scripts. Prepare the shared configuration once from this directory:
+
+```bash
+make setup
+```
+
+Edit `.env` using [.env.example](./.env.example): set the region, role ARN, subnet, security group, TokenHub ApiKeyId and a unique name suffix. All scenarios load this file. Then check the scenario you want to run:
+
+```bash
+make preflight SCENARIO=simple
+```
+
+Preflight checks required values, the preview CLI commands and `agr doctor`. `connect` also checks `curl`, `npx` and Node.js 22.13 or newer. It creates no cloud resources. If preflight fails, fix the reported problem before continuing.
+
+The creation helper returns the ID to the shell and records it for later steps. If a wait fails after the service returns an ID, the ID is kept for cleanup. To recover a variable in a new terminal with the same preview CLI on `PATH`:
+
+```bash
+set -a
+source .env
+set +a
+HARNESS_ID=$(python3 scripts/resources.py get simple HarnessId) && export HARNESS_ID
+```
+
+You can clean up independently of the tutorial, using the recorded region and IDs:
+
+```bash
+python3 scripts/resources.py cleanup simple --dry-run
+make cleanup SCENARIO=simple
+```
+
+Cleanup waits for deletion and checks that the recorded resources are absent. It can be repeated. If a network interruption leaves a create result unknown, check the resource name recorded under `Pending` with `agr list/get` and finish that cleanup manually before removing the state file. Do not retry an unknown create blindly.
 
 ## Examples
 
@@ -53,7 +102,7 @@ In each scenario directory, `README.md` is English and `README_zh.md` is Chinese
 
 ## Conventions for agents and scripts
 
-- Every command supports `-o json` with one envelope: `Status`, `Data`, and `Failure{Code,Kind,Message,Hint,Fix,Details}`. Branch on `Failure.Code`; do not match `Message`.
+- Commands that support `-o json` use one envelope: `Status`, `Data`, and `Failure{Code,Kind,Message,Hint,Fix,Details}`. Branch on `Failure.Code`; do not match `Message`. `harness acp` carries raw ACP over stdio instead; launch it with `-o text`, including when your configured default is JSON.
 - `agr harness status <harness-id> -o json --jq '.Data.Next'` returns the suggested next command, or an empty string when nothing is pending.
 - `agr schema harness.create -o json` lists flags, side effects, and failure codes; `--dry-run` prints the final request without sending it.
 - Without a TTY, `harness delete` and `model-provider delete` fail immediately with `CONFIRMATION_REQUIRED` unless `--yes` is set; they never wait for input.

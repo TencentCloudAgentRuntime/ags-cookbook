@@ -17,27 +17,76 @@
 
 ## 前置条件
 
-- 已安装 **preview 通道**的 `agr`，并完成凭证初始化。`harness` 与 `model-provider` 命令只在 preview 版本中提供。从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载带 `-preview` 后缀的版本，或从源码安装：
+- 已安装 **preview 通道**的 `agr`，完成凭证初始化，并包含 [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171) 中的托管 Harness 命令。较旧的 preview 构建可能尚未包含这些命令。从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载包含这些命令且带 `-preview` 后缀的版本，或从源码安装：
 
   ```bash
-  go install -tags=preview github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>
+  go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>'
   agr version   # channel: preview
+  agr harness --help
+  agr model-provider --help
   agr status
   agr doctor
   ```
 
-  `go install` 必须带 `-tags=preview`，否则安装的是 stable 版本，不包含这些命令。
+  将 `<preview-tag>` 替换为目标 preview release 的 tag。`go install` 必须带 `-tags=preview`，否则安装的是 stable 版本，不包含这些命令。
+
+  如果尚无包含这些命令的 release，使用 Go 1.25 或更新版本在单独目录构建 CLI PR，并在所有示例中使用该二进制：
+
+  ```bash
+  git clone https://github.com/TencentCloudAgentRuntime/ags-cli.git
+  git -C ags-cli fetch origin pull/171/head
+  git -C ags-cli switch --detach FETCH_HEAD
+  (cd ags-cli && go build -tags preview -o ./build/agr ./cmd/agr)
+  export PATH="$PWD/ags-cli/build:$PATH"
+  agr version   # channel: preview
+  agr harness --help
+  agr model-provider --help
+  ```
 
 - 按官方[自定义沙箱角色与权限指南](https://cloud.tencent.com/document/product/1814/129691)创建 Agent Runtime CAM 角色，并向 CLI 使用的身份授予该角色的 `cam:PassRole` 权限。平台用这个角色创建 Sandbox Tool，并在后台读取 Agent Registry 与 TokenHub。
 - CLI 使用的身份具备 Harness、Model Provider 的读写权限，以及底层 Sandbox Tool、Deployment 的创建、查询、删除和 `AcquireDeploymentToken` 权限。后续发布和删除仍以 Harness 创建者的身份管理底层资源。
 - 在目标地域准备一个 **VPC 子网和安全组**。托管 Harness 只支持 VPC 网络；实例访问模型服务、Registry 和 MCP 需要出网能力，请确认子网所在 VPC 已配置 NAT 网关或其他公网出口。
-- 一个 **TokenHub API Key 的 ApiKeyId**（形如 `ak-...`）。Model Provider 只保存 ApiKeyId，密钥值在发布时由平台读取，不写入任何资源。
+- 一个 **TokenHub API Key 的 ApiKeyId**（形如 `ak-...`）。Model Provider 只保存 ApiKeyId；Harness、ModelProvider 及其修订不包含密钥值。平台在发布时读取密钥，并将其作为字面值写入底层 Sandbox Tool 的 `NetworkPolicy` 请求头注入规则。有权查询该 Tool 的身份可以读取密钥，因此 Tool 的读取权限也意味着对该密钥的访问权限。
 
 所有示例都在 `ap-chongqing` 运行，每条命令显式指定 region。示例输出中的账号、资源 ID、时间和请求 ID 均已脱敏。
 
-每个示例都会创建独立资源。请从命令输出中复制 ID，并在下一步按提示设置环境变量；完成后执行清理章节。
+每个示例都会创建独立资源。创建命令通过 `scripts/resources.py` 调用 `agr`，提取返回的 ID 并保存到 `.state/<scenario>.json`；其余步骤直接使用 `agr`。完成后执行清理章节。
 
 在本目录运行 `make run` 可列出可选场景。该命令只输出导航信息，不会创建云资源。
+
+## 配置
+
+辅助脚本需要 Python 3 和 Bash。在本目录准备一次公共配置：
+
+```bash
+make setup
+```
+
+参考 [.env.example](./.env.example) 编辑 `.env`，填写地域、角色 ARN、子网、安全组、TokenHub ApiKeyId 和唯一的名称后缀。所有场景都加载这个文件。然后检查要运行的场景：
+
+```bash
+make preflight SCENARIO=simple
+```
+
+预检会检查必填配置、preview CLI 命令并运行 `agr doctor`。`connect` 还会检查 `curl`、`npx` 和 Node.js 22.13 或更新版本。预检不会创建云资源。如果预检失败，先修复提示的问题，再继续后续步骤。
+
+创建脚本会输出 ID，供 shell 变量接收，并将其保存，供后续步骤使用。如果等待失败前服务已返回 ID，这个 ID 也会保留用于清理。在新终端中将同一个 preview CLI 加入 `PATH` 后，可以这样恢复变量：
+
+```bash
+set -a
+source .env
+set +a
+HARNESS_ID=$(python3 scripts/resources.py get simple HarnessId) && export HARNESS_ID
+```
+
+也可以脱离教程，使用已记录的地域和 ID 单独清理：
+
+```bash
+python3 scripts/resources.py cleanup simple --dry-run
+make cleanup SCENARIO=simple
+```
+
+清理会等待删除完成并回查资源是否已不存在，可以重复执行。如果网络中断导致创建结果未知，先按 `Pending` 中记录的资源名称用 `agr list/get` 核实，手动完成这部分清理后再移除状态文件。不要直接重试结果未知的创建。
 
 ## 示例
 
@@ -53,7 +102,7 @@
 
 ## 给 Agent 和脚本的约定
 
-- 所有命令都支持 `-o json`，输出统一信封：`Status`、`Data`、`Failure{Code,Kind,Message,Hint,Fix,Details}`。按 `Failure.Code` 分支，不要匹配 `Message`。
+- 支持 `-o json` 的命令输出统一信封：`Status`、`Data`、`Failure{Code,Kind,Message,Hint,Fix,Details}`。按 `Failure.Code` 分支，不要匹配 `Message`。`harness acp` 使用 stdio 上的原始 ACP 消息，应显式加 `-o text`，包括默认输出已配置为 JSON 的情况。
 - `agr harness status <harness-id> -o json --jq '.Data.Next'` 返回建议的下一条命令；没有待处理事项时为空字符串。
 - `agr schema harness.create -o json` 查看参数、副作用与失败码；`--dry-run` 打印最终请求但不发送。
 - 无 TTY 时，`harness delete` 和 `model-provider delete` 不加 `--yes` 会立即返回 `CONFIRMATION_REQUIRED`，不会挂起等待输入。

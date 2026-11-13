@@ -2,7 +2,7 @@
 
 工具市场提供平台发布的官方 MCP Server、Skill 和 Plugin。本教程独立创建一个 Harness，先浏览工具市场，再分别添加一个无需凭据的 MCP、一个需要用户自己 API Key 的 MCP，最后说明 Skill 和 Plugin 的引用规则以及常见限制。
 
-开始前，请完成 [Managed Harness Cookbook 公共前置条件](../README_zh.md#前置条件)。示例输出中的真实信息均已脱敏。
+开始前，请完成公共[前置条件](../README_zh.md#前置条件)和[配置](../README_zh.md#配置)。示例输出中的真实信息均已脱敏。
 
 ## 工具市场是什么
 
@@ -34,28 +34,24 @@
 ## 1. 设置环境变量并创建 Harness
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-market-your-name'
-export HARNESS_NAME='harness-market-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh tool-market &&
 
-agr model-provider create \
-  --region "$AGR_REGION" \
+export MODEL_PROVIDER_NAME="harness-market-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-market-$HARNESS_NAME_SUFFIX" &&
+
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-复制 `Model provider`，然后创建 Harness：
+使用已保存的 Model Provider ID 创建 Harness：
 
 ```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
-
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create tool-market harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -63,14 +59,13 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-输出末尾应为 `Revision 1 is PUBLISHED.`。复制 `Harness`：
+修订 1 发布成功后，读取已保存的 Tool ID：
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-export HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId')
+HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get tool-market ToolId) && export HARNESS_TOOL_ID
 ```
 
 ## 2. 浏览工具市场
@@ -148,6 +143,8 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
 
 回复过程中会出现以 `⋯` 开头的工具调用进度行。
 
+要确认 MCP 确实被调用，可使用 `-o json`，检查 `Data.ToolCalls` 中是否有名为 `mcp__deepwiki__...`、状态为 `completed` 的调用。使用 `-o ndjson` 时，还可以在 `tool_call_update` 事件中查看工具的实际返回结果。
+
 ## 4. 添加需要 API Key 的 MCP
 
 很多官方 MCP 需要用户自己的 API Key。以 GitHub 为例：
@@ -179,14 +176,12 @@ Store the secret first: 'agr credential provider create --type SecretMultiUser',
 **第一步：创建凭据提供商并保存 Token。**
 
 ```bash
-agr credential provider create --region "$AGR_REGION" --name harness-market-github --type SecretMultiUser
+GITHUB_CREDENTIAL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market credential-provider --name "harness-market-github-$HARNESS_NAME_SUFFIX" --type SecretMultiUser) && export GITHUB_CREDENTIAL_PROVIDER_ID
 ```
 
-复制输出中的 Provider ID，然后保存 Token。`--user-id` 和 `--scope` 是你自己定义的标识，Harness 引用时要填写相同的值：
+Provider ID 已保存到 `GITHUB_CREDENTIAL_PROVIDER_ID`，接下来保存 Token。用户 ID 和 scope 由应用定义；本示例的 Harness 引用和清理脚本统一使用 `harness-market` 和 `github`：
 
 ```bash
-export GITHUB_CREDENTIAL_PROVIDER_ID='agc-replace-me'
-
 agr credential secret set --region "$AGR_REGION" \
   --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" \
   --user-id harness-market --scope github \
@@ -253,26 +248,10 @@ agr harness tool get "$GITHUB_RECORD_ID" --region "$AGR_REGION" -o json --jq '.D
 
 ## 7. 清理资源
 
-```bash
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
+删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。如果执行了第 4 步，也会删除托管密钥，将凭据提供者设为 `DISABLED` 后再删除。
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-删除 Tool、Model Provider、托管密钥和凭据提供商：
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
-agr credential secret delete --region "$AGR_REGION" \
-  --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" --user-id harness-market
-agr credential provider delete "$GITHUB_CREDENTIAL_PROVIDER_ID" --region "$AGR_REGION"
+python3 ../scripts/resources.py cleanup tool-market --yes
 ```
 
 ## 常见问题

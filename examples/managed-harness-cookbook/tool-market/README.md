@@ -2,7 +2,7 @@
 
 The tool market provides official MCP servers, Skills, and Plugins published by the platform. This tutorial creates its own harness, browses the tool market, adds an MCP server that needs no credential and one that needs your own API key, and then explains how Skills and Plugins are referenced and which restrictions apply.
 
-Complete the shared [Managed Harness Cookbook prerequisites](../README.md#prerequisites) before starting. Sample output masks real values.
+Complete the shared [prerequisites](../README.md#prerequisites) and [configuration](../README.md#configuration) before starting. Sample output masks real values.
 
 ## What the tool market is
 
@@ -34,28 +34,24 @@ Other types, such as A2A, cannot be referenced by a harness.
 ## 1. Set environment variables and create the harness
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-market-your-name'
-export HARNESS_NAME='harness-market-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh tool-market &&
 
-agr model-provider create \
-  --region "$AGR_REGION" \
+export MODEL_PROVIDER_NAME="harness-market-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-market-$HARNESS_NAME_SUFFIX" &&
+
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-Copy `Model provider`, then create the harness:
+Create the harness with the saved model provider ID:
 
 ```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
-
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create tool-market harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -63,14 +59,13 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-The output should end with `Revision 1 is PUBLISHED.`. Copy `Harness`:
+After revision 1 is published, read the saved Tool ID:
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-export HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId')
+HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get tool-market ToolId) && export HARNESS_TOOL_ID
 ```
 
 ## 2. Browse the tool market
@@ -148,6 +143,8 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
 
 Tool-call progress lines starting with `⋯` appear while the reply streams.
 
+To verify the MCP server was actually called, use `-o json` and inspect `Data.ToolCalls` for a `completed` call named `mcp__deepwiki__...`. With `-o ndjson`, the tool's result is also available in the `tool_call_update` events.
+
 ## 4. Add an MCP server that needs an API key
 
 Many official MCP servers need your own API key. Take GitHub as an example:
@@ -179,14 +176,12 @@ The market declares the header as `Bearer {access_token}`, and the variable has 
 **Step 1: create a credential provider and store the token.**
 
 ```bash
-agr credential provider create --region "$AGR_REGION" --name harness-market-github --type SecretMultiUser
+GITHUB_CREDENTIAL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market credential-provider --name "harness-market-github-$HARNESS_NAME_SUFFIX" --type SecretMultiUser) && export GITHUB_CREDENTIAL_PROVIDER_ID
 ```
 
-Copy the Provider ID from the output, then store the token. `--user-id` and `--scope` are identifiers you choose; use the same values when the harness references the credential:
+The Provider ID is saved in `GITHUB_CREDENTIAL_PROVIDER_ID`. Store the token next. User IDs and scopes are application-defined; this example uses `harness-market` and `github` in both the harness reference and the cleanup helper:
 
 ```bash
-export GITHUB_CREDENTIAL_PROVIDER_ID='agc-replace-me'
-
 agr credential secret set --region "$AGR_REGION" \
   --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" \
   --user-id harness-market --scope github \
@@ -253,26 +248,10 @@ If the output differs from the current `GITHUB_REF`, repeat the `harness update`
 
 ## 7. Clean up
 
-```bash
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-Copy each instance ID currently in `RUNNING` or `PAUSED`, and delete them one by one:
+Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup. If you completed step 4, it also deletes the managed secret, disables the credential provider and then deletes it.
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-Delete the Tool, the model provider, the managed secret, and the credential provider:
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
-agr credential secret delete --region "$AGR_REGION" \
-  --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" --user-id harness-market
-agr credential provider delete "$GITHUB_CREDENTIAL_PROVIDER_ID" --region "$AGR_REGION"
+python3 ../scripts/resources.py cleanup tool-market --yes
 ```
 
 ## Common issues

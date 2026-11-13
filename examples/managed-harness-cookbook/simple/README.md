@@ -2,27 +2,25 @@
 
 This tutorial registers a TokenHub model, creates a managed harness on the `pi` engine and waits for revision 1 to publish, checks the ACP endpoint, sends one prompt, and then removes every resource. The adjacent tutorials cover changes and rollback, connection options, and scaling and session persistence separately.
 
-Complete the shared [Managed Harness Cookbook prerequisites](../README.md#prerequisites) before starting.
+Complete the shared [prerequisites](../README.md#prerequisites) and [configuration](../README.md#configuration) before starting.
 
-Run every command directly in a terminal and copy each resource ID from the output into the environment variable shown in the next step. Sample output masks account numbers, resource IDs, timestamps, and request IDs.
+Run commands from this scenario directory. Creation commands save resource IDs automatically for the following steps and cleanup. Sample output masks account numbers, resource IDs, timestamps, and request IDs.
 
 ## 1. Set environment variables
 
-Replace the role ARN, subnet, security group, ApiKeyId, and resource names with your own values. Names may contain only lowercase letters, digits, `-` and `.`; keep the suffix unique.
+Load the shared `.env` configured in the prerequisites and check the CLI before creating resources. The suffix in `.env` keeps this example's names unique.
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-simple-your-name'
-export HARNESS_NAME='harness-simple-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh simple &&
 
-agr status
+export MODEL_PROVIDER_NAME="harness-simple-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-simple-$HARNESS_NAME_SUFFIX"
 ```
 
-Expected output format. Every command in this tutorial passes `--region`, so the default region shown here does not matter:
+Preflight prints `agr status` and `agr doctor` results, then `Preflight passed`. The status section looks like this; commands use the region from `.env`:
 
 ```text
 Region:       <local-default-region>
@@ -65,14 +63,19 @@ export HARNESS_ENGINE_VERSION=1.3.0
 A model provider records one model service source and its registered models. `--model hy3` registers a text-only model; write `--model <id>:TEXT,IMAGE` for a model that accepts images.
 
 ```bash
-agr model-provider create \
-  --region "$AGR_REGION" \
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create simple model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-The successful output contains the real model provider ID:
+Read the model connection:
+
+```bash
+agr model-provider get "$MODEL_PROVIDER_ID" --region "$AGR_REGION" -o text
+```
+
+Expected output format:
 
 ```text
 Model provider:  mp-********
@@ -81,13 +84,6 @@ Source:          TokenHub (ApiKeyId ak-********)
 Models:          hy3[TEXT]
 Tags:            -
 Updated:         <masked-time>
-Next: agr harness create --model mp-********:<model-id> ...
-```
-
-Copy `Model provider` into an environment variable:
-
-```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
 ```
 
 ## 4. Create the harness and wait for revision 1
@@ -140,11 +136,10 @@ agr harness create \
 }
 ```
 
-Remove `--dry-run -o json` and add `--wait` to create it:
+Create it with `--wait`; the helper captures the returned ID:
 
 ```bash
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create simple harness \
   --name "$HARNESS_NAME" \
   --engine "$HARNESS_ENGINE" \
   --engine-version "$HARNESS_ENGINE_VERSION" \
@@ -153,35 +148,12 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-The successful output contains the real harness ID and the final state of revision 1:
-
-```text
-Harness:        hns-********
-Name:           harness-simple-****
-Status:         ACTIVE
-Engine:         pi@1.3.0
-Models:         mp-********:hy3 (default)
-System prompt:  You are a concise assistant. Answer in one short paragraph.
-Skills:         -
-Plugins:        -
-MCP servers:    -
-Sandbox tool:   -
-Deployment:     -
-Tags:           -
-Updated:        <masked-time>
-
-Revision 1 is PUBLISHED.
-Next: agr harness endpoint hns-******** --check
-```
-
-The upper part is the harness record returned by the create request, before publishing started, so `Sandbox tool` and `Deployment` are `-`; `Revision 1 is PUBLISHED.` below is the result when the wait ends. Copy `Harness` and check the current state:
+The helper saves the Harness, Tool and Deployment IDs in `.state/simple.json`. Check the published revision:
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-
 agr harness status "$HARNESS_ID" --region "$AGR_REGION"
 ```
 
@@ -195,14 +167,17 @@ Resources:  tool=sdt-******** deployment=dpl-********
 If `--wait` returns `WAIT_FAILED`, the revision ended in `PUBLISH_FAILED`. Read the reason:
 
 ```bash
+HARNESS_ID=$(python3 ../scripts/resources.py get simple HarnessId) && export HARNESS_ID
 agr harness revision get "$HARNESS_ID" 1 --region "$AGR_REGION"
 ```
 
-The `Status reason` line names the failed step. After fixing the cause, such as role permissions or the subnet, retry the same revision:
+The `Status reason` line names the failed step. For an external cause that can be corrected without changing the saved initialization configuration, such as role permissions or VPC egress, fix it and retry the same revision:
 
 ```bash
 agr harness revision publish "$HARNESS_ID" 1 --region "$AGR_REGION" --wait
 ```
+
+An incorrect subnet ID or a region mismatch requires a new Harness with corrected initialization parameters. `harness update` cannot change the saved initialization configuration, so retrying this revision reuses the wrong values. Delete the failed Harness first and clean up any recorded Sandbox Tool as described in step 7.
 
 ## 5. Check the ACP endpoint
 
@@ -247,42 +222,8 @@ The session and affinity on the last line continue the conversation; see [connec
 
 ## 7. Clean up
 
-`harness delete` removes the Deployment and the harness records but **keeps the Sandbox Tool and the model provider**. Record the Tool ID first:
+Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
-agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId'
-```
-
-```bash
-export HARNESS_TOOL_ID='sdt-replace-me'
-
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-```
-
-Expected output:
-
-```text
-Harness hns-******** deleted.
-Kept: the Sandbox Tool, model providers, session spaces, Registry assets and credentials.
-Next: agr tool delete sdt-********   # only if the Sandbox Tool is no longer needed
-```
-
-Delete instances of that Tool that are still running or paused:
-
-```bash
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-Copy each instance ID currently in `RUNNING` or `PAUSED`, and delete them one by one:
-
-```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-Delete the Tool and the model provider. A model provider can be deleted only when no harness references it:
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
+python3 ../scripts/resources.py cleanup simple --yes
 ```

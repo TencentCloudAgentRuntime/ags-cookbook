@@ -2,7 +2,7 @@
 
 本教程独立创建一个 Harness：创建时通过初始化配置设置资源规格、按需启动和空闲暂停；然后配置 Session Space，删除实例后在新实例上继续同一个会话；最后用 Deployment 命令直接调整伸缩。
 
-开始前，请完成 [Managed Harness Cookbook 公共前置条件](../README_zh.md#前置条件)。伸缩与空闲参数的含义与 Deployment 完全一致，详细说明见 [Deployment 弹性伸缩](../../deployment-cookbook/httpbin/scaling/README_zh.md)和 [Deployment 生命周期](../../deployment-cookbook/httpbin/lifecycle/README_zh.md)。
+开始前，请完成公共[前置条件](../README_zh.md#前置条件)和[配置](../README_zh.md#配置)。伸缩与空闲参数的含义与 Deployment 完全一致，详细说明见 [Deployment 弹性伸缩](../../deployment-cookbook/httpbin/scaling/README_zh.md)和 [Deployment 生命周期](../../deployment-cookbook/httpbin/lifecycle/README_zh.md)。
 
 ## 哪些配置归谁管
 
@@ -29,45 +29,32 @@
 ## 1. 设置环境变量并创建 Session Space
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-scaling-your-name'
-export HARNESS_NAME='harness-scaling-your-name'
-export SESSION_SPACE_NAME='harness-scaling-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh scaling-session &&
 
-agr status
+export MODEL_PROVIDER_NAME="harness-scaling-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-scaling-$HARNESS_NAME_SUFFIX" &&
+export SESSION_SPACE_NAME="harness-scaling-$HARNESS_NAME_SUFFIX"
 ```
 
-Session Space 用于在云端保存会话历史。Harness 使用初始化角色访问 Session Space，请确认该角色具备所选 Session Space 的读写权限。
+Session Space 用于在云端保存会话历史。实例使用底层 Sandbox Tool 当前 `RoleArn` 换取的临时凭据访问，请确认这个运行角色具备所选 Session Space 的读写权限。初始运行角色就是创建时通过 `--role-arn` 指定的角色。
 
 ```bash
-agr session space create \
-  --region "$AGR_REGION" \
-  --name "$SESSION_SPACE_NAME" \
-  -o json --jq '.Data.SessionSpace.SpaceId'
+SESSION_SPACE_ID=$(python3 ../scripts/resources.py create scaling-session session-space \
+  --name "$SESSION_SPACE_NAME") && export SESSION_SPACE_ID
 ```
 
-复制输出的 SpaceId：
-
-```bash
-export SESSION_SPACE_ID='space-replace-me'
-```
+SpaceId 已保存到 `SESSION_SPACE_ID` 和 `.state/scaling-session.json`。
 
 ## 2. 登记模型并创建 Harness
 
 ```bash
-agr model-provider create \
-  --region "$AGR_REGION" \
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create scaling-session model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
-```
-
-```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
 把初始化配置写成文件。角色和 VPC 仍由 `--role-arn`、`--subnet-id`、`--security-group-id` 提供，CLI 会把它们合并进这个对象。下面把实例改为 1 核 2Gi，允许缩到零、最多两个实例，并在空闲 60 秒后暂停：
@@ -98,8 +85,7 @@ EOF
 省略的 `AffinityConfiguration` 使用默认值。创建 Harness，同时启用 Session Space：
 
 ```bash
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create scaling-session harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -109,36 +95,12 @@ agr harness create \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
   --initialize-configuration @init.json \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-成功输出中会多出一行 `Session space`。与 simple 教程相同，上半部分是创建时的记录，因此 Tool 和 Deployment 仍为 `-`：
-
-```text
-Harness:        hns-********
-Name:           harness-scaling-****
-Status:         ACTIVE
-Engine:         pi@1.3.0
-Models:         mp-********:hy3 (default)
-System prompt:  -
-Skills:         -
-Plugins:        -
-MCP servers:    -
-Session space:  space-********
-Sandbox tool:   -
-Deployment:     -
-Tags:           -
-Updated:        <masked-time>
-
-Revision 1 is PUBLISHED.
-Next: agr harness endpoint hns-******** --check
-```
-
-复制 Harness ID，并读取底层 Tool 和 Deployment：
+脚本会保存 Harness、Tool 和 Deployment ID。查看底层资源：
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-
 agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json \
   --jq '.Data.Harness.ResourceInfo'
 ```
@@ -148,8 +110,8 @@ agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json \
 ```
 
 ```bash
-export HARNESS_TOOL_ID='sdt-replace-me'
-export HARNESS_DEPLOYMENT_ID='dpl-replace-me'
+HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get scaling-session ToolId) && export HARNESS_TOOL_ID
+HARNESS_DEPLOYMENT_ID=$(python3 ../scripts/resources.py get scaling-session DeploymentId) && export HARNESS_DEPLOYMENT_ID
 ```
 
 ## 3. 确认初始化配置已生效
@@ -228,6 +190,16 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
 
 删除实例会丢弃实例内的本地会话文件。开启 Session Space 后，pi 会把会话条目同步到云端，在新实例上可以通过 `session/load` 从云端还原。
 
+删除之前，先确认对话已经写入云端。托管 Harness 固定使用 Harness ID 作为会话的 UserId：
+
+```bash
+agr session list --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" --user-ids "$HARNESS_ID"
+agr session event list --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" \
+  --user-id "$HARNESS_ID" --session-id "$HARNESS_SESSION_ID"
+```
+
+确认事件中包含带有 `maple` 的消息。prompt 成功不代表云端同步成功；如果还没有历史，先等待并检查运行角色对 Session Space 的权限，再删除实例。
+
 找到并删除当前实例：
 
 ```bash
@@ -236,7 +208,13 @@ export HARNESS_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
-旧的亲和值指向已删除的实例，因此这次**不带** `--affinity-id`，只带 `--session-id`。Deployment 会启动一个新实例，新实例从 Session Space 加载同一个会话：
+再次检查端点，让 Deployment 启动替代实例。如果检查返回 `ACP_UNAVAILABLE`，稍等后重复执行：
+
+```bash
+agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
+```
+
+旧的亲和值指向已删除的实例，因此这次**不带** `--affinity-id`，只带 `--session-id`。替代实例会从 Session Space 加载同一个会话：
 
 ```bash
 agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
@@ -244,11 +222,7 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
   'What was the code word?'
 ```
 
-回复仍应包含 `maple`。同一个会话的历史可以在 Session Space 中查到。托管 Harness 固定使用 Harness ID 作为会话的 UserId：
-
-```bash
-agr session list --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" --user-ids "$HARNESS_ID"
-```
+回复仍应包含 `maple`。删除后立即恢复，可能短暂返回 `SESSION_RESTORE_FAILED` 和 HTTP `404`，提示沙箱实例已删除。如果云端历史已存在，稍等后重新检查端点，再用相同的 SessionId 和 cwd 重试上述恢复命令，不带旧的亲和值。
 
 使用 Session Space 时需要注意：
 
@@ -296,33 +270,10 @@ agr deployment get "$HARNESS_DEPLOYMENT_ID" --region "$AGR_REGION"
 
 ## 7. 清理资源
 
-```bash
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
+删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。它也会删除该 Harness 的会话和本教程创建的 Session Space。
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-删除 Tool 和 Model Provider。Session Space 中的会话不会随 Harness 删除，先删除会话再删除 Space：
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
-
-agr session list --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" --user-ids "$HARNESS_ID"
-```
-
-本教程只创建了一个会话。如果列表中还有其他会话，把它们的 ID 依次写入 `HARNESS_SESSION_ID` 后重复执行删除命令。Space 中没有会话后才能删除。最后删除 Space 和本地文件：
-
-```bash
-agr session delete --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" \
-  --user-id "$HARNESS_ID" --session-id "$HARNESS_SESSION_ID"
-agr session space delete --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID"
+python3 ../scripts/resources.py cleanup scaling-session --yes
 rm -f init.json
 ```
 
@@ -333,5 +284,6 @@ rm -f init.json
 | 初始化配置报 `ROLE_ARN_CONFLICT` 或 `NETWORK_CONFLICT` | `init.json` 中的角色或网络与命令行参数不一致。只在一处设置 |
 | 初始化配置报 `INVALID_NETWORK_MODE` | 托管 Harness 只支持 VPC。删除 `init.json` 中的 `NetworkMode` 或改为 `VPC` |
 | 第一次 prompt 很慢或返回 `ACP_UNAVAILABLE` | `MinInstanceCount` 为 `0`，需要先启动实例。稍后重试，或按第 6 步保持一个常驻实例 |
-| 删除实例后新实例记不住之前的内容 | 初始化角色缺少 Session Space 权限，或 `--cwd` 与创建会话时不同。用 `agr session list` 确认会话已写入云端 |
+| 删除实例后新实例记不住之前的内容 | 检查底层 Tool 当前 `RoleArn` 的 Session Space 权限，使用与创建会话时相同的 `--cwd`，并在删除实例前用 `agr session event list` 确认云端历史 |
+| 删除后立即恢复返回 `SESSION_RESTORE_FAILED` 和 HTTP `404` | 等待请求不再命中已删除的实例，重新执行 `endpoint --check`，再用相同的 SessionId 和 cwd 重试，不带旧的亲和值 |
 | `session space delete` 失败 | Space 中还有会话。先删除全部会话 |

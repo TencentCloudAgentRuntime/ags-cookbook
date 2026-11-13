@@ -2,27 +2,25 @@
 
 本教程登记一个 TokenHub 模型，创建一个使用 `pi` 引擎的托管 Harness 并等待修订 1 发布，确认 ACP 入口可用后对话一次，最后删除全部资源。变更与回滚、接入方式、伸缩与会话持久化由相邻教程独立讲解。
 
-开始前，请完成 [Managed Harness Cookbook 公共前置条件](../README_zh.md#前置条件)。
+开始前，请完成公共[前置条件](../README_zh.md#前置条件)和[配置](../README_zh.md#配置)。
 
-所有命令都直接在终端执行。请从输出中复制资源 ID，并在下一步设置环境变量。示例输出中的账号、资源 ID、时间和请求 ID 均已脱敏。
+在本场景目录中执行命令。创建命令会自动保存资源 ID，供后续步骤和清理使用。示例输出中的账号、资源 ID、时间和请求 ID 均已脱敏。
 
 ## 1. 设置环境变量
 
-把角色 ARN、子网、安全组、ApiKeyId 和资源名称替换为自己的值。名称只能包含小写字母、数字、`-` 和 `.`，后缀应保持唯一。
+加载前置条件中配置的公共 `.env`，并在创建资源前检查 CLI。`.env` 中的后缀用于区分本示例的资源名称。
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-simple-your-name'
-export HARNESS_NAME='harness-simple-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh simple &&
 
-agr status
+export MODEL_PROVIDER_NAME="harness-simple-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-simple-$HARNESS_NAME_SUFFIX"
 ```
 
-预期输出格式如下。本教程的每条命令都显式传入 `--region`，因此这里的默认地域不影响结果：
+预检会输出 `agr status` 和 `agr doctor` 的结果，最后显示 `Preflight passed`。status 部分的格式如下；命令使用 `.env` 中的地域：
 
 ```text
 Region:       <local-default-region>
@@ -65,14 +63,19 @@ export HARNESS_ENGINE_VERSION=1.3.0
 Model Provider 记录一个模型服务来源和登记的模型。`--model hy3` 按纯文本模型登记；能识图的模型写成 `--model <id>:TEXT,IMAGE`。
 
 ```bash
-agr model-provider create \
-  --region "$AGR_REGION" \
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create simple model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-成功输出包含真实 Model Provider ID：
+查看已创建的模型连接：
+
+```bash
+agr model-provider get "$MODEL_PROVIDER_ID" --region "$AGR_REGION" -o text
+```
+
+预期输出格式：
 
 ```text
 Model provider:  mp-********
@@ -81,13 +84,6 @@ Source:          TokenHub (ApiKeyId ak-********)
 Models:          hy3[TEXT]
 Tags:            -
 Updated:         <masked-time>
-Next: agr harness create --model mp-********:<model-id> ...
-```
-
-复制 `Model provider` 后设置环境变量：
-
-```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
 ```
 
 ## 4. 创建 Harness 并等待修订 1 发布
@@ -140,11 +136,10 @@ agr harness create \
 }
 ```
 
-去掉 `--dry-run -o json`，加上 `--wait` 正式创建：
+加上 `--wait` 正式创建，脚本会提取返回的 ID：
 
 ```bash
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create simple harness \
   --name "$HARNESS_NAME" \
   --engine "$HARNESS_ENGINE" \
   --engine-version "$HARNESS_ENGINE_VERSION" \
@@ -153,35 +148,12 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-成功输出包含真实 Harness ID 和修订 1 的最终状态：
-
-```text
-Harness:        hns-********
-Name:           harness-simple-****
-Status:         ACTIVE
-Engine:         pi@1.3.0
-Models:         mp-********:hy3 (default)
-System prompt:  You are a concise assistant. Answer in one short paragraph.
-Skills:         -
-Plugins:        -
-MCP servers:    -
-Sandbox tool:   -
-Deployment:     -
-Tags:           -
-Updated:        <masked-time>
-
-Revision 1 is PUBLISHED.
-Next: agr harness endpoint hns-******** --check
-```
-
-上半部分打印的是创建请求返回的 Harness 记录，当时还没有开始发布，所以 `Sandbox tool` 和 `Deployment` 是 `-`；下方的 `Revision 1 is PUBLISHED.` 是等待结束时的结果。复制 `Harness` 后查看当前状态：
+脚本会将 Harness、Tool 和 Deployment ID 保存到 `.state/simple.json`。查看已发布的修订：
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-
 agr harness status "$HARNESS_ID" --region "$AGR_REGION"
 ```
 
@@ -195,14 +167,17 @@ Resources:  tool=sdt-******** deployment=dpl-********
 如果 `--wait` 返回 `WAIT_FAILED`，修订进入了 `PUBLISH_FAILED`。读取失败原因：
 
 ```bash
+HARNESS_ID=$(python3 ../scripts/resources.py get simple HarnessId) && export HARNESS_ID
 agr harness revision get "$HARNESS_ID" 1 --region "$AGR_REGION"
 ```
 
-`Status reason` 一行说明失败在哪一步。修正原因（例如角色权限或子网）后，对同一个修订重试：
+`Status reason` 一行说明失败在哪一步。如果是无需修改已保存初始化配置即可修正的外部原因，例如角色权限或 VPC 出网配置，修正后对同一个修订重试：
 
 ```bash
 agr harness revision publish "$HARNESS_ID" 1 --region "$AGR_REGION" --wait
 ```
+
+子网 ID 错误或地域不匹配时，需要修正初始化参数并创建新的 Harness。`harness update` 无法修改已保存的初始化配置，因此重试这个修订仍会使用错误的值。请先删除失败的 Harness，并按第 7 步清理已记录的 Sandbox Tool。
 
 ## 5. 检查 ACP 入口
 
@@ -247,42 +222,8 @@ An agent harness is the runtime around a language model that gives it tools, mem
 
 ## 7. 清理资源
 
-`harness delete` 删除 Deployment 和 Harness 记录，但**保留 Sandbox Tool 和 Model Provider**。先记下 Tool ID：
+删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
-agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId'
-```
-
-```bash
-export HARNESS_TOOL_ID='sdt-replace-me'
-
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-```
-
-预期输出：
-
-```text
-Harness hns-******** deleted.
-Kept: the Sandbox Tool, model providers, session spaces, Registry assets and credentials.
-Next: agr tool delete sdt-********   # only if the Sandbox Tool is no longer needed
-```
-
-删除该 Tool 下仍在运行或暂停的实例：
-
-```bash
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
-
-```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-删除 Tool 和 Model Provider。Model Provider 只有在没有任何 Harness 引用时才能删除：
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
+python3 ../scripts/resources.py cleanup simple --yes
 ```

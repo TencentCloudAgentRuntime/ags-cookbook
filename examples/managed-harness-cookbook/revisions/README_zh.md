@@ -2,7 +2,7 @@
 
 本教程独立创建一个 Harness，依次演示：修改草稿并比较差异、发布新修订、回滚到旧修订、更新 Model Provider 后通过新修订生效，以及发布失败时线上修订不受影响。
 
-开始前，请完成 [Managed Harness Cookbook 公共前置条件](../README_zh.md#前置条件)。
+开始前，请完成公共[前置条件](../README_zh.md#前置条件)和[配置](../README_zh.md#配置)。
 
 | 对象 | 可以修改 | 何时对新实例生效 |
 | --- | --- | --- |
@@ -16,28 +16,24 @@
 ## 1. 设置环境变量并创建 Harness
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-revisions-your-name'
-export HARNESS_NAME='harness-revisions-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh revisions &&
 
-agr model-provider create \
-  --region "$AGR_REGION" \
+export MODEL_PROVIDER_NAME="harness-revisions-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-revisions-$HARNESS_NAME_SUFFIX" &&
+
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create revisions model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-复制输出中的 `Model provider`，然后创建 Harness：
+使用已保存的 Model Provider ID 创建 Harness：
 
 ```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
-
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create revisions harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -46,14 +42,13 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-输出末尾应为 `Revision 1 is PUBLISHED.`。复制 `Harness`，并读取底层 Tool ID，后面删除实例和清理时会用到：
+修订 1 发布成功后，读取已保存的 Tool ID，后续查询实例时会用到：
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-export HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId')
+HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get revisions ToolId) && export HARNESS_TOOL_ID
 echo "$HARNESS_TOOL_ID"
 ```
 
@@ -147,13 +142,13 @@ REVISION  NAME  STATUS      ENGINE    UPDATED          REASON
 agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
 ```
 
-复制每个 `RUNNING` 或 `PAUSED` 实例的 ID 并删除，然后发送新的问题：
+复制每个 `RUNNING` 或 `PAUSED` 实例的 ID 并删除，然后在 prompt 中提供版本变更内容，无需准备本地仓库：
 
 ```bash
 export HARNESS_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" 'What changed in the last release of a todo app?'
+agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" 'Write release notes for a todo app: added recurring tasks, fixed missed reminders, and improved startup time.'
 ```
 
 回复应为不超过三条的列表。
@@ -296,34 +291,20 @@ Next:       agr harness revision publish hns-******** 4 --wait
 
 线上已经是正确的配置，忽略 `Next` 即可；下一次创建并发布新修订后，修订 4 就不再是最新修订。如果失败原因在外部（例如角色缺少 Registry 读权限），修复后直接重试同一个修订即可。
 
-要使用真实的 Skill，先在 Agent Registry 中查找兼容当前引擎的版本：
+要使用真实的 Skill，先列出工具市场中的 Skill：
 
 ```bash
-agr registry record version list --region "$AGR_REGION" --registry-id MARKETPLACE \
-  --filters '[{"Name":"supported_harness_engine","Values":["pi"]}]'
+agr harness tool list --region "$AGR_REGION" --type skill
 ```
 
-然后用 `--skill MARKETPLACE/<record-id>/<version-id>` 引用。Plugin 使用 `--plugin`，与 Skill 不同，Plugin 在保存草稿时就会校验版本是否可读、是否兼容当前引擎。
+复制返回的 `REFERENCE`，然后用 `--skill MARKETPLACE/<record-id>/<version-id>` 引用。Plugin 使用 `--plugin`，与 Skill 不同，Plugin 在保存草稿时就会校验版本是否可读、是否兼容当前引擎。
 
 ## 7. 清理资源
 
-```bash
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
+删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-删除 Tool、Model Provider 和本地文件：
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
+python3 ../scripts/resources.py cleanup revisions --yes
 rm -f prompt.md
 ```
 

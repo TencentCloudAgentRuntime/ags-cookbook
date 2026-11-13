@@ -2,7 +2,7 @@
 
 本教程独立创建一个 Harness，并用四种方式与它对话。托管 Harness 通过 [ACP（Agent Client Protocol）](https://agentclientprotocol.com) 的 Streamable HTTP 传输对外服务。
 
-开始前，请完成 [Managed Harness Cookbook 公共前置条件](../README_zh.md#前置条件)。
+开始前，请完成公共[前置条件](../README_zh.md#前置条件)和[配置](../README_zh.md#配置)。
 
 | 场景 | 命令 | 说明 |
 | --- | --- | --- |
@@ -16,28 +16,24 @@
 ## 1. 设置环境变量并创建 Harness
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-connect-your-name'
-export HARNESS_NAME='harness-connect-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh connect &&
 
-agr model-provider create \
-  --region "$AGR_REGION" \
+export MODEL_PROVIDER_NAME="harness-connect-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-connect-$HARNESS_NAME_SUFFIX" &&
+
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create connect model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-复制 `Model provider`，然后创建 Harness 并检查 ACP 入口：
+使用已保存的 Model Provider ID 创建 Harness，并检查 ACP 入口：
 
 ```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
-
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create connect harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -45,12 +41,10 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-
 agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
 ```
 
@@ -123,13 +117,17 @@ NDJSON 的第一行是 `started`（包含 `SessionId`）；每个 ACP `session/u
 
 `agr harness acp` 把 stdin/stdout 上的 ACP JSON-RPC 桥接到远端 Harness，整个进程内自动刷新 Token 并保持亲和。stdout 只输出 ACP 消息，诊断信息写到 stderr。
 
-使用 [acpx](https://github.com/openclaw/acpx) 执行一次性任务：
+启动桥接时显式加 `-o text`，选择原始 ACP 输出，并覆盖已配置的 JSON 或 NDJSON 默认输出。stdout 仍然发送 ACP JSON-RPC 消息。
+
+桥接会原样转发客户端的 `cwd`，不会映射路径或同步本地文件。创建或恢复会话时，该路径必须是沙箱内已经存在且可访问的绝对目录。下面的 Unix 连通性示例要求 Node.js 22.13 或更新版本，通过 `npx` 运行 [acpx](https://github.com/openclaw/acpx) 0.22.0，并显式选择本机和托管镜像中都存在的 `/tmp`：
 
 ```bash
-acpx --agent "agr harness acp $HARNESS_ID --region $AGR_REGION" exec 'Summarize what you can do in one sentence.'
+npx --yes acpx@0.22.0 --cwd /tmp --agent "agr harness acp $HARNESS_ID --region $AGR_REGION -o text" exec 'Summarize what you can do in one sentence.'
 ```
 
-在 Zed 的 `settings.json` 中添加一个自定义 ACP Agent：
+Zed 等编辑器通常把本地项目路径作为 `cwd`。下面的配置要求同一个绝对路径也存在于目标实例中，它不会准备远端项目目录。如果实例中没有这个路径，请使用 `agr harness prompt`（远端 `cwd` 默认为 `/workspace`），或使用能将工作目录映射到已有远端路径的客户端。
+
+满足上述目录前提后，在 Zed 的 `settings.json` 中添加一个自定义 ACP Agent：
 
 ```json
 {
@@ -137,14 +135,14 @@ acpx --agent "agr harness acp $HARNESS_ID --region $AGR_REGION" exec 'Summarize 
     "managed-harness": {
       "type": "custom",
       "command": "agr",
-      "args": ["harness", "acp", "hns-replace-me", "--region", "ap-chongqing"],
+      "args": ["harness", "acp", "hns-replace-me", "--region", "ap-chongqing", "-o", "text"],
       "env": {}
     }
   }
 }
 ```
 
-其他编辑器的配置方式类似：命令为 `agr`，参数为 `harness acp <harness-id> --region <region>`。编辑器会在需要时启动这个子进程。要回到之前会话所在的实例，在 `args` 末尾加上 `--affinity-id <affinity-id>`。
+其他编辑器的配置方式类似：命令为 `agr`，参数为 `harness acp <harness-id> --region <region> -o text`。编辑器会在需要时启动这个子进程。要回到之前会话所在的实例，在 `args` 末尾加上 `--affinity-id <affinity-id>`。
 
 ## 4. `proxy`：本地调试地址
 
@@ -190,10 +188,10 @@ agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --show-token -o json \
 {"AcpURL":"https://8080-dpl-********.ap-chongqing.agents.tencentags.com/acp","AffinityHeader":"X-Tencent-Agr-Affinity-Id","DeploymentId":"dpl-********","ExpiresAt":"<masked-expiration>","Headers":{"X-Access-Token":"<masked-deployment-token>"}}
 ```
 
-CLI 不会为外部程序刷新 Token。长期运行的服务应在 `ExpiresAt` 之前自己调用 `AcquireDeploymentToken` 重新获取。复制上面输出中的 `DeploymentId`：
+CLI 不会为外部程序刷新 Token。长期运行的服务应在 `ExpiresAt` 之前自己调用 `AcquireDeploymentToken` 重新获取。读取创建时保存的 Deployment ID：
 
 ```bash
-export HARNESS_DEPLOYMENT_ID='dpl-replace-me'
+HARNESS_DEPLOYMENT_ID=$(python3 ../scripts/resources.py get connect DeploymentId) && export HARNESS_DEPLOYMENT_ID
 
 agr api call AcquireDeploymentToken \
   --region "$AGR_REGION" \
@@ -346,25 +344,10 @@ curl --include --silent --show-error -X DELETE "$ACP_URL" \
 
 ## 6. 清理资源
 
-```bash
-export HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId')
-
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-复制每个当前处于 `RUNNING` 或 `PAUSED` 状态的实例 ID，并逐个执行删除命令：
+删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-删除 Tool、Model Provider 和本地文件：
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
+python3 ../scripts/resources.py cleanup connect --yes
 rm -f acp.env
 ```
 

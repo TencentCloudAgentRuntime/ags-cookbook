@@ -2,7 +2,7 @@
 
 This tutorial creates its own harness and talks to it in four ways. A managed harness is served over the Streamable HTTP transport of [ACP (Agent Client Protocol)](https://agentclientprotocol.com).
 
-Complete the shared [Managed Harness Cookbook prerequisites](../README.md#prerequisites) before starting.
+Complete the shared [prerequisites](../README.md#prerequisites) and [configuration](../README.md#configuration) before starting.
 
 | Scenario | Command | Notes |
 | --- | --- | --- |
@@ -16,28 +16,24 @@ Sample output masks real values.
 ## 1. Set environment variables and create the harness
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-connect-your-name'
-export HARNESS_NAME='harness-connect-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh connect &&
 
-agr model-provider create \
-  --region "$AGR_REGION" \
+export MODEL_PROVIDER_NAME="harness-connect-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-connect-$HARNESS_NAME_SUFFIX" &&
+
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create connect model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-Copy `Model provider`, then create the harness and check the ACP endpoint:
+Create the harness with the saved model provider ID, then check the ACP endpoint:
 
 ```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
-
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create connect harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -45,12 +41,10 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-
 agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
 ```
 
@@ -123,13 +117,17 @@ The first NDJSON line is `started` (with `SessionId`); each ACP `session/update`
 
 `agr harness acp` bridges ACP JSON-RPC on stdin/stdout to the remote harness, refreshing the token and keeping the affinity for the whole process. Stdout carries only ACP messages; diagnostics go to stderr.
 
-Run a one-shot task with [acpx](https://github.com/openclaw/acpx):
+Launch the bridge with `-o text` to select raw ACP output and override any configured JSON or NDJSON default. Stdout still carries ACP JSON-RPC messages.
+
+The bridge forwards the client's `cwd` unchanged; it does not map paths or sync local files. Creating or restoring a session requires an existing, accessible absolute directory inside the sandbox. This Unix smoke test requires Node.js 22.13 or newer and runs [acpx](https://github.com/openclaw/acpx) 0.22.0 through `npx`. It uses `/tmp`, which exists both locally and in the managed image:
 
 ```bash
-acpx --agent "agr harness acp $HARNESS_ID --region $AGR_REGION" exec 'Summarize what you can do in one sentence.'
+npx --yes acpx@0.22.0 --cwd /tmp --agent "agr harness acp $HARNESS_ID --region $AGR_REGION -o text" exec 'Summarize what you can do in one sentence.'
 ```
 
-In Zed, add a custom ACP agent to `settings.json`:
+Editors such as Zed normally send the local project path as `cwd`. The configuration below requires that same absolute path to exist on the target instance; it does not prepare a remote project directory. If the path does not exist there, use `agr harness prompt` (whose remote `cwd` defaults to `/workspace`), or a client that can map the working directory to an existing remote path.
+
+Once that directory requirement is met, add a custom ACP agent to Zed's `settings.json`:
 
 ```json
 {
@@ -137,14 +135,14 @@ In Zed, add a custom ACP agent to `settings.json`:
     "managed-harness": {
       "type": "custom",
       "command": "agr",
-      "args": ["harness", "acp", "hns-replace-me", "--region", "ap-chongqing"],
+      "args": ["harness", "acp", "hns-replace-me", "--region", "ap-chongqing", "-o", "text"],
       "env": {}
     }
   }
 }
 ```
 
-Other editors use the same command `agr` with the arguments `harness acp <harness-id> --region <region>`. The editor starts the subprocess when needed. To return to the instance of an earlier session, append `--affinity-id <affinity-id>` to `args`.
+Other editors use the same command `agr` with the arguments `harness acp <harness-id> --region <region> -o text`. The editor starts the subprocess when needed. To return to the instance of an earlier session, append `--affinity-id <affinity-id>` to `args`.
 
 ## 4. `proxy`: a local debugging address
 
@@ -190,10 +188,10 @@ agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --show-token -o json \
 {"AcpURL":"https://8080-dpl-********.ap-chongqing.agents.tencentags.com/acp","AffinityHeader":"X-Tencent-Agr-Affinity-Id","DeploymentId":"dpl-********","ExpiresAt":"<masked-expiration>","Headers":{"X-Access-Token":"<masked-deployment-token>"}}
 ```
 
-The CLI does not refresh tokens for external programs. A long-running service should call `AcquireDeploymentToken` itself before `ExpiresAt`. Copy `DeploymentId` from the output above:
+The CLI does not refresh tokens for external programs. A long-running service should call `AcquireDeploymentToken` itself before `ExpiresAt`. Read the Deployment ID saved during creation:
 
 ```bash
-export HARNESS_DEPLOYMENT_ID='dpl-replace-me'
+HARNESS_DEPLOYMENT_ID=$(python3 ../scripts/resources.py get connect DeploymentId) && export HARNESS_DEPLOYMENT_ID
 
 agr api call AcquireDeploymentToken \
   --region "$AGR_REGION" \
@@ -346,25 +344,10 @@ Through `agr` commands, these errors are classified as `ACP_UNAVAILABLE`, with t
 
 ## 6. Clean up
 
-```bash
-export HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId')
-
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-Copy each instance ID currently in `RUNNING` or `PAUSED`, and delete them one by one:
+Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-Delete the Tool, the model provider, and the local file:
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
+python3 ../scripts/resources.py cleanup connect --yes
 rm -f acp.env
 ```
 

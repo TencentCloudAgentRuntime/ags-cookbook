@@ -2,7 +2,7 @@
 
 This tutorial creates its own harness and walks through editing the draft and comparing it, publishing a new revision, rolling back to an earlier revision, picking up a model provider update through a new revision, and confirming that a failed publish leaves the live revision untouched.
 
-Complete the shared [Managed Harness Cookbook prerequisites](../README.md#prerequisites) before starting.
+Complete the shared [prerequisites](../README.md#prerequisites) and [configuration](../README.md#configuration) before starting.
 
 | Object | Editable | When new instances pick it up |
 | --- | --- | --- |
@@ -16,28 +16,24 @@ Sample output masks real values.
 ## 1. Set environment variables and create the harness
 
 ```bash
-export AGR_REGION=ap-chongqing
-export AGR_ROLE_ARN='qcs::cam::uin/100000000001:roleName/replace-me'
-export HARNESS_SUBNET_ID='subnet-replace-me'
-export HARNESS_SECURITY_GROUP_ID='sg-replace-me'
-export TOKENHUB_API_KEY_ID='ak-replace-me'
-export MODEL_PROVIDER_NAME='harness-revisions-your-name'
-export HARNESS_NAME='harness-revisions-your-name'
+set -a
+source ../.env
+set +a
+bash ../scripts/preflight.sh revisions &&
 
-agr model-provider create \
-  --region "$AGR_REGION" \
+export MODEL_PROVIDER_NAME="harness-revisions-$HARNESS_NAME_SUFFIX" &&
+export HARNESS_NAME="harness-revisions-$HARNESS_NAME_SUFFIX" &&
+
+MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create revisions model-provider \
   --name "$MODEL_PROVIDER_NAME" \
   --tokenhub-api-key-id "$TOKENHUB_API_KEY_ID" \
-  --model hy3
+  --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-Copy `Model provider` from the output, then create the harness:
+Create the harness with the saved model provider ID:
 
 ```bash
-export MODEL_PROVIDER_ID='mp-replace-me'
-
-agr harness create \
-  --region "$AGR_REGION" \
+HARNESS_ID=$(python3 ../scripts/resources.py create revisions harness \
   --name "$HARNESS_NAME" \
   --engine pi \
   --engine-version 1.3.0 \
@@ -46,14 +42,13 @@ agr harness create \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
-  --wait
+  --wait) && export HARNESS_ID
 ```
 
-The output should end with `Revision 1 is PUBLISHED.`. Copy `Harness` and read the underlying Tool ID, which later steps use to delete instances and clean up:
+After revision 1 is published, read the saved Tool ID for the later instance checks:
 
 ```bash
-export HARNESS_ID='hns-replace-me'
-export HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json --jq '.Data.Harness.ResourceInfo.ToolId')
+HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get revisions ToolId) && export HARNESS_TOOL_ID
 echo "$HARNESS_TOOL_ID"
 ```
 
@@ -147,13 +142,13 @@ Publishing affects only instances created afterwards. Running instances keep the
 agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
 ```
 
-Copy and delete each `RUNNING` or `PAUSED` instance, then ask a new question:
+Copy and delete each `RUNNING` or `PAUSED` instance, then supply the release changes in the prompt so no local repository is needed:
 
 ```bash
 export HARNESS_INSTANCE_ID='replace-with-instance-id'
 agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" 'What changed in the last release of a todo app?'
+agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" 'Write release notes for a todo app: added recurring tasks, fixed missed reminders, and improved startup time.'
 ```
 
 The reply should be a list of at most three items.
@@ -296,34 +291,20 @@ Next:       agr harness revision publish hns-******** 4 --wait
 
 The live configuration is already correct, so ignore `Next`; once you create and publish another revision, revision 4 is no longer the latest. When the cause is external, such as the role lacking Registry read permission, fix it and retry the same revision.
 
-To use a real Skill, find a version compatible with the current engine in Agent Registry:
+To use a real Skill, list Skills in the tool market:
 
 ```bash
-agr registry record version list --region "$AGR_REGION" --registry-id MARKETPLACE \
-  --filters '[{"Name":"supported_harness_engine","Values":["pi"]}]'
+agr harness tool list --region "$AGR_REGION" --type skill
 ```
 
-Then reference it with `--skill MARKETPLACE/<record-id>/<version-id>`. Plugins use `--plugin`; unlike Skills, a Plugin is validated when the draft is saved, including whether the version is readable and compatible with the current engine.
+Copy the returned `REFERENCE` and pass it with `--skill MARKETPLACE/<record-id>/<version-id>`. Plugins use `--plugin`; unlike Skills, a Plugin is validated when the draft is saved, including whether the version is readable and compatible with the current engine.
 
 ## 7. Clean up
 
-```bash
-agr harness delete "$HARNESS_ID" --region "$AGR_REGION" --yes --wait
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-```
-
-Copy each instance ID currently in `RUNNING` or `PAUSED`, and delete them one by one:
+Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-```
-
-Delete the Tool, the model provider, and the local file:
-
-```bash
-agr tool delete "$HARNESS_TOOL_ID" --region "$AGR_REGION" --yes --wait
-agr model-provider delete "$MODEL_PROVIDER_ID" --region "$AGR_REGION" --yes
+python3 ../scripts/resources.py cleanup revisions --yes
 rm -f prompt.md
 ```
 
