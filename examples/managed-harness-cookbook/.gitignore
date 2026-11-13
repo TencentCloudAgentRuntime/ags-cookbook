@@ -1,0 +1,5 @@
+.env
+.state/
+*/init.json
+*/prompt.md
+*/acp.env

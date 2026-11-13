@@ -19,6 +19,7 @@
 - `browser-agent` —— 基于 OpenAI-compatible LLM 的浏览器自动化 Agent
 - `data-analysis` —— 多 Context 数据工作流，生成多个产物
 - `deployment-cookbook` —— 使用 `agr` 管理 Deployment，从 httpbin 基础到长驻 Agent 工作区
+- [`managed-harness-cookbook`](./managed-harness-cookbook/README_zh.md) —— 使用 `agr` 创建、发布、回滚、连接并伸缩平台托管的 Agent Harness（preview）
 - [`session-cookbook`](./session-cookbook/README_zh.md) —— 云端 Session 持久化，以及按版本区分的 DSH/pi 多实例切换参考实现
 - `dind` —— 自启动 Docker-in-Docker Tool，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务
 - `envd-oci-env` —— envd 作为 PID 1 时保留 OCI 镜像环境变量
@@ -57,6 +58,7 @@
 | `custom-image-go-sdk` | 进阶 | Go | `make run` | 依赖 AGS 账号中的自定义工具 / 镜像配置 |
 | `data-analysis` | 进阶 | Python + 代码沙箱 | `make run` | 会生成多种图表与报告文件 |
 | `deployment-cookbook` | 进阶 | agr CLI + Markdown | 按场景 README 操作 | 涵盖部署、伸缩、生命周期、亲和性与长驻 Agent 工作区 |
+| [`managed-harness-cookbook`](./managed-harness-cookbook/README_zh.md) | 进阶 | agr CLI（preview）+ Markdown | 按场景 README 操作 | 涵盖 Harness 创建、修订与回滚、工具市场、ACP 接入、伸缩与会话持久化；需要 VPC 子网和 TokenHub API Key |
 | [`session-cookbook`](./session-cookbook/README_zh.md) | 进阶 | Docker + Node.js + Python | 按框架 README 操作 | 云端 Session 持久化，以及按版本区分的 DSH/pi 多实例切换参考实现 |
 | `dind` | 进阶 | Docker + Compose + envd + Harbor + agr | `make run` | 创建 DinD Tool，并通过 Harbor Oracle 运行真实的 Terminal-Bench Compose 任务 |
 | `envd-oci-env` | 进阶 | Bash + Docker + agr | `make run` | 复现并验证 envd 的 OCI 环境变量继承 |
