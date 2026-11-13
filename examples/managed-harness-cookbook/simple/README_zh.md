@@ -222,8 +222,26 @@ An agent harness is the runtime around a language model that gives it tools, mem
 
 ## 7. 清理资源
 
-删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。
+删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
 python3 ../scripts/resources.py cleanup simple --yes
 ```
+
+## 常见问题
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| `--wait` 返回 `WAIT_FAILED` | 用 `harness revision get` 读取发布失败原因，按第 4 步处理。如果底层 Tool 已创建，再查询下面的事件 |
+| `endpoint --check` 持续返回 `ACP_UNAVAILABLE` | 实例可能仍在启动。如果多次重试仍失败，查询 Tool 事件中的启动失败原因 |
+
+底层 Tool 已创建时，可以查询 `SandboxStartFailed` 等近期运行事件：
+
+```bash
+HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json \
+  --jq '.Data.Harness.ResourceInfo.ToolId') && export HARNESS_TOOL_ID &&
+agr event list --region "$AGR_REGION" \
+  --filters "[{\"Name\":\"ToolId\",\"Values\":[\"$HARNESS_TOOL_ID\"]}]"
+```
+
+默认查询最近一小时。排查更早的失败时，用 RFC3339 时间设置 `--start-time` 和 `--end-time`。这些是运行事件；Tool 创建前的发布失败应查看修订的 `Status reason`。

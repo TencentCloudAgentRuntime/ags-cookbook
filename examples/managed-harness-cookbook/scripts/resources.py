@@ -23,13 +23,14 @@ RESOURCES = {
 
 
 def missing(reply):
-    code = (reply.get("Failure") or {}).get("Code", "")
-    return code.startswith("ResourceNotFound") or code in ("TOOL_NOT_FOUND", "PROVIDER_NOT_FOUND")
+    return (reply.get("Failure") or {}).get("Kind") == "not_found"
 
 
 def execute(region, args):
-    result = subprocess.run(["agr", *args, "--region", region, "-o", "json", "--non-interactive"],
-                            text=True, stdout=subprocess.PIPE)
+    command = ["agr", *args, "--region", region, "-o", "json", "--non-interactive"]
+    if endpoint := os.environ.get("AGR_CLOUD_ENDPOINT"):
+        command.extend(["--cloud-endpoint", endpoint])
+    result = subprocess.run(command, text=True, stdout=subprocess.PIPE)
     try:
         reply = json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -45,6 +46,22 @@ def call(region, args, allow_missing=False):
         failure = reply.get("Failure") or {}
         raise RuntimeError(f"agr failed: {failure.get('Code', 'UNKNOWN')}. {failure.get('Hint', '')}")
     return reply.get("Data") or {}
+
+
+def current_endpoint(region):
+    data = call(region, ["config", "show"])
+    endpoint = data.get("Values", {}).get("cloud_endpoint", {}).get("Value")
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise RuntimeError("agr config show returned no cloud_endpoint; check the preview CLI before creating resources.")
+    return endpoint
+
+
+def recorded_endpoint(state):
+    endpoint = state.get("CloudEndpoint")
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise RuntimeError("No CloudEndpoint is recorded. Verify the original creation endpoint and add CloudEndpoint "
+                           "to the state file before continuing; do not guess from the current CLI configuration.")
+    return endpoint
 
 
 def save(path, state):
@@ -84,6 +101,8 @@ def create(args, path, state):
     region = os.environ.get("AGR_REGION", "")
     if not region:
         raise RuntimeError("Load managed-harness-cookbook/.env before creating resources.")
+    if state:
+        recorded_endpoint(state)
     if state.get("Cleaned"):
         state.clear()
     if state.get("Region", region) != region:
@@ -93,10 +112,16 @@ def create(args, path, state):
         raise RuntimeError(f"{field} is already recorded. Use get to continue, or cleanup before starting again.")
     if state.get("Pending"):
         raise RuntimeError("A create result is unknown. Inspect the recorded name before creating more resources.")
-    if any(flag.split("=", 1)[0] in ("--dry-run", "--jq", "-o", "--output", "--region")
+    if any(flag.split("=", 1)[0] in ("--dry-run", "--jq", "-o", "--output", "--region", "--cloud-endpoint", "--config")
            or flag.startswith("-o") and not flag.startswith("--") for flag in args.flags):
-        raise RuntimeError("Use agr directly for dry-run; the helper supplies region and JSON output.")
+        raise RuntimeError("Use agr directly for dry-run. The helper supplies region, endpoint and JSON output; "
+                           "configure the endpoint with AGR_CLOUD_ENDPOINT or agr config before creating resources.")
+    endpoint = current_endpoint(region)
+    if state.get("CloudEndpoint", endpoint) != endpoint:
+        raise RuntimeError("This scenario already has resources at another endpoint; clean it up before changing endpoints.")
     state["Region"] = region
+    state["CloudEndpoint"] = endpoint
+    os.environ["AGR_CLOUD_ENDPOINT"] = endpoint
     name = next((args.flags[index + 1] for index, flag in enumerate(args.flags[:-1]) if flag == "--name"),
                 "<inspect agr list>")
     state["Pending"] = {"Resource": args.resource, "Name": name}
@@ -140,6 +165,7 @@ def cleanup(args, path, state):
         return
     if not args.yes and not args.dry_run:
         raise RuntimeError("Use cleanup <scenario> --dry-run to inspect, or --yes to delete the recorded resources.")
+    os.environ["AGR_CLOUD_ENDPOINT"] = recorded_endpoint(state)
     region = state["Region"]
     bindings(region, state, path)
     if args.dry_run:
@@ -240,6 +266,7 @@ def main():
             cleanup(args, path, state)
         else:
             if args.field in ("ToolId", "DeploymentId") and state.get("HarnessId") and not state.get(args.field) and not state.get("Cleaned"):
+                os.environ["AGR_CLOUD_ENDPOINT"] = recorded_endpoint(state)
                 bindings(state["Region"], state, path)
             if state.get("Cleaned") or not state.get(args.field):
                 raise RuntimeError(f"No saved {args.field} for {args.scenario}; inspect the state file or create the resource first.")

@@ -222,8 +222,26 @@ The session and affinity on the last line continue the conversation; see [connec
 
 ## 7. Clean up
 
-Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
+Delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
 python3 ../scripts/resources.py cleanup simple --yes
 ```
+
+## Common issues
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `--wait` returns `WAIT_FAILED` | Read `harness revision get` for the publish reason and follow step 4. If a Tool was created, check its events below |
+| `endpoint --check` keeps returning `ACP_UNAVAILABLE` | An instance may still be starting. If retries keep failing, inspect the Tool's events for startup failures |
+
+Once a Tool exists, query its recent operational events, such as `SandboxStartFailed`:
+
+```bash
+HARNESS_TOOL_ID=$(agr harness get "$HARNESS_ID" --region "$AGR_REGION" -o json \
+  --jq '.Data.Harness.ResourceInfo.ToolId') && export HARNESS_TOOL_ID &&
+agr event list --region "$AGR_REGION" \
+  --filters "[{\"Name\":\"ToolId\",\"Values\":[\"$HARNESS_TOOL_ID\"]}]"
+```
+
+The default window is the last hour. For an earlier failure, set `--start-time` and `--end-time` to RFC3339 timestamps. These are runtime events; use the revision's `Status reason` for publish failures before a Tool is created.

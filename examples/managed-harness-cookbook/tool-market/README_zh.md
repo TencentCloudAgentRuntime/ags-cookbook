@@ -179,7 +179,7 @@ Store the secret first: 'agr credential provider create --type SecretMultiUser',
 GITHUB_CREDENTIAL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market credential-provider --name "harness-market-github-$HARNESS_NAME_SUFFIX" --type SecretMultiUser) && export GITHUB_CREDENTIAL_PROVIDER_ID
 ```
 
-Provider ID 已保存到 `GITHUB_CREDENTIAL_PROVIDER_ID`，接下来保存 Token。用户 ID 和 scope 由应用定义；本示例的 Harness 引用和清理脚本统一使用 `harness-market` 和 `github`：
+Provider ID 已保存到 `GITHUB_CREDENTIAL_PROVIDER_ID`，接下来保存 Token。用户 ID 和 scope 由应用定义；本示例的 Harness 引用和清理脚本统一使用 `harness-market` 和 `github`。跟随教程时请保留这两个值；如果自定义，需要同步修改密钥命令、`--mcp-credential` 和 `scripts/resources.py` 中的凭据清理逻辑：
 
 ```bash
 agr credential secret set --region "$AGR_REGION" \
@@ -205,11 +205,15 @@ agr harness revision create "$HARNESS_ID" --region "$AGR_REGION" --publish --wai
 
 `${credential}` 必须写在单引号里，避免被 shell 展开。平台在实例访问 MCP 时读取密钥并替换 `${credential}`，密钥不会写进 Harness 或修订。
 
+`--mcp-credential` 中的 UserId 和 scope 固定保存在 Harness 配置中。使用这个 GitHub MCP 的所有会话共用同一个 Token，不会自动换成当前应用用户的凭据。如果不同用户需要独立凭据，应设计独立的 Harness 配置，并由应用校验访问权限。
+
 关于请求头和凭据，还需要注意：
 
 - 只写 `--mcp github=...` 而不提供 `Authorization`，保存时会报 `Registry MCP header "Authorization" is required and has no value or default`。
 - 只写 `--mcp-credential` 而没有任何 `--mcp-header` 使用 `${credential}`，凭据永远不会被读取，CLI 会直接拒绝（`UNUSED_MCP_CREDENTIAL`）。
 - 有的 MCP 需要多个密钥请求头（例如同时需要 SecretId 和 SecretKey）。一个 MCP 只能绑定一个凭据，所以其余请求头只能用明文 `--mcp-header` 提供，**明文值会保存在 Harness 配置中**，有 Harness 读取权限的人都能看到。这类工具请使用权限最小的子账号密钥。
+
+当前 CLI 的 `agr harness revision diff`（text 和 JSON）及 `agr harness status -o json` 输出也会包含这些明文请求头值。分享输出或写入公开日志前，请先脱敏。
 
 ## 5. 添加 Skill 和 Plugin
 
@@ -248,7 +252,7 @@ agr harness tool get "$GITHUB_RECORD_ID" --region "$AGR_REGION" -o json --jq '.D
 
 ## 7. 清理资源
 
-删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。如果执行了第 4 步，也会删除托管密钥，将凭据提供者设为 `DISABLED` 后再删除。
+删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。如果执行了第 4 步，也会删除托管密钥，将凭据提供者设为 `DISABLED` 后再删除。
 
 ```bash
 python3 ../scripts/resources.py cleanup tool-market --yes

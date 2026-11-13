@@ -226,8 +226,8 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
 
 使用 Session Space 时需要注意：
 
-- 同一个 Harness 的所有会话共用一个 UserId，不区分你应用里的聊天用户。需要按用户隔离时，由应用自己维护用户与 SessionId 的映射。
-- 同一个会话同一时刻只能有一个写入进程。不要让两个实例同时对同一个 SessionId 发起对话。
+- 同一个 Harness 的所有会话共用一个 UserId，不区分你应用里的聊天用户。应用需要记录每个 SessionId 的归属，并校验访问权限。
+- 同一个会话同一时刻应只有一个写入进程。应用应按 SessionId 串行发送请求，会话持久化不负责协调并发写入。不要让两个实例同时对同一个 SessionId 发起对话。
 - 只恢复对话历史，不迁移实例内的工作区文件。恢复时需要使用与创建会话时相同的 `--cwd`（默认 `/workspace`）。
 - 只支持 `pi` 和 `dsh` 引擎。移除 Session Space 使用 `agr harness update <harness-id> --session-space-id ''`，然后发布新修订。
 
@@ -270,7 +270,7 @@ agr deployment get "$HARNESS_DEPLOYMENT_ID" --region "$AGR_REGION"
 
 ## 7. 清理资源
 
-删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。它也会删除该 Harness 的会话和本教程创建的 Session Space。
+删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。它也会删除该 Harness 的会话和本教程创建的 Session Space。
 
 ```bash
 python3 ../scripts/resources.py cleanup scaling-session --yes
@@ -283,7 +283,7 @@ rm -f init.json
 | --- | --- |
 | 初始化配置报 `ROLE_ARN_CONFLICT` 或 `NETWORK_CONFLICT` | `init.json` 中的角色或网络与命令行参数不一致。只在一处设置 |
 | 初始化配置报 `INVALID_NETWORK_MODE` | 托管 Harness 只支持 VPC。删除 `init.json` 中的 `NetworkMode` 或改为 `VPC` |
-| 第一次 prompt 很慢或返回 `ACP_UNAVAILABLE` | `MinInstanceCount` 为 `0`，需要先启动实例。稍后重试，或按第 6 步保持一个常驻实例 |
+| 第一次 prompt 很慢或返回 `ACP_UNAVAILABLE` | `MinInstanceCount` 为 `0`，需要先启动实例。稍后重试，或按第 6 步保持一个常驻实例。如果持续启动失败，按 [simple](../simple/README_zh.md#常见问题) 查询 Tool 事件 |
 | 删除实例后新实例记不住之前的内容 | 检查底层 Tool 当前 `RoleArn` 的 Session Space 权限，使用与创建会话时相同的 `--cwd`，并在删除实例前用 `agr session event list` 确认云端历史 |
 | 删除后立即恢复返回 `SESSION_RESTORE_FAILED` 和 HTTP `404` | 等待请求不再命中已删除的实例，重新执行 `endpoint --check`，再用相同的 SessionId 和 cwd 重试，不带旧的亲和值 |
 | `session space delete` 失败 | Space 中还有会话。先删除全部会话 |

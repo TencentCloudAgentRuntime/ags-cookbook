@@ -226,8 +226,8 @@ The reply should still contain `maple`. Immediately after deletion, restoration 
 
 Things to know about session spaces:
 
-- All sessions of one harness share one UserId and are not separated by the chat users of your application. If you need per-user isolation, map users to SessionIds in your application.
-- A session supports only one writing process at a time. Do not send turns to the same SessionId from two instances at once.
+- All sessions of one harness share one UserId and are not separated by the chat users of your application. Track each SessionId's owner and authorize access in your application.
+- Only one process should write a session at a time. Serialize requests per SessionId in your application; session persistence does not coordinate concurrent writers. Do not send turns to the same SessionId from two instances at once.
 - Only the conversation history is restored; workspace files inside the instance are not migrated. Restore with the same `--cwd` used to create the session (default `/workspace`).
 - Only the `pi` and `dsh` engines are supported. Remove the session space with `agr harness update <harness-id> --session-space-id ''`, then publish a new revision.
 
@@ -270,7 +270,7 @@ Do not use `agr tool update` to change the harness-managed image, startup argume
 
 ## 7. Clean up
 
-Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup. It also deletes this harness's sessions and the session space created here.
+Delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup. It also deletes this harness's sessions and the session space created here.
 
 ```bash
 python3 ../scripts/resources.py cleanup scaling-session --yes
@@ -283,7 +283,7 @@ rm -f init.json
 | --- | --- |
 | Create fails with `ROLE_ARN_CONFLICT` or `NETWORK_CONFLICT` | The role or network in `init.json` differs from the command-line flags. Set it in one place only |
 | Create fails with `INVALID_NETWORK_MODE` | Managed harnesses support VPC only. Remove `NetworkMode` from `init.json` or set it to `VPC` |
-| The first prompt is slow or returns `ACP_UNAVAILABLE` | `MinInstanceCount` is `0`, so an instance must start first. Retry shortly, or keep one warm instance as in step 6 |
+| The first prompt is slow or returns `ACP_UNAVAILABLE` | `MinInstanceCount` is `0`, so an instance must start first. Retry shortly, or keep one warm instance as in step 6. If startup keeps failing, inspect Tool events as shown in [simple](../simple/README.md#common-issues) |
 | A new instance forgets the conversation after the old one is deleted | Check the session space permissions of the underlying Tool's current `RoleArn`, use the same `--cwd` as when the session was created, and confirm the history with `agr session event list` before deleting an instance |
 | Restore returns `SESSION_RESTORE_FAILED` with HTTP `404` immediately after deletion | Wait for requests to stop reaching the deleted instance, repeat `endpoint --check`, and retry with the same SessionId and cwd without the old affinity value |
 | `session space delete` fails | The space still has sessions. Delete all sessions first |

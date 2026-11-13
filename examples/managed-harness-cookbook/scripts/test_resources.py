@@ -21,6 +21,9 @@ class ResourceTests(unittest.TestCase):
         self.env = patch.dict(os.environ, AGR_REGION="ap-chongqing")
         self.env.start()
         self.addCleanup(self.env.stop)
+        self.endpoint = patch.object(resources, "current_endpoint", return_value="fixture.example.test")
+        self.endpoint.start()
+        self.addCleanup(self.endpoint.stop)
 
     def create(self, kind, state):
         args = argparse.Namespace(resource=kind, flags=["--name", "my-demo"])
@@ -38,8 +41,34 @@ class ResourceTests(unittest.TestCase):
     def test_duplicate_create_stops_before_calling_agr(self):
         with patch.object(resources, "execute") as execute:
             with self.assertRaises(RuntimeError):
-                self.create("model-provider", {"Region": "ap-chongqing", "ModelProviderId": "mp-owned"})
+                self.create("model-provider", {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ModelProviderId": "mp-owned"})
         execute.assert_not_called()
+
+    def test_create_does_not_mix_endpoints_in_one_scenario(self):
+        state = {"Region": "ap-chongqing", "CloudEndpoint": "other.example.test", "ModelProviderId": "mp-owned"}
+        original = dict(state)
+        with patch.object(resources, "execute") as execute, self.assertRaisesRegex(RuntimeError, "another endpoint"):
+            self.create("harness", state)
+        execute.assert_not_called()
+        self.assertEqual(state, original)
+
+    def test_create_keeps_ids_from_legacy_state_even_if_marked_cleaned(self):
+        state = {"Region": "ap-chongqing", "ModelProviderId": "mp-owned", "Cleaned": True}
+        original = dict(state)
+        with patch.object(resources, "execute") as execute, self.assertRaisesRegex(RuntimeError, "CloudEndpoint"):
+            self.create("model-provider", state)
+        execute.assert_not_called()
+        self.assertEqual(state, original)
+
+    def test_create_rejects_endpoint_and_config_overrides_before_api_calls(self):
+        for flags in (["--cloud-endpoint", "other.example.test"], ["--cloud-endpoint=other.example.test"],
+                      ["--config", "other.toml"], ["--config=other.toml"]):
+            with self.subTest(flags=flags), patch.object(resources, "execute") as execute:
+                args = argparse.Namespace(resource="model-provider", flags=["--name", "my-demo", *flags])
+                with self.assertRaisesRegex(RuntimeError, "configure the endpoint"):
+                    resources.create(args, self.path, {})
+                execute.assert_not_called()
+                self.assertFalse(self.path.exists())
 
     def test_get_without_state_has_an_actionable_error(self):
         with patch.object(resources, "ROOT", self.root), patch.object(sys, "argv", ["resources.py", "get", "simple", "ToolId"]), patch.object(resources, "execute") as execute:
@@ -71,30 +100,36 @@ class ResourceTests(unittest.TestCase):
         self.assertNotIn("Cleaned", state)
 
     def test_permission_error_is_not_treated_as_missing(self):
-        reply = {"Status": "failed", "Failure": {"Code": "AuthFailure.UnauthorizedOperation"}}
+        reply = {"Status": "failed", "Failure": {"Code": "AuthFailure.UnauthorizedOperation", "Kind": "auth"}}
         with patch.object(resources, "execute", return_value=(1, reply)) as execute:
             with self.assertRaises(RuntimeError):
                 resources.remove("ap-chongqing", ["tool", "delete", "sdt-owned"], ["tool", "get", "sdt-owned"])
         self.assertEqual(execute.call_count, 1)
 
+    def test_new_not_found_code_skips_deletion(self):
+        reply = {"Status": "failed", "Failure": {"Code": "NEW_RESOURCE_MISSING", "Kind": "not_found"}}
+        with patch.object(resources, "execute", return_value=(1, reply)) as execute:
+            resources.remove("ap-chongqing", ["tool", "delete", "sdt-owned"], ["tool", "get", "sdt-owned"])
+        self.assertEqual(execute.call_count, 1)
+
     def test_cleanup_without_yes_fails_before_api_calls(self):
         args = argparse.Namespace(scenario="simple", yes=False, dry_run=False)
         with patch.object(resources, "execute") as execute, self.assertRaises(RuntimeError):
-            resources.cleanup(args, self.path, {"Region": "ap-chongqing", "HarnessId": "hns-owned"})
+            resources.cleanup(args, self.path, {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "HarnessId": "hns-owned"})
         execute.assert_not_called()
 
     def test_dry_run_only_reads_the_recorded_harness(self):
         args = argparse.Namespace(scenario="simple", yes=False, dry_run=True)
         reply = {"Status": "succeeded", "Data": {"Harness": {"ResourceInfo": {"ToolId": "sdt-owned"}}}}
         with patch.object(resources, "execute", return_value=(0, reply)) as execute, redirect_stdout(io.StringIO()):
-            resources.cleanup(args, self.path, {"Region": "ap-chongqing", "HarnessId": "hns-owned"})
+            resources.cleanup(args, self.path, {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "HarnessId": "hns-owned"})
         self.assertEqual(execute.call_args.args, ("ap-chongqing", ["harness", "get", "hns-owned"]))
         self.assertEqual(execute.call_count, 1)
 
     def test_failed_instance_is_not_treated_as_stopped(self):
         args = argparse.Namespace(scenario="simple", yes=True, dry_run=False)
         reply = {"Status": "succeeded", "Data": {"Items": [{"InstanceId": "instance-owned", "ToolId": "sdt-owned", "Status": "FAILED"}]}}
-        state = {"Region": "ap-chongqing", "ToolId": "sdt-owned"}
+        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ToolId": "sdt-owned"}
         with patch.object(resources, "execute", return_value=(0, reply)) as execute, redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "FAILED"):
                 resources.cleanup(args, self.path, state)
@@ -104,7 +139,7 @@ class ResourceTests(unittest.TestCase):
     def test_unrelated_instance_stops_cleanup_before_deletion(self):
         args = argparse.Namespace(scenario="simple", yes=True, dry_run=False)
         reply = {"Status": "succeeded", "Data": {"Items": [{"InstanceId": "instance-other", "ToolId": "sdt-other", "Status": "RUNNING"}]}}
-        state = {"Region": "ap-chongqing", "ToolId": "sdt-owned"}
+        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ToolId": "sdt-owned"}
         with patch.object(resources, "execute", return_value=(0, reply)) as execute, redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "recorded ToolId"):
                 resources.cleanup(args, self.path, state)
@@ -113,7 +148,7 @@ class ResourceTests(unittest.TestCase):
 
     def test_empty_credential_provider_skips_secret_delete(self):
         args = argparse.Namespace(scenario="tool-market", yes=True, dry_run=False)
-        state = {"Region": "ap-chongqing", "ProviderId": "agc-owned"}
+        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ProviderId": "agc-owned"}
         present = True
         calls = []
 
@@ -126,7 +161,7 @@ class ResourceTests(unittest.TestCase):
             if command[:3] == ["credential", "provider", "delete"]:
                 present = False
             if not present and command[:3] == ["credential", "provider", "get"]:
-                return 1, {"Status": "failed", "Failure": {"Code": "PROVIDER_NOT_FOUND"}}
+                return 1, {"Status": "failed", "Failure": {"Code": "PROVIDER_NOT_FOUND", "Kind": "not_found"}}
             return 0, {"Status": "succeeded", "Data": {}}
 
         with patch.object(resources, "execute", side_effect=execute), redirect_stdout(io.StringIO()):
@@ -135,7 +170,7 @@ class ResourceTests(unittest.TestCase):
         self.assertIn(["credential", "provider", "update", "agc-owned", "--status", "DISABLED"], calls)
 
     def test_cleanup_is_scoped_ordered_and_repeatable(self):
-        state = {"Region": "ap-chongqing", "HarnessId": "hns-owned", "ToolId": "sdt-owned",
+        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "HarnessId": "hns-owned", "ToolId": "sdt-owned",
                  "DeploymentId": "dpl-owned", "ModelProviderId": "mp-owned", "SpaceId": "space-owned", "ProviderId": "agc-owned"}
         existing = {"harness", "deployment", "tool", "model-provider", "space", "credential-provider"}
         sessions = {"session-one", "session-two"}
@@ -148,7 +183,7 @@ class ResourceTests(unittest.TestCase):
             self.assertEqual(region, "ap-chongqing")
             calls.append(args)
             success = lambda data: (0, {"Status": "succeeded", "Data": data})
-            not_found = (1, {"Status": "failed", "Failure": {"Code": "ResourceNotFound"}})
+            not_found = (1, {"Status": "failed", "Failure": {"Code": "ResourceNotFound", "Kind": "not_found"}})
             if args[:2] == ["instance", "list"]:
                 self.assertEqual(args[2:], ["--tool-id", "sdt-owned", "--all"])
                 current = instance
@@ -181,7 +216,7 @@ class ResourceTests(unittest.TestCase):
                 kind, verb = args[:2]
             if kind not in existing:
                 if kind == "credential-provider":
-                    return 1, {"Status": "failed", "Failure": {"Code": "PROVIDER_NOT_FOUND"}}
+                    return 1, {"Status": "failed", "Failure": {"Code": "PROVIDER_NOT_FOUND", "Kind": "not_found"}}
                 return not_found
             if kind == "credential-provider" and verb == "update":
                 self.assertEqual(args[-2:], ["--status", "DISABLED"])

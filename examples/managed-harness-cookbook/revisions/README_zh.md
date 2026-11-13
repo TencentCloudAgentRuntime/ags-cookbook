@@ -11,6 +11,8 @@
 | Model Provider | 是，每次修改生成新的提供方修订 | Harness 创建并发布新修订后 |
 | 标签和名称 | 是 | 不属于运行配置，无需发布 |
 
+正式发布前，可用独立的 Harness 作为测试环境。当前没有修订别名或按百分比分配流量的能力；发布会改变这个 Harness 后续新建实例使用的修订。
+
 示例输出中的真实信息均已脱敏。
 
 ## 1. 设置环境变量并创建 Harness
@@ -53,6 +55,8 @@ echo "$HARNESS_TOOL_ID"
 ```
 
 ## 2. 修改草稿并比较差异
+
+如果 MCP 配置中有明文密钥请求头，`revision diff`（text 和 JSON）及 `harness status -o json` 可能输出其值。分享前请先脱敏，详见 [MCP 请求头和凭据](../tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
 
 `harness update` 只修改草稿，线上实例不受影响。系统提示词可以直接写在参数里，也可以用 `@文件` 读取：
 
@@ -301,7 +305,7 @@ agr harness tool list --region "$AGR_REGION" --type skill
 
 ## 7. 清理资源
 
-删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。
+删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
 python3 ../scripts/resources.py cleanup revisions --yes
@@ -318,3 +322,4 @@ rm -f prompt.md
 | `model-provider update` 移除模型失败 | 该模型仍被某个 Harness 草稿选择。先用 `harness update --model` 去掉它 |
 | `model-provider delete` 返回 `ResourceInUse` | 仍有 Harness 或其保留的修订引用该提供方。先删除 Harness |
 | 新发布的提示词没有生效 | 请求仍落在发布前创建的实例上。按第 3 步删除旧实例后重试 |
+| 修订进入 `PUBLISH_FAILED` 或实例启动失败 | 先用 `harness revision get` 读取发布失败原因。底层 Tool 已创建时，再按 [simple](../simple/README_zh.md#常见问题) 查询运行事件 |

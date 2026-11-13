@@ -119,7 +119,7 @@ NDJSON 的第一行是 `started`（包含 `SessionId`）；每个 ACP `session/u
 
 启动桥接时显式加 `-o text`，选择原始 ACP 输出，并覆盖已配置的 JSON 或 NDJSON 默认输出。stdout 仍然发送 ACP JSON-RPC 消息。
 
-桥接会原样转发客户端的 `cwd`，不会映射路径或同步本地文件。创建或恢复会话时，该路径必须是沙箱内已经存在且可访问的绝对目录。下面的 Unix 连通性示例要求 Node.js 22.13 或更新版本，通过 `npx` 运行 [acpx](https://github.com/openclaw/acpx) 0.22.0，并显式选择本机和托管镜像中都存在的 `/tmp`：
+桥接会原样转发客户端的 `cwd`，不会映射路径或同步本地文件。创建或恢复会话时，该路径必须是沙箱内已经存在且可访问的绝对目录。下面这个可选的 Unix 连通性示例要求 Node.js 22.13 或更新版本，通过 `npx` 运行 [acpx](https://github.com/openclaw/acpx) 0.22.0。运行前请先安装它们；`prompt`、`proxy` 和 `endpoint` 不依赖它们。示例显式选择本机和托管镜像中都存在的 `/tmp`：
 
 ```bash
 npx --yes acpx@0.22.0 --cwd /tmp --agent "agr harness acp $HARNESS_ID --region $AGR_REGION -o text" exec 'Summarize what you can do in one sentence.'
@@ -344,7 +344,7 @@ curl --include --silent --show-error -X DELETE "$ACP_URL" \
 
 ## 6. 清理资源
 
-删除本场景保存的资源。脚本从 `.state/` 读取 ID 和地域，等待删除完成并回查结果；清理中断后可以重复执行。
+删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
 python3 ../scripts/resources.py cleanup connect --yes

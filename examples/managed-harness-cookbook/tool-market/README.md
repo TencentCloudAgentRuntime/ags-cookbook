@@ -179,7 +179,7 @@ The market declares the header as `Bearer {access_token}`, and the variable has 
 GITHUB_CREDENTIAL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market credential-provider --name "harness-market-github-$HARNESS_NAME_SUFFIX" --type SecretMultiUser) && export GITHUB_CREDENTIAL_PROVIDER_ID
 ```
 
-The Provider ID is saved in `GITHUB_CREDENTIAL_PROVIDER_ID`. Store the token next. User IDs and scopes are application-defined; this example uses `harness-market` and `github` in both the harness reference and the cleanup helper:
+The Provider ID is saved in `GITHUB_CREDENTIAL_PROVIDER_ID`. Store the token next. User IDs and scopes are application-defined; this example uses `harness-market` and `github` in both the harness reference and the cleanup helper. Keep these two values unchanged while following the tutorial. If you customize them, update the secret commands, `--mcp-credential` and the credential cleanup in `scripts/resources.py` together:
 
 ```bash
 agr credential secret set --region "$AGR_REGION" \
@@ -205,11 +205,15 @@ agr harness revision create "$HARNESS_ID" --region "$AGR_REGION" --publish --wai
 
 Keep `${credential}` inside single quotes so the shell does not expand it. When an instance calls the MCP server, the platform reads the secret and replaces `${credential}`; the secret is never written to the harness or its revisions.
 
+The UserId and scope in `--mcp-credential` are fixed in the harness configuration. All sessions using this GitHub MCP server share that token; the application user's identity does not change the credential. If users need separate credentials, design separate harness configurations and authorize access in your application.
+
 More about headers and credentials:
 
 - With only `--mcp github=...` and no `Authorization`, the save fails with `Registry MCP header "Authorization" is required and has no value or default`.
 - With `--mcp-credential` but no `--mcp-header` using `${credential}`, the credential would never be read, so the CLI rejects it (`UNUSED_MCP_CREDENTIAL`).
 - Some MCP servers need several secret headers (for example both a SecretId and a SecretKey). One MCP server takes one credential, so the other headers can only be passed as plain-text `--mcp-header` values, **which are stored in the harness configuration** and visible to anyone who can read the harness. Use least-privilege sub-account keys for such tools.
+
+The current CLI also includes those plain-text header values in `agr harness revision diff` output (text and JSON) and `agr harness status -o json`. Redact them before sharing output or saving it in public logs.
 
 ## 5. Add Skills and Plugins
 
@@ -248,7 +252,7 @@ If the output differs from the current `GITHUB_REF`, repeat the `harness update`
 
 ## 7. Clean up
 
-Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup. If you completed step 4, it also deletes the managed secret, disables the credential provider and then deletes it.
+Delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup. If you completed step 4, it also deletes the managed secret, disables the credential provider and then deletes it.
 
 ```bash
 python3 ../scripts/resources.py cleanup tool-market --yes

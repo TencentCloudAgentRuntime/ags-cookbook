@@ -15,6 +15,8 @@ Compared with the [Deployment Cookbook](../deployment-cookbook/README.md): the D
 
 A configuration change always follows **edit the draft (`update`) → freeze a revision (`revision create`) → publish (`publish`)**. Publishing affects only instances created afterwards; it does not restart existing instances or interrupt existing sessions.
 
+**A new session can still reach an old instance after publishing.** To verify a new revision, delete the old instances as shown in [revisions](./revisions/README.md#3-freeze-and-publish-revision-2), then send a prompt. A new SessionId alone does not ensure the new revision is used.
+
 ## Prerequisites
 
 - `agr` from the **preview channel**, with credentials initialized, including the managed harness commands from [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171). Older preview builds may not include them. Download a release containing these commands with a `-preview` suffix from [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases), or install from source:
@@ -50,7 +52,7 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
 
 Every example runs in `ap-chongqing` and passes the region explicitly. Sample output masks account numbers, resource IDs, timestamps, and request IDs.
 
-Each example creates its own resources. Creation commands use `scripts/resources.py` to call `agr`, capture the returned IDs and save them in `.state/<scenario>.json`. Other steps use `agr` directly. Run the cleanup section when finished.
+Each example creates its own resources. Creation commands use `scripts/resources.py` to call `agr`, capture the returned IDs and save them with the region and control-plane endpoint in `.state/<scenario>.json`. Other steps use `agr` directly. Run the cleanup section when finished.
 
 Run `make run` in this directory to list the scenarios. It only prints navigation and creates no cloud resources.
 
@@ -62,13 +64,17 @@ Install Python 3 and Bash for the helper scripts. Prepare the shared configurati
 make setup
 ```
 
-Edit `.env` using [.env.example](./.env.example): set the region, role ARN, subnet, security group, TokenHub ApiKeyId and a unique name suffix. All scenarios load this file. Then check the scenario you want to run:
+Edit `.env` using [.env.example](./.env.example): set the region, role ARN, subnet, security group, TokenHub ApiKeyId and a unique name suffix. All scenarios load this file.
+
+For a custom control-plane endpoint, set `AGR_CLOUD_ENDPOINT` in `.env` or use your existing `agr` configuration. Keep that configuration consistent throughout the tutorial. The helper reads the effective endpoint from `agr config show`, including the CLI default, and records it as `CloudEndpoint` before creating resources. It rejects per-create `--cloud-endpoint` and `--config` overrides and refuses to mix endpoints within an unfinished scenario.
+
+Then check the scenario you want to run:
 
 ```bash
 make preflight SCENARIO=simple
 ```
 
-Preflight checks required values, the preview CLI commands and `agr doctor`. `connect` also checks `curl`, `npx` and Node.js 22.13 or newer. It creates no cloud resources. If preflight fails, fix the reported problem before continuing.
+Preflight checks required values, the preview CLI commands and `agr doctor`. `connect` also requires `curl`. Missing `npx` or Node.js 22.13 or newer produces a warning: only the optional acpx example needs them, so you can continue with `prompt`, `proxy` and `endpoint`. Preflight creates no cloud resources. If it fails, fix the reported problem before continuing.
 
 The creation helper returns the ID to the shell and records it for later steps. If a wait fails after the service returns an ID, the ID is kept for cleanup. To recover a variable in a new terminal with the same preview CLI on `PATH`:
 
@@ -79,14 +85,18 @@ set +a
 HARNESS_ID=$(python3 scripts/resources.py get simple HarnessId) && export HARNESS_ID
 ```
 
-You can clean up independently of the tutorial, using the recorded region and IDs:
+You can clean up independently of the tutorial, using the recorded region, endpoint and IDs:
 
 ```bash
 python3 scripts/resources.py cleanup simple --dry-run
 make cleanup SCENARIO=simple
 ```
 
-Cleanup waits for deletion and checks that the recorded resources are absent. It can be repeated. If a network interruption leaves a create result unknown, check the resource name recorded under `Pending` with `agr list/get` and finish that cleanup manually before removing the state file. Do not retry an unknown create blindly.
+`make cleanup` loads `.env` if it exists. Both cleanup entry points pass the recorded endpoint explicitly, even in a fresh terminal or after the CLI configuration changes. Cleanup waits for deletion and checks that the recorded resources are absent. It can be repeated.
+
+Older state files without `CloudEndpoint` stop with an error before querying or deleting resources. Confirm the original creation endpoint and add that value to the state file before continuing; do not assume the current CLI endpoint is the original one. Remove an old state file only after verifying that its resources are absent at the original endpoint.
+
+If a network interruption leaves a create result unknown, check the resource name recorded under `Pending` with `agr list/get` at the recorded endpoint and finish that cleanup manually before removing the state file. Do not retry an unknown create blindly.
 
 ## Examples
 
@@ -102,8 +112,11 @@ In each scenario directory, `README.md` is English and `README_zh.md` is Chinese
 
 ## Conventions for agents and scripts
 
-- Commands that support `-o json` use one envelope: `Status`, `Data`, and `Failure{Code,Kind,Message,Hint,Fix,Details}`. Branch on `Failure.Code`; do not match `Message`. `harness acp` carries raw ACP over stdio instead; launch it with `-o text`, including when your configured default is JSON.
+- Commands that support `-o json` use one envelope: `Status`, `Data`, and `Failure{Code,Kind,Message,Hint,Fix,Details}`. Use `Failure.Kind` for categories such as `not_found`, and `Failure.Code` for specific errors; do not match `Message`. `harness acp` carries raw ACP over stdio instead; launch it with `-o text`, including when your configured default is JSON.
 - `agr harness status <harness-id> -o json --jq '.Data.Next'` returns the suggested next command, or an empty string when nothing is pending.
 - `agr schema harness.create -o json` lists flags, side effects, and failure codes; `--dry-run` prints the final request without sending it.
 - Without a TTY, `harness delete` and `model-provider delete` fail immediately with `CONFIRMATION_REQUIRED` unless `--yes` is set; they never wait for input.
 - `harness create` and `model-provider create` are not idempotent, and the CLI never retries them. After a timeout, check with `agr harness list --name <name>` before creating again.
+- With a session space, all sessions of one harness use its Harness ID as UserId. Your application must track session ownership and authorize access; this does not automatically isolate your application's users.
+- An MCP credential reference fixes a provider, UserId and scope in the harness configuration. All sessions using that MCP share that credential; changing SessionId does not select a different user's credential. See [tool-market](./tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key).
+- Serialize requests for each SessionId in your application. Session persistence does not coordinate concurrent writers; do not send turns from two instances to the same session at once.

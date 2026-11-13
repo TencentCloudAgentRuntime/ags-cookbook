@@ -11,6 +11,8 @@ Complete the shared [prerequisites](../README.md#prerequisites) and [configurati
 | Model provider | Yes; every change creates a new provider revision | After the harness creates and publishes a new revision |
 | Tags and name | Yes | Not runtime configuration; no publish needed |
 
+Use a separate harness as a test environment before publishing to the production harness. There are no revision aliases or percentage-based traffic splits; publishing changes the revision used by new instances of that harness.
+
 Sample output masks real values.
 
 ## 1. Set environment variables and create the harness
@@ -53,6 +55,8 @@ echo "$HARNESS_TOOL_ID"
 ```
 
 ## 2. Edit the draft and compare
+
+If your MCP configuration contains plain-text secret headers, `revision diff` (text and JSON) and `harness status -o json` can include their values. Redact the output before sharing it; see [MCP headers and credentials](../tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key).
 
 `harness update` changes only the draft; live instances are unaffected. The system prompt can be passed inline or read with `@file`:
 
@@ -301,7 +305,7 @@ Copy the returned `REFERENCE` and pass it with `--skill MARKETPLACE/<record-id>/
 
 ## 7. Clean up
 
-Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
+Delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
 python3 ../scripts/resources.py cleanup revisions --yes
@@ -318,3 +322,4 @@ rm -f prompt.md
 | `model-provider update` fails to remove a model | A harness draft still selects that model. Remove it with `harness update --model` first |
 | `model-provider delete` returns `ResourceInUse` | A harness or one of its kept revisions still references the provider. Delete the harness first |
 | A newly published prompt has no effect | The request still lands on an instance created before the publish. Delete old instances as in step 3 and retry |
+| A revision reaches `PUBLISH_FAILED` or its instances fail to start | Read `harness revision get` for the publish reason. Once a Tool exists, inspect its operational events as shown in [simple](../simple/README.md#common-issues) |

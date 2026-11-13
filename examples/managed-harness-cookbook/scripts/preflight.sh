@@ -34,10 +34,11 @@ agr harness --help >/dev/null
 agr model-provider --help >/dev/null
 
 if [[ "$scenario" == connect ]]; then
-  for command in curl node npx; do
-    command -v "$command" >/dev/null || { echo "Required command is missing for connect: $command" >&2; exit 1; }
-  done
-  node -e 'if (process.versions.node.split(".").map(Number).slice(0,2).reduce((v,n)=>v*100+n,0)<2213) {console.error("connect requires Node.js 22.13 or newer.");process.exit(1)}'
+  command -v curl >/dev/null || { echo 'Required command is missing for connect: curl' >&2; exit 1; }
+  if ! command -v node >/dev/null || ! command -v npx >/dev/null ||
+     ! node -e 'process.exit(process.versions.node.split(".").map(Number).slice(0,2).reduce((v,n)=>v*100+n,0)>=2213 ? 0 : 1)'; then
+    echo 'Warning: the optional acpx example needs npx and Node.js 22.13 or newer. Install them before running that example.' >&2
+  fi
 fi
 
 agr status -o text

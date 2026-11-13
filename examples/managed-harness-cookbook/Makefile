@@ -13,7 +13,7 @@ preflight:
 	@set -e; set -a; source .env; set +a; bash scripts/preflight.sh "$$SCENARIO"
 
 cleanup:
-	python3 scripts/resources.py cleanup "$$SCENARIO" --yes
+	@set -e; if test -f .env; then set -a; source .env; set +a; fi; python3 scripts/resources.py cleanup "$$SCENARIO" --yes
 
 run:
 	@echo "Choose a managed harness scenario and follow its README:"

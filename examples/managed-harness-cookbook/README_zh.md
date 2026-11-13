@@ -15,6 +15,8 @@
 
 一次配置变更的完整链路是：**改草稿（`update`）→ 冻结成修订（`revision create`）→ 发布（`publish`）**。发布只影响之后新建的实例，不重启已有实例，也不中断已有会话。
 
+**发布后，新会话仍可能落到旧实例。** 验证新修订时，按 [revisions](./revisions/README_zh.md#3-冻结并发布修订-2) 删除旧实例，再发送 prompt。只换一个 SessionId 不能保证使用新修订。
+
 ## 前置条件
 
 - 已安装 **preview 通道**的 `agr`，完成凭证初始化，并包含 [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171) 中的托管 Harness 命令。较旧的 preview 构建可能尚未包含这些命令。从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载包含这些命令且带 `-preview` 后缀的版本，或从源码安装：
@@ -50,7 +52,7 @@
 
 所有示例都在 `ap-chongqing` 运行，每条命令显式指定 region。示例输出中的账号、资源 ID、时间和请求 ID 均已脱敏。
 
-每个示例都会创建独立资源。创建命令通过 `scripts/resources.py` 调用 `agr`，提取返回的 ID 并保存到 `.state/<scenario>.json`；其余步骤直接使用 `agr`。完成后执行清理章节。
+每个示例都会创建独立资源。创建命令通过 `scripts/resources.py` 调用 `agr`，提取返回的 ID，与地域、控制面 endpoint 一起保存到 `.state/<scenario>.json`；其余步骤直接使用 `agr`。完成后执行清理章节。
 
 在本目录运行 `make run` 可列出可选场景。该命令只输出导航信息，不会创建云资源。
 
@@ -62,13 +64,17 @@
 make setup
 ```
 
-参考 [.env.example](./.env.example) 编辑 `.env`，填写地域、角色 ARN、子网、安全组、TokenHub ApiKeyId 和唯一的名称后缀。所有场景都加载这个文件。然后检查要运行的场景：
+参考 [.env.example](./.env.example) 编辑 `.env`，填写地域、角色 ARN、子网、安全组、TokenHub ApiKeyId 和唯一的名称后缀。所有场景都加载这个文件。
+
+需要自定义控制面 endpoint 时，在 `.env` 中设置 `AGR_CLOUD_ENDPOINT`，或使用已有的 `agr` 配置；教程进行期间应保持配置一致。脚本通过 `agr config show` 读取有效 endpoint（包括 CLI 默认值），在创建资源前保存为 `CloudEndpoint`。创建命令不接受单独传入 `--cloud-endpoint` 或 `--config`，同一个未清理的场景也不能混用不同 endpoint。
+
+然后检查要运行的场景：
 
 ```bash
 make preflight SCENARIO=simple
 ```
 
-预检会检查必填配置、preview CLI 命令并运行 `agr doctor`。`connect` 还会检查 `curl`、`npx` 和 Node.js 22.13 或更新版本。预检不会创建云资源。如果预检失败，先修复提示的问题，再继续后续步骤。
+预检会检查必填配置、preview CLI 命令并运行 `agr doctor`。`connect` 还要求安装 `curl`。缺少 `npx` 或 Node.js 22.13 及更新版本时只会警告：只有可选的 acpx 示例需要它们，仍可继续使用 `prompt`、`proxy` 和 `endpoint`。预检不会创建云资源。如果预检失败，先修复提示的问题，再继续后续步骤。
 
 创建脚本会输出 ID，供 shell 变量接收，并将其保存，供后续步骤使用。如果等待失败前服务已返回 ID，这个 ID 也会保留用于清理。在新终端中将同一个 preview CLI 加入 `PATH` 后，可以这样恢复变量：
 
@@ -79,14 +85,18 @@ set +a
 HARNESS_ID=$(python3 scripts/resources.py get simple HarnessId) && export HARNESS_ID
 ```
 
-也可以脱离教程，使用已记录的地域和 ID 单独清理：
+也可以脱离教程，使用已记录的地域、endpoint 和 ID 单独清理：
 
 ```bash
 python3 scripts/resources.py cleanup simple --dry-run
 make cleanup SCENARIO=simple
 ```
 
-清理会等待删除完成并回查资源是否已不存在，可以重复执行。如果网络中断导致创建结果未知，先按 `Pending` 中记录的资源名称用 `agr list/get` 核实，手动完成这部分清理后再移除状态文件。不要直接重试结果未知的创建。
+`make cleanup` 会加载已有的 `.env`。两个清理入口都会显式传入已记录的 endpoint，即使换到新终端或修改了 CLI 配置，也会查询原 endpoint。清理会等待删除完成并回查资源是否已不存在，可以重复执行。
+
+旧状态文件如果没有 `CloudEndpoint`，脚本会在查询或删除资源前报错停止。请先核实创建时使用的 endpoint，再将其补入状态文件；不要假定当前 CLI endpoint 就是原值。只有确认原 endpoint 上的资源已不存在后，才能移除旧状态文件。
+
+如果网络中断导致创建结果未知，先按 `Pending` 中记录的资源名称，在已记录的 endpoint 上用 `agr list/get` 核实，手动完成这部分清理后再移除状态文件。不要直接重试结果未知的创建。
 
 ## 示例
 
@@ -102,8 +112,11 @@ make cleanup SCENARIO=simple
 
 ## 给 Agent 和脚本的约定
 
-- 支持 `-o json` 的命令输出统一信封：`Status`、`Data`、`Failure{Code,Kind,Message,Hint,Fix,Details}`。按 `Failure.Code` 分支，不要匹配 `Message`。`harness acp` 使用 stdio 上的原始 ACP 消息，应显式加 `-o text`，包括默认输出已配置为 JSON 的情况。
+- 支持 `-o json` 的命令输出统一信封：`Status`、`Data`、`Failure{Code,Kind,Message,Hint,Fix,Details}`。用 `Failure.Kind` 判断 `not_found` 等错误类别，用 `Failure.Code` 区分具体错误，不要匹配 `Message`。`harness acp` 使用 stdio 上的原始 ACP 消息，应显式加 `-o text`，包括默认输出已配置为 JSON 的情况。
 - `agr harness status <harness-id> -o json --jq '.Data.Next'` 返回建议的下一条命令；没有待处理事项时为空字符串。
 - `agr schema harness.create -o json` 查看参数、副作用与失败码；`--dry-run` 打印最终请求但不发送。
 - 无 TTY 时，`harness delete` 和 `model-provider delete` 不加 `--yes` 会立即返回 `CONFIRMATION_REQUIRED`，不会挂起等待输入。
 - `harness create` 和 `model-provider create` 不幂等，CLI 也不会自动重试。超时后先用 `agr harness list --name <name>` 核实，再决定是否重新创建。
+- 接入 Session Space 后，同一个 Harness 的所有会话都使用 Harness ID 作为 UserId。应用需要记录会话归属并校验访问权限，这不会自动隔离应用里的不同用户。
+- MCP 凭据引用在 Harness 配置中固定了提供商、UserId 和 scope。使用该 MCP 的所有会话共用这份凭据，切换 SessionId 不会自动换成当前应用用户的凭据。详见 [tool-market](./tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
+- 应用应按 SessionId 串行发送请求。会话持久化不负责协调并发写入，不要让两个实例同时向同一个会话发送对话轮次。

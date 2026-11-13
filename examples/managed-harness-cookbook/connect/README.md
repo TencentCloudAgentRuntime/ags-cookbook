@@ -119,7 +119,7 @@ The first NDJSON line is `started` (with `SessionId`); each ACP `session/update`
 
 Launch the bridge with `-o text` to select raw ACP output and override any configured JSON or NDJSON default. Stdout still carries ACP JSON-RPC messages.
 
-The bridge forwards the client's `cwd` unchanged; it does not map paths or sync local files. Creating or restoring a session requires an existing, accessible absolute directory inside the sandbox. This Unix smoke test requires Node.js 22.13 or newer and runs [acpx](https://github.com/openclaw/acpx) 0.22.0 through `npx`. It uses `/tmp`, which exists both locally and in the managed image:
+The bridge forwards the client's `cwd` unchanged; it does not map paths or sync local files. Creating or restoring a session requires an existing, accessible absolute directory inside the sandbox. This optional Unix smoke test requires Node.js 22.13 or newer and runs [acpx](https://github.com/openclaw/acpx) 0.22.0 through `npx`. Install them before running this example; `prompt`, `proxy` and `endpoint` do not need them. It uses `/tmp`, which exists both locally and in the managed image:
 
 ```bash
 npx --yes acpx@0.22.0 --cwd /tmp --agent "agr harness acp $HARNESS_ID --region $AGR_REGION -o text" exec 'Summarize what you can do in one sentence.'
@@ -344,7 +344,7 @@ Through `agr` commands, these errors are classified as `ACP_UNAVAILABLE`, with t
 
 ## 6. Clean up
 
-Delete the resources saved for this scenario. The helper reads the IDs and region from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
+Delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
 python3 ../scripts/resources.py cleanup connect --yes
