@@ -34,6 +34,9 @@ agr harness --help >/dev/null
 agr model-provider --help >/dev/null
 
 if [[ "$scenario" == connect ]]; then
+  agr schema harness.web -o json >/dev/null || {
+    echo 'connect needs agr harness web; build the updated CLI PR described in README.md.' >&2; exit 1;
+  }
   command -v curl >/dev/null || { echo 'Required command is missing for connect: curl' >&2; exit 1; }
   if ! command -v node >/dev/null || ! command -v npx >/dev/null ||
      ! node -e 'process.exit(process.versions.node.split(".").map(Number).slice(0,2).reduce((v,n)=>v*100+n,0)>=2213 ? 0 : 1)'; then

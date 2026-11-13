@@ -56,7 +56,7 @@ echo "$HARNESS_TOOL_ID"
 
 ## 2. Edit the draft and compare
 
-If your MCP configuration contains plain-text secret headers, `revision diff` (text and JSON) and `harness status -o json` can include their values. Redact the output before sharing it; see [MCP headers and credentials](../tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key).
+MCP header values are masked in `revision diff` (text and JSON) and `harness status -o json`. Changes are computed from the original values, so a header change can still be reported even when both displayed values are masked. See [MCP headers and credentials](../tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key) for storage and access permissions.
 
 `harness update` changes only the draft; live instances are unaffected. The system prompt can be passed inline or read with `@file`:
 

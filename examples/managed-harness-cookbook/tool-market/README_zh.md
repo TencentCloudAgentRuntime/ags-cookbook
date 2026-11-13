@@ -213,7 +213,7 @@ agr harness revision create "$HARNESS_ID" --region "$AGR_REGION" --publish --wai
 - 只写 `--mcp-credential` 而没有任何 `--mcp-header` 使用 `${credential}`，凭据永远不会被读取，CLI 会直接拒绝（`UNUSED_MCP_CREDENTIAL`）。
 - 有的 MCP 需要多个密钥请求头（例如同时需要 SecretId 和 SecretKey）。一个 MCP 只能绑定一个凭据，所以其余请求头只能用明文 `--mcp-header` 提供，**明文值会保存在 Harness 配置中**，有 Harness 读取权限的人都能看到。这类工具请使用权限最小的子账号密钥。
 
-当前 CLI 的 `agr harness revision diff`（text 和 JSON）及 `agr harness status -o json` 输出也会包含这些明文请求头值。分享输出或写入公开日志前，请先脱敏。
+当前 CLI 会在 `agr harness revision diff`（text 和 JSON）及 `agr harness status -o json` 中脱敏 MCP 请求头值。这不会改变后端保存这些请求头的方式，也不改变 Harness 配置的读取权限。
 
 ## 5. 添加 Skill 和 Plugin
 

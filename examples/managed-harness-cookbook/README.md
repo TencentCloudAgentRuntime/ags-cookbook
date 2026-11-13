@@ -25,6 +25,7 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
   go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>'
   agr version   # channel: preview
   agr harness --help
+  agr harness web --help
   agr model-provider --help
   agr status
   agr doctor
@@ -42,6 +43,7 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
   export PATH="$PWD/ags-cli/build:$PATH"
   agr version   # channel: preview
   agr harness --help
+  agr harness web --help
   agr model-provider --help
   ```
 
@@ -74,7 +76,7 @@ Then check the scenario you want to run:
 make preflight SCENARIO=simple
 ```
 
-Preflight checks required values, the preview CLI commands and `agr doctor`. `connect` also requires `curl`. Missing `npx` or Node.js 22.13 or newer produces a warning: only the optional acpx example needs them, so you can continue with `prompt`, `proxy` and `endpoint`. Preflight creates no cloud resources. If it fails, fix the reported problem before continuing.
+Preflight checks required values, the preview CLI commands and `agr doctor`. `connect` also checks that the CLI includes `harness web` and requires `curl`. Missing `npx` or Node.js 22.13 or newer produces a warning: only the optional acpx example needs them, so you can continue with the other connection methods. Preflight creates no cloud resources. If it fails, fix the reported problem before continuing.
 
 The creation helper returns the ID to the shell and records it for later steps. If a wait fails after the service returns an ID, the ID is kept for cleanup. To recover a variable in a new terminal with the same preview CLI on `PATH`:
 
@@ -104,7 +106,7 @@ If a network interruption leaves a create result unknown, check the resource nam
 | --- | --- |
 | [simple](./simple/README.md) | Register a TokenHub model, create a harness and wait for the first revision, check the ACP endpoint, send one prompt, and clean up every resource. |
 | [revisions](./revisions/README.md) | Edit the draft, compare differences, publish a new revision, roll back; pick up a model provider update through a new revision, and confirm that a failed publish leaves the live revision untouched. |
-| [connect](./connect/README.md) | Four ways to connect: multi-turn `prompt`, `acp` for editors, `proxy` for local debugging, and `endpoint` for the real address, plus a `curl` walkthrough of ACP Streamable HTTP. |
+| [connect](./connect/README.md) | Five ways to connect to a DSH harness: multi-turn `prompt`, `acp` for editors, `proxy` for local debugging, `endpoint` for the real ACP address, and `web` for the native browser console. Includes a `curl` walkthrough of ACP Streamable HTTP. |
 | [tool-market](./tool-market/README.md) | Browse and add official MCP servers, Skills, and Plugins from the tool market: an MCP server without credentials, one with a managed credential, fixed versions and upgrades, and every restriction that applies to tool market references. |
 | [scaling-session](./scaling-session/README.md) | Set instance size, on-demand start, and idle policy through the initialization configuration; keep sessions across instances with a session space; and learn which underlying settings you can adjust directly with Deployment commands. |
 

@@ -56,7 +56,7 @@ echo "$HARNESS_TOOL_ID"
 
 ## 2. 修改草稿并比较差异
 
-如果 MCP 配置中有明文密钥请求头，`revision diff`（text 和 JSON）及 `harness status -o json` 可能输出其值。分享前请先脱敏，详见 [MCP 请求头和凭据](../tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
+`revision diff`（text 和 JSON）及 `harness status -o json` 会脱敏 MCP 请求头值。差异仍按原值计算，因此即使显示的前后值都已脱敏，也可能报告请求头发生变化。存储方式和读取权限见 [MCP 请求头和凭据](../tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
 
 `harness update` 只修改草稿，线上实例不受影响。系统提示词可以直接写在参数里，也可以用 `@文件` 读取：
 

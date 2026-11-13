@@ -1,6 +1,6 @@
-# Connect to a managed harness: prompt, acp, proxy, and endpoint
+# Connect to a managed harness: prompt, acp, proxy, endpoint, and web
 
-This tutorial creates its own harness and talks to it in four ways. A managed harness is served over the Streamable HTTP transport of [ACP (Agent Client Protocol)](https://agentclientprotocol.com).
+This tutorial creates its own DSH harness and connects in five ways: four use the Streamable HTTP transport of [ACP (Agent Client Protocol)](https://agentclientprotocol.com), and one opens the native DSH Web console.
 
 Complete the shared [prerequisites](../README.md#prerequisites) and [configuration](../README.md#configuration) before starting.
 
@@ -10,6 +10,7 @@ Complete the shared [prerequisites](../README.md#prerequisites) and [configurati
 | Editors, acpx, and other clients that launch agents as subprocesses | `agr harness acp` | Turns the remote harness into a local stdio agent |
 | Local debugging with browsers, IDE plugins, ACP SDKs | `agr harness proxy` | Local HTTP address that adds the token and affinity |
 | Direct connection from your own service | `agr harness endpoint` | Prints the real ACP URL and headers; your client owns the connection |
+| Native DSH console in a browser | `agr harness web` | Opens the Deployment's HTTPS Webview; no local proxy needed |
 
 Sample output masks real values.
 
@@ -30,13 +31,19 @@ MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create connect model-provide
   --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-Create the harness with the saved model provider ID, then check the ACP endpoint:
+This tutorial uses `dsh@0.2.1-rc.2` so it can also demonstrate the native Web console. Check the available versions in your region first:
+
+```bash
+agr harness engine list --region "$AGR_REGION"
+```
+
+Use the DSH version listed for your region if it differs, then create the harness with the saved model provider ID and check the ACP endpoint:
 
 ```bash
 HARNESS_ID=$(python3 ../scripts/resources.py create connect harness \
   --name "$HARNESS_NAME" \
-  --engine pi \
-  --engine-version 1.3.0 \
+  --engine dsh \
+  --engine-version 0.2.1-rc.2 \
   --model "$MODEL_PROVIDER_ID:hy3" \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
@@ -342,9 +349,63 @@ Platform errors are returned as JSON. For example, when the underlying Tool is u
 
 Through `agr` commands, these errors are classified as `ACP_UNAVAILABLE`, with the platform code in `Failure.Details.PlatformCode`.
 
-## 6. Clean up
+## 6. `web`: open the native DSH console
 
-Delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
+The harness must have a **PUBLISHED DSH revision** and an **ACTIVE Deployment**. The command checks the published revision, so changing only the draft engine is not enough. If you previously ran this scenario with pi, clean up those resources before creating the DSH harness in step 1.
+
+On a machine with a browser:
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" -o text
+```
+
+The command acquires a short-lived Deployment token, requests a browser launch on the machine running the CLI, and exits. It opens the HTTPS Webview root on service port **3080**; ACP still uses port **8080** and `/acp`. No local proxy or persistent CLI process is needed. `Browser launch requested: true` means the launch was requested; it does not prove the page is ready. The browser visit can start an instance, so the first page load may take longer.
+
+Once the page opens:
+
+1. If the preview notice appears, choose **Continue**.
+2. Choose **Select workspace**, edit the path to `/workspace`, press Enter, then choose **Open**. This is a directory inside the sandbox; local files are not uploaded automatically.
+3. The model selector should show the published `hy3` model. You do not need to enter a TokenHub API key in the page. Send `Reply only with WEB-OK.` and confirm the reply is `WEB-OK`.
+
+To inspect the safe URL without opening a browser or acquiring a token:
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" --no-open -o json
+```
+
+```json
+{
+  "Status": "succeeded",
+  "Data": {
+    "HarnessId": "hns-********",
+    "DeploymentId": "dpl-********",
+    "Revision": 1,
+    "WebURL": "https://3080-dpl-********-webview.ap-chongqing.agents.tencentags.com/",
+    "Opened": false
+  }
+}
+```
+
+For SSH or a machine without a browser, explicitly acquire a login link and copy `AccessURL` to your browser:
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" --no-open --show-token -o json \
+  --jq '.Data | {AccessURL, ExpiresAt}'
+```
+
+`WebURL` never contains a token. `AccessURL` contains a token and is returned only with `--show-token`; treat it as a credential and keep it out of shared logs. If the token or browser authentication expires, run the command again for a new link.
+
+To request the instance affinity obtained in step 2 when entering the console:
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" --affinity-id "$HARNESS_AFFINITY_ID" -o text
+```
+
+`--affinity-id` sets `affinity_id` on the initial URL; the gateway then maintains browser affinity through a cookie. Tabs on the same Webview host share that cookie and do not provide instance isolation. This identifies an instance, not an ACP SessionId.
+
+## 7. Clean up
+
+Close the Web console tab and stop the local proxy from step 4 with `Ctrl+C`, then delete the resources saved for this scenario. The helper reads the IDs, region and endpoint from `.state/`, waits for deletion, and verifies the result. You can run it again after an interrupted cleanup.
 
 ```bash
 python3 ../scripts/resources.py cleanup connect --yes
@@ -361,3 +422,7 @@ rm -f acp.env
 | `SESSION_RESTORE_FAILED` | The old session is not on the current instance. Pass the `--affinity-id` and `--cwd` used when the session was created, or configure a session space |
 | `PROMPT_TIMEOUT` | No reply within `--timeout`; `session/cancel` was sent. Raise `--timeout`, or continue with `--session-id` and `--affinity-id` |
 | `PROXY_BIND_FAILED` | The local port is in use. Choose another `--port`, or use `--port 0` for a free one |
+| `HARNESS_WEB_UNSUPPORTED_ENGINE` | The published revision is not DSH. A DSH draft alone is insufficient; create and publish a DSH revision and replace old instances, or start with the DSH harness in step 1 |
+| `HARNESS_NOT_PUBLISHED` or `HARNESS_NOT_DEPLOYED` | Check `harness status` and finish publishing a DSH revision before opening the console |
+| `DEPLOYMENT_NOT_ACTIVE` | Check `deployment get` and wait for the Deployment to become `ACTIVE` |
+| `BROWSER_OPEN_FAILED` | The CLI could not start a browser on that machine. Use `--no-open --show-token` and copy `AccessURL` to your browser |

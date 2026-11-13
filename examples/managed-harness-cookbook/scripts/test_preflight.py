@@ -59,6 +59,15 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("missing for connect: curl", result.stderr)
         self.assertNotIn("doctor", self.calls.read_text())
 
+    def test_preview_without_web_stops_before_doctor(self):
+        self.command("agr", 'if [ "$1" = version ]; then echo \'{"Status":"succeeded","Data":{"Channel":"preview"}}\'; fi\n'
+                     'if [ "$1" = schema ]; then exit 1; fi\n'
+                     'printf "%s\\n" "$*" >> "$PREFLIGHT_CALLS"')
+        result = self.run_preflight()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("connect needs agr harness web", result.stderr)
+        self.assertNotIn("doctor", self.calls.read_text())
+
     def test_missing_required_value_still_blocks_connect(self):
         self.env.pop("AGR_ROLE_ARN")
         result = self.run_preflight()

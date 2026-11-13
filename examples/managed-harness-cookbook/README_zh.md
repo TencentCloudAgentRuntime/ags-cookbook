@@ -25,6 +25,7 @@
   go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>'
   agr version   # channel: preview
   agr harness --help
+  agr harness web --help
   agr model-provider --help
   agr status
   agr doctor
@@ -42,6 +43,7 @@
   export PATH="$PWD/ags-cli/build:$PATH"
   agr version   # channel: preview
   agr harness --help
+  agr harness web --help
   agr model-provider --help
   ```
 
@@ -74,7 +76,7 @@ make setup
 make preflight SCENARIO=simple
 ```
 
-预检会检查必填配置、preview CLI 命令并运行 `agr doctor`。`connect` 还要求安装 `curl`。缺少 `npx` 或 Node.js 22.13 及更新版本时只会警告：只有可选的 acpx 示例需要它们，仍可继续使用 `prompt`、`proxy` 和 `endpoint`。预检不会创建云资源。如果预检失败，先修复提示的问题，再继续后续步骤。
+预检会检查必填配置、preview CLI 命令并运行 `agr doctor`。`connect` 还会检查 CLI 是否包含 `harness web`，并要求安装 `curl`。缺少 `npx` 或 Node.js 22.13 及更新版本时只会警告：只有可选的 acpx 示例需要它们，仍可继续使用其他接入方式。预检不会创建云资源。如果预检失败，先修复提示的问题，再继续后续步骤。
 
 创建脚本会输出 ID，供 shell 变量接收，并将其保存，供后续步骤使用。如果等待失败前服务已返回 ID，这个 ID 也会保留用于清理。在新终端中将同一个 preview CLI 加入 `PATH` 后，可以这样恢复变量：
 
@@ -104,7 +106,7 @@ make cleanup SCENARIO=simple
 | --- | --- |
 | [simple](./simple/README_zh.md) | 登记 TokenHub 模型，创建 Harness 并等待首个修订发布，检查 ACP 入口，对话一次，最后清理全部资源。 |
 | [revisions](./revisions/README_zh.md) | 修改草稿、比较差异、发布新修订、回滚到旧修订；更新 Model Provider 后通过新修订生效，并观察发布失败时线上修订不受影响。 |
-| [connect](./connect/README_zh.md) | 四种接入方式：`prompt` 多轮对话、`acp` 接入编辑器、`proxy` 本地代理、`endpoint` 拿真实地址用 `curl` 走一遍 ACP Streamable HTTP。 |
+| [connect](./connect/README_zh.md) | DSH Harness 的五种接入方式：`prompt` 多轮对话、`acp` 接入编辑器、`proxy` 本地代理、`endpoint` 获取真实 ACP 地址、`web` 打开原生浏览器控制台，并用 `curl` 走一遍 ACP Streamable HTTP。 |
 | [tool-market](./tool-market/README_zh.md) | 从工具市场浏览并添加官方 MCP、Skill 和 Plugin：无需凭据的 MCP、使用托管凭据的 MCP、固定版本与升级，以及引用工具市场时的全部限制。 |
 | [scaling-session](./scaling-session/README_zh.md) | 通过初始化配置设置资源规格、按需启动和空闲策略；用 Session Space 让会话跨实例保留，并说明哪些底层配置可以直接用 Deployment 命令调整。 |
 

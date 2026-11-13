@@ -1,6 +1,6 @@
-# 连接托管 Harness：prompt、acp、proxy 与 endpoint
+# 连接托管 Harness：prompt、acp、proxy、endpoint 与 web
 
-本教程独立创建一个 Harness，并用四种方式与它对话。托管 Harness 通过 [ACP（Agent Client Protocol）](https://agentclientprotocol.com) 的 Streamable HTTP 传输对外服务。
+本教程独立创建一个 DSH Harness，并演示五种接入方式：四种通过 [ACP（Agent Client Protocol）](https://agentclientprotocol.com) 的 Streamable HTTP 传输连接，一种打开 DSH 原生 Web 控制台。
 
 开始前，请完成公共[前置条件](../README_zh.md#前置条件)和[配置](../README_zh.md#配置)。
 
@@ -10,6 +10,7 @@
 | 编辑器、acpx 等以子进程启动 Agent 的客户端 | `agr harness acp` | 把远端 Harness 变成本地 stdio Agent |
 | 浏览器、IDE 插件、ACP SDK 本地调试 | `agr harness proxy` | 本地 HTTP 地址，自动加 Token 和亲和 |
 | 自己的服务直连 | `agr harness endpoint` | 输出真实 ACP 地址和请求头，连接由你自己建立 |
+| 在浏览器中使用 DSH 原生控制台 | `agr harness web` | 打开 Deployment 的 HTTPS Webview，无需本地代理 |
 
 示例输出中的真实信息均已脱敏。
 
@@ -30,13 +31,19 @@ MODEL_PROVIDER_ID=$(python3 ../scripts/resources.py create connect model-provide
   --model hy3) && export MODEL_PROVIDER_ID
 ```
 
-使用已保存的 Model Provider ID 创建 Harness，并检查 ACP 入口：
+本教程使用 `dsh@0.2.1-rc.2`，以便同时演示原生 Web 控制台。先查询当前地域提供的版本：
+
+```bash
+agr harness engine list --region "$AGR_REGION"
+```
+
+如果当前地域列出的 DSH 版本不同，请使用列表中的版本。然后用已保存的 Model Provider ID 创建 Harness，并检查 ACP 入口：
 
 ```bash
 HARNESS_ID=$(python3 ../scripts/resources.py create connect harness \
   --name "$HARNESS_NAME" \
-  --engine pi \
-  --engine-version 1.3.0 \
+  --engine dsh \
+  --engine-version 0.2.1-rc.2 \
   --model "$MODEL_PROVIDER_ID:hy3" \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
@@ -342,9 +349,63 @@ curl --include --silent --show-error -X DELETE "$ACP_URL" \
 
 使用 `agr` 命令时，这类错误会被归类为 `ACP_UNAVAILABLE`，平台错误码保存在 `Failure.Details.PlatformCode`。
 
-## 6. 清理资源
+## 6. `web`：打开 DSH 原生控制台
 
-删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。
+Harness 必须有 **PUBLISHED 的 DSH 修订**，且 Deployment 为 **ACTIVE**。命令按已发布修订判断引擎，只修改草稿还不够。如果之前用 pi 跑过本场景，请先清理旧资源，再按第 1 步创建 DSH Harness。
+
+在有浏览器的机器上运行：
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" -o text
+```
+
+命令获取短期 Deployment Token，请求在运行 CLI 的机器上启动浏览器后即退出。打开的是 **3080** 服务端口的 HTTPS Webview 根路径；ACP 仍使用 **8080** 端口和 `/acp`。无需本地代理，也无需保持 CLI 运行。`Browser launch requested: true` 只表示已请求启动浏览器，不代表页面已就绪。浏览器访问可能触发实例启动，因此首次加载可能较慢。
+
+页面打开后：
+
+1. 如果出现预览版说明，点击**继续**。
+2. 点击**选择工作区**，编辑路径为 `/workspace`，按 Enter 后点击**打开**。这是沙箱内的目录，本地文件不会自动上传。
+3. 模型选择器应显示已发布的 `hy3`，无需在页面中填写 TokenHub API Key。发送 `Reply only with WEB-OK.`，确认回复为 `WEB-OK`。
+
+只查看安全地址，不打开浏览器，也不获取 Token：
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" --no-open -o json
+```
+
+```json
+{
+  "Status": "succeeded",
+  "Data": {
+    "HarnessId": "hns-********",
+    "DeploymentId": "dpl-********",
+    "Revision": 1,
+    "WebURL": "https://3080-dpl-********-webview.ap-chongqing.agents.tencentags.com/",
+    "Opened": false
+  }
+}
+```
+
+在 SSH 或没有浏览器的机器上，显式获取登录链接，再将 `AccessURL` 复制到浏览器打开：
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" --no-open --show-token -o json \
+  --jq '.Data | {AccessURL, ExpiresAt}'
+```
+
+`WebURL` 始终不含 Token。只有 `--show-token` 才返回带 Token 的 `AccessURL`，请将其视为凭证，不要写入共享日志。Token 或浏览器认证过期后，重新运行命令获取新链接。
+
+进入控制台时，可以请求使用第 2 步取得的实例亲和值：
+
+```bash
+agr harness web "$HARNESS_ID" --region "$AGR_REGION" --affinity-id "$HARNESS_AFFINITY_ID" -o text
+```
+
+`--affinity-id` 设置首次请求中的 `affinity_id`，后续由网关 Cookie 保持浏览器亲和。同一个 Webview 域名下的标签页共享 Cookie，不提供实例隔离。它标识实例亲和，不能代替 ACP SessionId。
+
+## 7. 清理资源
+
+先关闭 Web 控制台标签页，按 `Ctrl+C` 停止第 4 步的本地代理，再删除本场景保存的资源。脚本从 `.state/` 读取 ID、地域和 endpoint，等待删除完成并回查结果；清理中断后可以重复执行。
 
 ```bash
 python3 ../scripts/resources.py cleanup connect --yes
@@ -361,3 +422,7 @@ rm -f acp.env
 | `SESSION_RESTORE_FAILED` | 旧会话不在当前实例上。带上创建会话时的 `--affinity-id` 和 `--cwd`，或配置 Session Space |
 | `PROMPT_TIMEOUT` | 在 `--timeout` 内没有回复，已发送 `session/cancel`。加大 `--timeout`，或带 `--session-id` 和 `--affinity-id` 继续 |
 | `PROXY_BIND_FAILED` | 本地端口被占用。换一个 `--port`，或用 `--port 0` 自动选择 |
+| `HARNESS_WEB_UNSUPPORTED_ENGINE` | 已发布修订不是 DSH。只有 DSH 草稿还不够，需要创建并发布 DSH 修订、替换旧实例，或直接使用第 1 步的 DSH Harness |
+| `HARNESS_NOT_PUBLISHED` 或 `HARNESS_NOT_DEPLOYED` | 用 `harness status` 检查并完成 DSH 修订发布，再打开控制台 |
+| `DEPLOYMENT_NOT_ACTIVE` | 用 `deployment get` 检查，等待 Deployment 进入 `ACTIVE` |
+| `BROWSER_OPEN_FAILED` | CLI 无法在那台机器上启动浏览器。使用 `--no-open --show-token`，将 `AccessURL` 复制到浏览器打开 |

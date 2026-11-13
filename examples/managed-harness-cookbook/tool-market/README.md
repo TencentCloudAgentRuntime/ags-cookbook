@@ -213,7 +213,7 @@ More about headers and credentials:
 - With `--mcp-credential` but no `--mcp-header` using `${credential}`, the credential would never be read, so the CLI rejects it (`UNUSED_MCP_CREDENTIAL`).
 - Some MCP servers need several secret headers (for example both a SecretId and a SecretKey). One MCP server takes one credential, so the other headers can only be passed as plain-text `--mcp-header` values, **which are stored in the harness configuration** and visible to anyone who can read the harness. Use least-privilege sub-account keys for such tools.
 
-The current CLI also includes those plain-text header values in `agr harness revision diff` output (text and JSON) and `agr harness status -o json`. Redact them before sharing output or saving it in public logs.
+The current CLI masks MCP header values in `agr harness revision diff` (text and JSON) and `agr harness status -o json`. This does not change how the backend stores those headers or who can read the harness configuration.
 
 ## 5. Add Skills and Plugins
 
