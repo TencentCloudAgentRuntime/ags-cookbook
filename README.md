@@ -92,6 +92,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | [`agentway-cookbook`](./examples/agentway-cookbook/README.md) | Kubernetes + Helm + Markdown | Deploy, operate, and observe AgentWay on Tencent AGS and TKE |
 | [`dsh-awv-pelican`](./examples/dsh-awv-pelican/README.md) | Kubernetes + AWV + DSH + TypeScript | Generate, browser-review and publish a pelican animation using sequential Agents sharing one AWV workspace |
 | `browser-agent` | Python + browser sandbox + LLM | Browser automation agent |
+| `local-service-tunnel` | Go/Python + custom sandbox + image volume | Let sandbox workloads call a user-managed local or private service through a WebSocket tunnel |
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
 | [`deployment-cookbook`](./examples/deployment-cookbook/README.md) | agr CLI + Markdown + Python | Deployment, scaling, lifecycle, affinity, native MCP server, and persistent agent workspace scenarios |
