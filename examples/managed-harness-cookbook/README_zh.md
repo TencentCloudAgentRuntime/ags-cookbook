@@ -54,13 +54,13 @@
 
 所有示例都在 `ap-chongqing` 运行，每条命令显式指定 region。示例输出中的账号、资源 ID、时间和请求 ID 均已脱敏。
 
-每个示例都会创建独立资源。创建命令通过 `scripts/resources.py` 调用 `agr`，提取返回的 ID，与地域、控制面 endpoint 一起保存到 `.state/<scenario>.json`；其余步骤直接使用 `agr`。完成后执行清理章节。
+每个示例都会创建独立资源。创建命令通过 `scripts/resources.py` 调用 `agr`，提取返回的 ID，与地域、控制面 endpoint 和凭据 ID 的指纹一起保存到 `.state/<scenario>.json`；其余步骤直接使用 `agr`。完成后执行清理章节。
 
 在本目录运行 `make run` 可列出可选场景。该命令只输出导航信息，不会创建云资源。
 
 ## 配置
 
-辅助脚本需要 Python 3 和 Bash。在本目录准备一次公共配置：
+辅助脚本需要 Python 3 和 Bash。若 CLI 从 TOML 配置读取 SecretID，请使用 Python 3.11 或更新版本。在本目录准备一次公共配置：
 
 ```bash
 make setup
@@ -68,7 +68,7 @@ make setup
 
 参考 [.env.example](./.env.example) 编辑 `.env`，填写地域、角色 ARN、子网、安全组、TokenHub ApiKeyId 和唯一的名称后缀。所有场景都加载这个文件。
 
-需要自定义控制面 endpoint 时，在 `.env` 中设置 `AGR_CLOUD_ENDPOINT`，或使用已有的 `agr` 配置；教程进行期间应保持配置一致。脚本通过 `agr config show` 读取有效 endpoint（包括 CLI 默认值），在创建资源前保存为 `CloudEndpoint`。创建命令不接受单独传入 `--cloud-endpoint` 或 `--config`，同一个未清理的场景也不能混用不同 endpoint。
+需要自定义控制面 endpoint 时，在 `.env` 中设置 `AGR_CLOUD_ENDPOINT`，或使用已有的 `agr` 配置；教程进行期间应保持配置一致。脚本通过 `agr config show` 读取有效 endpoint（包括 CLI 默认值），在创建资源前保存为 `CloudEndpoint`。所有步骤使用同一套凭据。辅助脚本对实际生效的腾讯云 SecretID 计算指纹，只保存指纹。创建命令拒绝单独传入 `--cloud-endpoint`、`--config`、`--secret-id`、`--secret-key` 和 `--token`。
 
 然后检查要运行的场景：
 
@@ -94,9 +94,9 @@ python3 scripts/resources.py cleanup simple --dry-run
 make cleanup SCENARIO=simple
 ```
 
-`make cleanup` 会加载已有的 `.env`。两个清理入口都会显式传入已记录的 endpoint，即使换到新终端或修改了 CLI 配置，也会查询原 endpoint。清理会等待删除完成并回查资源是否已不存在，可以重复执行。
+`make cleanup` 会加载已有的 `.env`。两个清理入口都使用已记录的 endpoint 和地域，并在调用云 API 前校验当前凭据指纹。请使用创建时的 SecretID。若轮换密钥或续签 STS 后 SecretID 变化，需要手动清理。脚本会等待删除并回查资源，中断后可以重跑。
 
-旧状态文件如果没有 `CloudEndpoint`，脚本会在查询或删除资源前报错停止。请先核实创建时使用的 endpoint，再将其补入状态文件；不要假定当前 CLI endpoint 就是原值。只有确认原 endpoint 上的资源已不存在后，才能移除旧状态文件。
+缺少原 endpoint 或凭据指纹的旧状态文件会保留下来供手动恢复。使用文件中记录的 ID，核实创建时的账号、地域和 endpoint，用原账号的 `agr` 删除并回查资源。确认资源已不存在后再归档状态文件。
 
 如果网络中断导致创建结果未知，先按 `Pending` 中记录的资源名称，在已记录的 endpoint 上用 `agr list/get` 核实，手动完成这部分清理后再移除状态文件。不要直接重试结果未知的创建。
 

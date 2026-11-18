@@ -164,27 +164,41 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" -o json \
 ```bash
 export HARNESS_SESSION_ID='replace-with-session-id'
 export HARNESS_AFFINITY_ID='replace-with-affinity-id'
-
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
 ```
 
-One `RUNNING` instance appears. Stop sending requests for at least 60 seconds and query again; the instance moves to `PAUSED`. Reclamation is asynchronous and may take slightly longer than the configured timeout:
+```bash
+running_instance() {
+  agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION" \
+    --all -o json --jq '[.Data.Items[] | select(.Status == "RUNNING")] | if length == 1 then .[0].InstanceId else empty end'
+}
+HARNESS_INSTANCE_ID=$(running_instance) &&
+test -n "$HARNESS_INSTANCE_ID" &&
+printf 'Original instance %s\n' "$HARNESS_INSTANCE_ID"
+```
+
+The check saves the ID of the only `RUNNING` instance for this dedicated harness. Stop sending requests and wait at least 60 seconds, then query the Tool again with `agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"` until that ID is `PAUSED`. Idle pause is asynchronous.
 
 ```text
 ID                    TOOL                   STATUS  TIMEOUT  EXPIRES  MOUNTS  CREATED
 <masked-instance-id>  hns-********-********  PAUSED  0s       -        -       <masked-time>
 ```
 
-Continue with the same affinity value, and the Deployment resumes this instance. Pausing keeps memory and disk, so the instance remembers the conversation even without a session space:
+Check that the recorded instance is `PAUSED`, then continue with the same Session ID and Affinity ID. Verify that the reply contains `maple`, both IDs match, and the original instance is the only `RUNNING` instance. With `BEST_EFFORT`, a replacement instance could also remember the word after restoring the session from the session space.
 
 ```bash
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
+test -n "${HARNESS_INSTANCE_ID:-}" && test -n "${HARNESS_SESSION_ID:-}" && test -n "${HARNESS_AFFINITY_ID:-}" &&
+PAUSED_STATUS=$(agr instance get "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" -o json --jq '.Data.Status') &&
+test "$PAUSED_STATUS" = PAUSED &&
+TURN_IDS=$(agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
   --session-id "$HARNESS_SESSION_ID" \
   --affinity-id "$HARNESS_AFFINITY_ID" \
-  'What was the code word?'
+  -o json --jq '.Data | select(.StopReason == "end_turn" and (.Reply | test("\\bmaple\\b"; "i"))) | [.SessionId, .AffinityId] | @tsv' \
+  'What was the code word?') &&
+test "$TURN_IDS" = "$(printf '%s\t%s' "$HARNESS_SESSION_ID" "$HARNESS_AFFINITY_ID")" &&
+RESUMED_INSTANCE_ID=$(running_instance) &&
+test "$RESUMED_INSTANCE_ID" = "$HARNESS_INSTANCE_ID" &&
+printf 'Verified original instance %s is RUNNING and remembered maple\n' "$RESUMED_INSTANCE_ID"
 ```
-
-The reply should contain `maple`.
 
 ## 5. Continue the session on a new instance
 
@@ -200,11 +214,10 @@ agr session event list --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" \
 
 Confirm that the events include the message containing `maple`. A successful prompt does not guarantee successful cloud synchronization. If the history is missing, wait and check the runtime role's session space permissions before deleting the instance.
 
-Find and delete the current instance:
+Delete the original instance recorded above.
 
 ```bash
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
+test -n "${HARNESS_INSTANCE_ID:-}" &&
 agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
@@ -217,12 +230,19 @@ agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
 The old affinity value points at the deleted instance, so this time pass only `--session-id` and **not** `--affinity-id`. The replacement instance loads the same session from the session space:
 
 ```bash
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
+test -n "${HARNESS_INSTANCE_ID:-}" && test -n "${HARNESS_SESSION_ID:-}" &&
+RESTORED_SESSION_ID=$(agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
   --session-id "$HARNESS_SESSION_ID" \
-  'What was the code word?'
+  -o json --jq '.Data | select(.StopReason == "end_turn" and (.Reply | test("\\bmaple\\b"; "i"))) | .SessionId' \
+  'What was the code word?') &&
+test "$RESTORED_SESSION_ID" = "$HARNESS_SESSION_ID" &&
+REPLACEMENT_INSTANCE_ID=$(running_instance) &&
+test -n "$REPLACEMENT_INSTANCE_ID" &&
+test "$REPLACEMENT_INSTANCE_ID" != "$HARNESS_INSTANCE_ID" &&
+printf 'Verified the session was restored on replacement instance %s\n' "$REPLACEMENT_INSTANCE_ID"
 ```
 
-The reply should still contain `maple`. Immediately after deletion, restoration can briefly return `SESSION_RESTORE_FAILED` with HTTP `404` saying the sandbox instance was deleted. If the cloud history is present, wait a moment, repeat the endpoint check, and retry this restore command with the same SessionId and cwd, without the old affinity value.
+Immediately after deletion, restoration can briefly return `SESSION_RESTORE_FAILED` with HTTP `404` saying the sandbox instance was deleted. If the cloud history is present, wait a moment, repeat the endpoint check, and retry this restore command with the same SessionId and cwd, without the old affinity value.
 
 Things to know about session spaces:
 

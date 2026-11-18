@@ -52,7 +52,7 @@ HARNESS_ID=$(python3 ../scripts/resources.py create connect harness \
 ```
 
 ```bash
-agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
+agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check -o text
 ```
 
 `Check` 一行应为 `reachable in <n>ms`。
@@ -110,7 +110,7 @@ echo 'List the files in the current directory.' | agr harness prompt "$HARNESS_I
 agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" -o ndjson 'Say hello.'
 ```
 
-NDJSON 的第一行是 `started`（包含 `SessionId`）；每个 ACP `session/update` 对应一行 `update`，`Data` 是原始 ACP 内容；最后一行是 `completed`，内容与 `-o json` 的 `Data` 相同：
+会话准备就绪后，NDJSON 先输出包含 `SessionId` 的 `started`。本轮的每条 ACP `session/update` 对应一个 `update` 事件，`Data` 保留原始 ACP 更新。成功时最后一个事件是 `completed`，`Data` 与 JSON 结果一致。轮次在 `started` 后失败时，最后一个事件是 `failed`。
 
 ```text
 {"SchemaVersion":"agr.events.v1","Type":"started","Data":{"HarnessId":"hns-********","SessionId":"<masked>"}}
@@ -118,7 +118,9 @@ NDJSON 的第一行是 `started`（包含 `SessionId`）；每个 ACP `session/u
 {"SchemaVersion":"agr.events.v1","Type":"completed","Data":{"HarnessId":"hns-********","SessionId":"<masked>","Reply":"Hello!","StopReason":"end_turn",...}}
 ```
 
-`prompt` 不能代替人审批工具调用，收到的权限请求一律回复 `cancelled`。按 `Ctrl+C` 会发送 `session/cancel`，未完成的一轮不会自动重发。
+`prompt` 对工具权限请求一律回复 `cancelled`。按 Ctrl+C 或超时后，CLI 会尝试通过 `session/cancel` 取消正在进行的轮次。取消请求可能未获确认，远端仍可能完成本轮。CLI 不会自动重发未完成的轮次。
+
+需要在失败后恢复时，请使用 JSON 或 NDJSON。从 JSON 失败结果或最后一条 `failed` 事件中读取可用的 `Failure.Details.SessionId` 和 `Failure.Details.AffinityId`。会话准备前的失败可能没有 ID 或流事件。发送下一轮前先确认上一轮的结果，同一个 Session ID 的请求应串行发送。
 
 ## 3. `acp`：接入编辑器和 acpx
 
@@ -156,7 +158,7 @@ Zed 等编辑器通常把本地项目路径作为 `cwd`。下面的配置要求�
 `proxy` 在本机提供一个不需要凭证的 ACP 地址，代理负责添加并刷新 Token，并保持亲和。它会占用当前终端：
 
 ```bash
-agr harness proxy "$HARNESS_ID" --region "$AGR_REGION" --port 18080
+agr harness proxy "$HARNESS_ID" --region "$AGR_REGION" --port 18080 -o text
 ```
 
 预期输出：
@@ -210,24 +212,30 @@ agr api call AcquireDeploymentToken \
 
 ### 用 `curl` 走一遍 ACP Streamable HTTP
 
-下面用 `curl` 手工完成一次对话，帮助理解协议。生产中建议使用官方 ACP SDK，它已经处理了这些细节。
+下面用 `curl` 手工完成一次对话。生产中可使用 ACP SDK 处理 JSON-RPC、连接和会话 ID 以及 SSE。还需配置 SDK 的 HTTP 传输层以发送和刷新 Deployment Token，并在启用亲和时回传网关返回的 AGS 亲和头。
 
 协议要点：
 
 1. 所有请求都带 `X-Access-Token`。
 2. `initialize` 直接返回 JSON 结果，并在响应头中返回 `Acp-Connection-Id`。之后的请求都要带上这个头。
-3. 将响应里的亲和头（默认 `X-Tencent-Agr-Affinity-Id`）在之后的每个请求里原样带回，确保同一个连接的请求落到同一个实例。
+3. 将响应里的亲和头在之后的每个请求里原样带回，确保同一个连接的请求落到同一个实例。头名称以 `agr harness endpoint` 返回的 `AffinityHeader` 为准，示例使用默认的 `X-Tencent-Agr-Affinity-Id`。
 4. 之后的 POST 返回 `202 Accepted`，结果和更新通过 GET 打开的 SSE 流到达：一个连接级流，以及每个会话一个带 `Acp-Session-Id` 的会话级流。
 5. 结束时用 DELETE 关闭连接。
 
-下面会用到三个终端。把变量写入 `acp.env` 文件，每个新终端先执行 `source acp.env` 即可。从上一步的输出复制地址和 Token：
+下面会用到三个终端。把上一步返回的地址和 Token 写入仅文件所有者可读写的 `acp.env`。每个新终端先执行 `source acp.env`。
 
 ```bash
-cat > acp.env <<'EOF'
+(
+  umask 077
+  if [ -L acp.env ] || { [ -e acp.env ] && [ ! -f acp.env ]; }; then
+    printf '%s\n' 'acp.env must be a regular file.' >&2
+    exit 1
+  fi
+  touch acp.env && chmod 600 acp.env && cat > acp.env <<'EOF'
 export ACP_URL='https://8080-dpl-replace-me.ap-chongqing.agents.tencentags.com/acp'
 export ACP_TOKEN='replace-with-token'
 EOF
-source acp.env
+) && source acp.env
 ```
 
 Token 在 `ExpiresAt` 后失效，失效后重新执行上一步的 `endpoint --show-token` 并更新 `acp.env`。
@@ -359,7 +367,9 @@ Harness 必须有 **PUBLISHED 的 DSH 修订**，且 Deployment 为 **ACTIVE**�
 agr harness web "$HARNESS_ID" --region "$AGR_REGION" -o text
 ```
 
-命令获取短期 Deployment Token，请求在运行 CLI 的机器上启动浏览器后即退出。打开的是 **3080** 服务端口的 HTTPS Webview 根路径；ACP 仍使用 **8080** 端口和 `/acp`。无需本地代理，也无需保持 CLI 运行。`Browser launch requested: true` 只表示已请求启动浏览器，不代表页面已就绪。浏览器访问可能触发实例启动，因此首次加载可能较慢。
+命令先获取短期 Deployment Token，再等待 **3080** 服务端口上的 HTTPS Webview 根路径返回 HTTP 200。ACP 仍使用 **8080** 端口和 `/acp`。准备和就绪探测共用 90 秒超时，可用 `--timeout 2m` 调整，或按 Ctrl+C 取消。启动期间遇到 HTTP 404、502 或 503 会重试，认证失败会立即返回。
+
+就绪探测可能启动实例。CLI 会将网关确认的亲和值带入浏览器 URL，请求在运行 CLI 的机器上启动浏览器，然后退出。`Browser launch requested: true` 表示已发出启动请求，页面由浏览器渲染。使用控制台无需本地代理，也无需保持 CLI 运行。
 
 页面打开后：
 
@@ -393,7 +403,7 @@ agr harness web "$HARNESS_ID" --region "$AGR_REGION" --no-open --show-token -o j
   --jq '.Data | {AccessURL, ExpiresAt}'
 ```
 
-`WebURL` 始终不含 Token。只有 `--show-token` 才返回带 Token 的 `AccessURL`，请将其视为凭证，不要写入共享日志。Token 或浏览器认证过期后，重新运行命令获取新链接。
+`WebURL` 始终不含 Token。只有 `--show-token` 才返回带 Token 的 `AccessURL`，请将其视为凭证，不要写入共享日志。Token 或浏览器认证过期后，重新运行命令获取新链接。两种 `--no-open` 用法都会跳过就绪探测，在浏览器打开 `AccessURL` 时可能触发冷启动。
 
 进入控制台时，可以请求使用第 2 步取得的实例亲和值：
 
@@ -420,9 +430,11 @@ rm -f acp.env
 | `ACP_UNAVAILABLE`，`PlatformCode` 为 `sandbox_tool_unavailable` | 底层 Tool 已被删除或不可用，Harness 不会自动重建。删除该 Harness 后重新创建 |
 | `ACP_AUTH_FAILED` | Token 无效或已过期。重新获取 Token；使用 `agr` 命令时检查 `--domain` 和 `AcquireDeploymentToken` 权限 |
 | `SESSION_RESTORE_FAILED` | 旧会话不在当前实例上。带上创建会话时的 `--affinity-id` 和 `--cwd`，或配置 Session Space |
-| `PROMPT_TIMEOUT` | 在 `--timeout` 内没有回复，已发送 `session/cancel`。加大 `--timeout`，或带 `--session-id` 和 `--affinity-id` 继续 |
+| `PROMPT_TIMEOUT` | 超过 `--timeout` 仍无回复。错误会说明取消请求是否获确认，远端仍可能完成本轮。确认上一轮结果后，再使用 JSON 或 NDJSON 中的会话 ID 和亲和 ID 继续 |
 | `PROXY_BIND_FAILED` | 本地端口被占用。换一个 `--port`，或用 `--port 0` 自动选择 |
 | `HARNESS_WEB_UNSUPPORTED_ENGINE` | 已发布修订不是 DSH。只有 DSH 草稿还不够，需要创建并发布 DSH 修订、替换旧实例，或直接使用第 1 步的 DSH Harness |
 | `HARNESS_NOT_PUBLISHED` 或 `HARNESS_NOT_DEPLOYED` | 用 `harness status` 检查并完成 DSH 修订发布，再打开控制台 |
 | `DEPLOYMENT_NOT_ACTIVE` | 用 `deployment get` 检查，等待 Deployment 进入 `ACTIVE` |
+| `WEB_READY_TIMEOUT` | Web 控制台未在时限内就绪。检查 Deployment 和实例状态，或调大 `--timeout` |
+| `WEB_READY_FAILED` | 就绪探测失败。检查返回的 HTTP 状态或网络连通性。如果是 HTTP 401 或 403，检查 Deployment 访问权限并获取新 Token |
 | `BROWSER_OPEN_FAILED` | CLI 无法在那台机器上启动浏览器。使用 `--no-open --show-token`，将 `AccessURL` 复制到浏览器打开 |

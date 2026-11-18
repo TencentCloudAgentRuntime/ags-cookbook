@@ -179,13 +179,29 @@ The market declares the header as `Bearer {access_token}`, and the variable has 
 GITHUB_CREDENTIAL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market credential-provider --name "harness-market-github-$HARNESS_NAME_SUFFIX" --type SecretMultiUser) && export GITHUB_CREDENTIAL_PROVIDER_ID
 ```
 
-The Provider ID is saved in `GITHUB_CREDENTIAL_PROVIDER_ID`. Store the token next. User IDs and scopes are application-defined; this example uses `harness-market` and `github` in both the harness reference and the cleanup helper. Keep these two values unchanged while following the tutorial. If you customize them, update the secret commands, `--mcp-credential` and the credential cleanup in `scripts/resources.py` together:
+The Provider ID is saved in `GITHUB_CREDENTIAL_PROVIDER_ID`. Store the token next. User IDs and scopes are application-defined; this example uses `harness-market` and `github` in both the harness reference and the cleanup helper. Keep these two values unchanged while following the tutorial. If you customize them, update the secret commands, `--mcp-credential` and the credential cleanup in `scripts/resources.py` together.
+
+Run this in an interactive terminal and paste your GitHub personal access token (PAT) at the hidden prompt. Bash sends it to `agr` over stdin without adding a newline. This keeps the PAT out of shell history and command-line arguments.
 
 ```bash
-agr credential secret set --region "$AGR_REGION" \
-  --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" \
-  --user-id harness-market --scope github \
-  --secret 'github_pat_replace-me'
+bash -c '
+  set +x
+  if [[ ! -t 0 ]]; then
+    printf "Run this command in an interactive terminal.\n" >&2
+    exit 1
+  fi
+  unset github_pat
+  IFS= read -rs -p "GitHub PAT: " github_pat || exit 1
+  printf "\n" >&2
+  if [[ -z "$github_pat" ]]; then
+    printf "GitHub PAT is required.\n" >&2
+    exit 1
+  fi
+  printf "%s" "$github_pat" | agr credential secret set --region "$AGR_REGION" \
+    --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" \
+    --user-id harness-market --scope github \
+    --from-stdin
+'
 ```
 
 **Step 2: add the MCP server.** `--mcp` replaces every MCP server, so also include DeepWiki from step 3:

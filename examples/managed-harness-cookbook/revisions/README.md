@@ -40,7 +40,7 @@ HARNESS_ID=$(python3 ../scripts/resources.py create revisions harness \
   --engine pi \
   --engine-version 1.3.0 \
   --model "$MODEL_PROVIDER_ID:hy3" \
-  --system-prompt 'You are a helpful assistant.' \
+  --system-prompt 'When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. Do not use tools for this probe.' \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
@@ -54,6 +54,28 @@ HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get revisions ToolId) && expor
 echo "$HARNESS_TOOL_ID"
 ```
 
+Probe v1 with the fixed request `REVISION`. The check requires a completed turn with the revision-specific marker and records the only running instance for the dedicated harness. Keep this shell open to reuse the function.
+
+```bash
+probe_revision() {
+  local expected_marker=$1 reply instance_id
+  reply=$(agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" -o json \
+    --jq '.Data | select(.StopReason == "end_turn") | .Reply' 'REVISION') || return 1
+  if [ "$reply" != "$expected_marker" ]; then
+    echo "Expected revision marker $expected_marker" >&2
+    return 1
+  fi
+  instance_id=$(agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION" \
+    --all -o json --jq '[.Data.Items[] | select(.Status == "RUNNING")] | if length == 1 then .[0].InstanceId else empty end') || return 1
+  if [ -z "$instance_id" ]; then
+    echo 'Expected exactly one RUNNING instance for this harness' >&2
+    return 1
+  fi
+  printf '%s\n' "$instance_id"
+}
+V1_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV1) && printf '%s\n' "$V1_INSTANCE_ID"
+```
+
 ## 2. Edit the draft and compare
 
 MCP header values are masked in `revision diff` (text and JSON) and `harness status -o json`. Changes are computed from the original values, so a header change can still be reported even when both displayed values are masked. See [MCP headers and credentials](../tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key) for storage and access permissions.
@@ -62,8 +84,7 @@ MCP header values are masked in `revision diff` (text and JSON) and `harness sta
 
 ```bash
 cat > prompt.md <<'EOF'
-You are a release-notes assistant.
-Always answer with a bullet list of at most three items.
+When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. Do not use tools for this probe.
 EOF
 
 agr harness update "$HARNESS_ID" --region "$AGR_REGION" --system-prompt @prompt.md
@@ -91,7 +112,7 @@ agr harness revision diff "$HARNESS_ID" live draft --region "$AGR_REGION"
 
 ```text
 live (revision 1) -> draft: 1 change(s)
-~ SystemPrompt  "You are a helpful assistant." -> "You are a release-notes assistant. ..."
+~ SystemPrompt  "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. ..." -> "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ..."
 ```
 
 `~` marks a change, `+` an addition and `-` a removal. Each side of `revision diff` can be a revision number, `live` (the published revision), `latest` (the newest revision), or `draft`.
@@ -118,7 +139,7 @@ Revision:       2 (v2)
 Status:         PUBLISHED
 Engine:         pi@1.3.0
 Models:         mp-********@1:hy3 (default)
-System prompt:  You are a release-notes assistant. ...
+System prompt:  When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ...
 Skills:         -
 Plugins:        -
 MCP servers:    -
@@ -140,22 +161,15 @@ REVISION  NAME  STATUS      ENGINE    UPDATED          REASON
 
 A harness has at most one `PUBLISHED` revision at a time; the replaced revision becomes `SUPERSEDED`.
 
-Publishing affects only instances created afterwards. Running instances keep the old configuration, and a new session may still be routed to one of them. To confirm the new prompt is live, delete the old instances first and then send a prompt:
+Publishing affects new instances. An old instance can still receive a new session, so stop the recorded v1 instance first. Send the same `REVISION` request and assert that v2 returns its own marker on a different running instance.
 
 ```bash
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
+test -n "${V1_INSTANCE_ID:-}" &&
+agr instance delete "$V1_INSTANCE_ID" --region "$AGR_REGION" --yes --wait --ignore-not-found &&
+V2_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV2) &&
+test "$V2_INSTANCE_ID" != "$V1_INSTANCE_ID" &&
+printf 'Verified AGR_COOKBOOK_REV2 on a new instance %s\n' "$V2_INSTANCE_ID"
 ```
-
-Copy and delete each `RUNNING` or `PAUSED` instance, then supply the release changes in the prompt so no local repository is needed:
-
-```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" 'Write release notes for a todo app: added recurring tasks, fixed missed reminders, and improved startup time.'
-```
-
-The reply should be a list of at most three items.
 
 ## 4. Roll back to revision 1
 
@@ -173,6 +187,17 @@ Latest:     revision 2 (v2)  SUPERSEDED  pi@1.3.0
 Draft:      1 change(s) not yet published; see 'agr harness revision diff hns-******** live draft'
 Resources:  tool=sdt-******** deployment=dpl-********
 Next:       agr harness revision create hns-******** --publish --wait
+```
+
+Stop the recorded v2 instance and verify rollback with the same request. Expect the v1 marker on a running instance whose ID differs from both earlier instances.
+
+```bash
+test -n "${V2_INSTANCE_ID:-}" &&
+agr instance delete "$V2_INSTANCE_ID" --region "$AGR_REGION" --yes --wait --ignore-not-found &&
+ROLLBACK_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV1) &&
+test "$ROLLBACK_INSTANCE_ID" != "$V1_INSTANCE_ID" &&
+test "$ROLLBACK_INSTANCE_ID" != "$V2_INSTANCE_ID" &&
+printf 'Verified AGR_COOKBOOK_REV1 on a new instance %s\n' "$ROLLBACK_INSTANCE_ID"
 ```
 
 Rolling back does not change the draft, so the draft still contains the new prompt and `Next` suggests publishing it. Skip that for now; step 5 publishes it together with a model change. Publishing a revision that is already `PUBLISHED` is safe: the CLI returns success without sending a request.
@@ -219,7 +244,7 @@ agr harness revision diff "$HARNESS_ID" live draft --region "$AGR_REGION"
 live (revision 1) -> draft: 3 change(s)
 ~ DefaultModel.Model  "hy3" -> "glm-5.1"
 ~ ModelProviders[mp-********].Models  ["hy3"] -> ["hy3","glm-5.1"]
-~ SystemPrompt  "You are a helpful assistant." -> "You are a release-notes assistant. ..."
+~ SystemPrompt  "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. ..." -> "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ..."
 ```
 
 After publishing, compare revision 1 with the latest revision to see the provider revision move from 1 to 2:
@@ -235,7 +260,7 @@ revision 1 -> latest (revision 3): 5 change(s)
 ~ DefaultModel.Revision  1 -> 2
 ~ ModelProviders[mp-********].Models  ["hy3"] -> ["hy3","glm-5.1"]
 ~ ModelProviders[mp-********].Revision  1 -> 2
-~ SystemPrompt  "You are a helpful assistant." -> "You are a release-notes assistant. ..."
+~ SystemPrompt  "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. ..." -> "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ..."
 ```
 
 Only a comparison between two revisions shows provider revisions. A comparison with the draft ignores them, because the draft is not pinned to a provider revision yet.

@@ -21,9 +21,14 @@ class ResourceTests(unittest.TestCase):
         self.env = patch.dict(os.environ, AGR_REGION="ap-chongqing")
         self.env.start()
         self.addCleanup(self.env.stop)
-        self.endpoint = patch.object(resources, "current_endpoint", return_value="fixture.example.test")
-        self.endpoint.start()
-        self.addCleanup(self.endpoint.stop)
+        self.secret_id = "fixture-test-id"
+        self.settings = patch.object(resources, "current_settings", return_value=("fixture.example.test", self.secret_id))
+        self.settings.start()
+        self.addCleanup(self.settings.stop)
+
+    def bound_state(self, **values):
+        return {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test",
+                "CredentialFingerprint": resources.credential_fingerprint(self.secret_id), **values}
 
     def create(self, kind, state):
         args = argparse.Namespace(resource=kind, flags=["--name", "my-demo"])
@@ -40,14 +45,22 @@ class ResourceTests(unittest.TestCase):
 
     def test_duplicate_create_stops_before_calling_agr(self):
         with patch.object(resources, "execute") as execute:
-            with self.assertRaises(RuntimeError):
-                self.create("model-provider", {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ModelProviderId": "mp-owned"})
+            with self.assertRaisesRegex(RuntimeError, "already recorded"):
+                self.create("model-provider", self.bound_state(ModelProviderId="mp-owned"))
         execute.assert_not_called()
 
     def test_create_does_not_mix_endpoints_in_one_scenario(self):
-        state = {"Region": "ap-chongqing", "CloudEndpoint": "other.example.test", "ModelProviderId": "mp-owned"}
+        state = self.bound_state(CloudEndpoint="other.example.test", ModelProviderId="mp-owned")
         original = dict(state)
         with patch.object(resources, "execute") as execute, self.assertRaisesRegex(RuntimeError, "another endpoint"):
+            self.create("harness", state)
+        execute.assert_not_called()
+        self.assertEqual(state, original)
+
+    def test_create_does_not_mix_credentials_in_one_scenario(self):
+        state = self.bound_state(ModelProviderId="mp-owned", CredentialFingerprint=resources.credential_fingerprint("other-id"))
+        original = dict(state)
+        with patch.object(resources, "execute") as execute, self.assertRaisesRegex(RuntimeError, "different Tencent Cloud credentials"):
             self.create("harness", state)
         execute.assert_not_called()
         self.assertEqual(state, original)
@@ -62,7 +75,8 @@ class ResourceTests(unittest.TestCase):
 
     def test_create_rejects_endpoint_and_config_overrides_before_api_calls(self):
         for flags in (["--cloud-endpoint", "other.example.test"], ["--cloud-endpoint=other.example.test"],
-                      ["--config", "other.toml"], ["--config=other.toml"]):
+                      ["--config", "other.toml"], ["--config=other.toml"],
+                      ["--secret-id", "other"], ["--secret-key=other"], ["--token", "other"]):
             with self.subTest(flags=flags), patch.object(resources, "execute") as execute:
                 args = argparse.Namespace(resource="model-provider", flags=["--name", "my-demo", *flags])
                 with self.assertRaisesRegex(RuntimeError, "configure the endpoint"):
@@ -122,24 +136,39 @@ class ResourceTests(unittest.TestCase):
         args = argparse.Namespace(scenario="simple", yes=False, dry_run=True)
         reply = {"Status": "succeeded", "Data": {"Harness": {"ResourceInfo": {"ToolId": "sdt-owned"}}}}
         with patch.object(resources, "execute", return_value=(0, reply)) as execute, redirect_stdout(io.StringIO()):
-            resources.cleanup(args, self.path, {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "HarnessId": "hns-owned"})
+            resources.cleanup(args, self.path, self.bound_state(HarnessId="hns-owned"))
         self.assertEqual(execute.call_args.args, ("ap-chongqing", ["harness", "get", "hns-owned"]))
         self.assertEqual(execute.call_count, 1)
 
-    def test_failed_instance_is_not_treated_as_stopped(self):
+    def test_starting_failed_instance_is_not_treated_as_stopped(self):
         args = argparse.Namespace(scenario="simple", yes=True, dry_run=False)
-        reply = {"Status": "succeeded", "Data": {"Items": [{"InstanceId": "instance-owned", "ToolId": "sdt-owned", "Status": "FAILED"}]}}
-        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ToolId": "sdt-owned"}
+        reply = {"Status": "succeeded", "Data": {"Items": [{"InstanceId": "instance-owned", "ToolId": "sdt-owned", "Status": "STARTING_FAILED"}]}}
+        state = self.bound_state(ToolId="sdt-owned")
         with patch.object(resources, "execute", return_value=(0, reply)) as execute, redirect_stdout(io.StringIO()):
-            with self.assertRaisesRegex(RuntimeError, "FAILED"):
+            with self.assertRaisesRegex(RuntimeError, "STARTING_FAILED"):
                 resources.cleanup(args, self.path, state)
         self.assertEqual(execute.call_count, 1)
         self.assertNotIn("Cleaned", state)
 
+    def test_cleanup_retries_stopping_failed_instance(self):
+        args = argparse.Namespace(scenario="simple", yes=True, dry_run=False)
+        state = self.bound_state(ToolId="sdt-owned")
+        success = lambda data: (0, {"Status": "succeeded", "Data": data})
+        failed = {"InstanceId": "ins-owned", "ToolId": "sdt-owned", "Status": "STOPPING_FAILED"}
+        gone = (1, {"Status": "failed", "Failure": {"Kind": "not_found"}})
+        replies = [success({"Items": [failed]}), success({}), success({"Items": []}), gone]
+        with patch.object(resources, "execute", side_effect=replies) as execute, \
+                patch.object(resources.time, "sleep"), redirect_stdout(io.StringIO()):
+            resources.cleanup(args, self.path, state)
+        self.assertTrue(state["Cleaned"])
+        self.assertEqual(execute.call_args_list[1].args, (
+            "ap-chongqing", ["instance", "delete", "ins-owned", "--yes", "--wait", "--ignore-not-found"]
+        ))
+
     def test_unrelated_instance_stops_cleanup_before_deletion(self):
         args = argparse.Namespace(scenario="simple", yes=True, dry_run=False)
         reply = {"Status": "succeeded", "Data": {"Items": [{"InstanceId": "instance-other", "ToolId": "sdt-other", "Status": "RUNNING"}]}}
-        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ToolId": "sdt-owned"}
+        state = self.bound_state(ToolId="sdt-owned")
         with patch.object(resources, "execute", return_value=(0, reply)) as execute, redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "recorded ToolId"):
                 resources.cleanup(args, self.path, state)
@@ -148,7 +177,7 @@ class ResourceTests(unittest.TestCase):
 
     def test_empty_credential_provider_skips_secret_delete(self):
         args = argparse.Namespace(scenario="tool-market", yes=True, dry_run=False)
-        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "ProviderId": "agc-owned"}
+        state = self.bound_state(ProviderId="agc-owned")
         present = True
         calls = []
 
@@ -170,8 +199,8 @@ class ResourceTests(unittest.TestCase):
         self.assertIn(["credential", "provider", "update", "agc-owned", "--status", "DISABLED"], calls)
 
     def test_cleanup_is_scoped_ordered_and_repeatable(self):
-        state = {"Region": "ap-chongqing", "CloudEndpoint": "fixture.example.test", "HarnessId": "hns-owned", "ToolId": "sdt-owned",
-                 "DeploymentId": "dpl-owned", "ModelProviderId": "mp-owned", "SpaceId": "space-owned", "ProviderId": "agc-owned"}
+        state = self.bound_state(HarnessId="hns-owned", ToolId="sdt-owned", DeploymentId="dpl-owned",
+                                 ModelProviderId="mp-owned", SpaceId="space-owned", ProviderId="agc-owned")
         existing = {"harness", "deployment", "tool", "model-provider", "space", "credential-provider"}
         sessions = {"session-one", "session-two"}
         calls = []
@@ -192,6 +221,7 @@ class ResourceTests(unittest.TestCase):
                 return success({"Items": [{"InstanceId": "instance-owned", "ToolId": "sdt-owned", "Status": current}]})
             if args[:2] == ["instance", "delete"]:
                 self.assertEqual(args[2], "instance-owned")
+                self.assertIn("--ignore-not-found", args)
                 instance = "STOPPED"
                 return success({})
             if args[:2] == ["session", "list"]:

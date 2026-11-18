@@ -54,13 +54,13 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
 
 Every example runs in `ap-chongqing` and passes the region explicitly. Sample output masks account numbers, resource IDs, timestamps, and request IDs.
 
-Each example creates its own resources. Creation commands use `scripts/resources.py` to call `agr`, capture the returned IDs and save them with the region and control-plane endpoint in `.state/<scenario>.json`. Other steps use `agr` directly. Run the cleanup section when finished.
+Each example creates its own resources. Creation commands use `scripts/resources.py` to call `agr`, capture the returned IDs and save them with the region, control-plane endpoint and a fingerprint of the credential ID in `.state/<scenario>.json`. Other steps use `agr` directly. Run the cleanup section when finished.
 
 Run `make run` in this directory to list the scenarios. It only prints navigation and creates no cloud resources.
 
 ## Configuration
 
-Install Python 3 and Bash for the helper scripts. Prepare the shared configuration once from this directory:
+Install Python 3 and Bash for the helper scripts. If the CLI reads the SecretID from its TOML config, use Python 3.11 or newer. Prepare the shared configuration once from this directory:
 
 ```bash
 make setup
@@ -68,7 +68,7 @@ make setup
 
 Edit `.env` using [.env.example](./.env.example): set the region, role ARN, subnet, security group, TokenHub ApiKeyId and a unique name suffix. All scenarios load this file.
 
-For a custom control-plane endpoint, set `AGR_CLOUD_ENDPOINT` in `.env` or use your existing `agr` configuration. Keep that configuration consistent throughout the tutorial. The helper reads the effective endpoint from `agr config show`, including the CLI default, and records it as `CloudEndpoint` before creating resources. It rejects per-create `--cloud-endpoint` and `--config` overrides and refuses to mix endpoints within an unfinished scenario.
+For a custom control-plane endpoint, set `AGR_CLOUD_ENDPOINT` in `.env` or use your existing `agr` configuration. Keep that configuration consistent throughout the tutorial. The helper reads the effective endpoint from `agr config show`, including the CLI default, and records it as `CloudEndpoint` before creating resources. Use the same credentials for all steps. The helper fingerprints the effective Tencent Cloud SecretID and saves only that fingerprint. It rejects per-create `--cloud-endpoint`, `--config`, `--secret-id`, `--secret-key` and `--token` overrides.
 
 Then check the scenario you want to run:
 
@@ -94,9 +94,9 @@ python3 scripts/resources.py cleanup simple --dry-run
 make cleanup SCENARIO=simple
 ```
 
-`make cleanup` loads `.env` if it exists. Both cleanup entry points pass the recorded endpoint explicitly, even in a fresh terminal or after the CLI configuration changes. Cleanup waits for deletion and checks that the recorded resources are absent. It can be repeated.
+`make cleanup` loads `.env` if it exists. Both cleanup entry points use the recorded endpoint and region and check the current credential fingerprint before any cloud calls. Use the original SecretID. A rotated key or renewed STS session with a different SecretID requires manual cleanup. Cleanup waits for deletion, checks that the resources are absent, and can be rerun after an interruption.
 
-Older state files without `CloudEndpoint` stop with an error before querying or deleting resources. Confirm the original creation endpoint and add that value to the state file before continuing; do not assume the current CLI endpoint is the original one. Remove an old state file only after verifying that its resources are absent at the original endpoint.
+Older state files without the recorded endpoint or credential fingerprint are kept for manual recovery. Use the saved IDs, verify the original account, region and endpoint, then delete and check those resources with `agr` under that account. Archive the state file only after verifying the resources are gone.
 
 If a network interruption leaves a create result unknown, check the resource name recorded under `Pending` with `agr list/get` at the recorded endpoint and finish that cleanup manually before removing the state file. Do not retry an unknown create blindly.
 

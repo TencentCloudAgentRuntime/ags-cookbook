@@ -52,7 +52,7 @@ HARNESS_ID=$(python3 ../scripts/resources.py create connect harness \
 ```
 
 ```bash
-agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
+agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check -o text
 ```
 
 The `Check` line should read `reachable in <n>ms`.
@@ -110,7 +110,7 @@ echo 'List the files in the current directory.' | agr harness prompt "$HARNESS_I
 agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" -o ndjson 'Say hello.'
 ```
 
-The first NDJSON line is `started` (with `SessionId`); each ACP `session/update` becomes one `update` line whose `Data` is the raw ACP content; the last line is `completed` and carries the same `Data` as `-o json`:
+After session setup, NDJSON starts with a `started` event containing `SessionId`. Each ACP `session/update` during the turn becomes an `update` event with the raw ACP update in `Data`. A successful turn ends with `completed`, whose `Data` matches the JSON result. A turn that fails after `started` ends with `failed`.
 
 ```text
 {"SchemaVersion":"agr.events.v1","Type":"started","Data":{"HarnessId":"hns-********","SessionId":"<masked>"}}
@@ -118,7 +118,9 @@ The first NDJSON line is `started` (with `SessionId`); each ACP `session/update`
 {"SchemaVersion":"agr.events.v1","Type":"completed","Data":{"HarnessId":"hns-********","SessionId":"<masked>","Reply":"Hello!","StopReason":"end_turn",...}}
 ```
 
-`prompt` cannot approve tool calls on a person's behalf; it answers every permission request with `cancelled`. `Ctrl+C` sends `session/cancel`, and an unfinished turn is never resent.
+`prompt` answers every tool permission request with `cancelled`. Ctrl+C or a timeout attempts `session/cancel` for an in-progress turn. Cancellation can go unconfirmed, and the remote turn may still finish. The CLI never resends an unfinished turn.
+
+Use JSON or NDJSON to recover the IDs after a failure. Read `Failure.Details.SessionId` and `Failure.Details.AffinityId` from the JSON failure or the terminal `failed` event when available. A failure before session setup may have no IDs or stream events. Check the previous turn's outcome before submitting another turn, and keep turns serialized per Session ID.
 
 ## 3. `acp`: editors and acpx
 
@@ -156,7 +158,7 @@ Other editors use the same command `agr` with the arguments `harness acp <harnes
 `proxy` serves a credential-free ACP address on your machine. It adds and refreshes the token and keeps the affinity. It occupies the current terminal:
 
 ```bash
-agr harness proxy "$HARNESS_ID" --region "$AGR_REGION" --port 18080
+agr harness proxy "$HARNESS_ID" --region "$AGR_REGION" --port 18080 -o text
 ```
 
 Expected output:
@@ -210,24 +212,30 @@ The token is at `Data.Response.Response.Token`.
 
 ### Walk through ACP Streamable HTTP with `curl`
 
-The following steps complete one conversation by hand with `curl` to show how the protocol works. In production, use an official ACP SDK, which already handles these details.
+The following steps complete one conversation by hand with `curl`. In production, an ACP SDK can handle JSON-RPC, connection and session IDs, and SSE. Configure its HTTP transport to send and refresh the Deployment token and echo the AGS affinity header from the gateway when affinity is enabled.
 
 Protocol summary:
 
 1. Every request carries `X-Access-Token`.
 2. `initialize` returns the JSON result directly and an `Acp-Connection-Id` response header. Send that header on every later request.
-3. Echo the affinity header from responses (default `X-Tencent-Agr-Affinity-Id`) on every later request, so all requests of one connection reach the same instance.
+3. Echo the affinity header from responses on every later request so all requests of one connection reach the same instance. Use the header named in `AffinityHeader` from `agr harness endpoint`. The examples use the default `X-Tencent-Agr-Affinity-Id`.
 4. Later POSTs return `202 Accepted`. Results and updates arrive on SSE streams opened with GET: one connection stream, and one session stream per session with `Acp-Session-Id`.
 5. Close the connection with DELETE.
 
-The following steps use three terminals. Write the variables to `acp.env`, and run `source acp.env` first in every new terminal. Copy the URL and token from the previous step's output:
+The following steps use three terminals. Copy the URL and token from the previous step into `acp.env` with owner-only permissions. Run `source acp.env` in each new terminal.
 
 ```bash
-cat > acp.env <<'EOF'
+(
+  umask 077
+  if [ -L acp.env ] || { [ -e acp.env ] && [ ! -f acp.env ]; }; then
+    printf '%s\n' 'acp.env must be a regular file.' >&2
+    exit 1
+  fi
+  touch acp.env && chmod 600 acp.env && cat > acp.env <<'EOF'
 export ACP_URL='https://8080-dpl-replace-me.ap-chongqing.agents.tencentags.com/acp'
 export ACP_TOKEN='replace-with-token'
 EOF
-source acp.env
+) && source acp.env
 ```
 
 The token stops working at `ExpiresAt`. When it does, run `endpoint --show-token` from the previous step again and update `acp.env`.
@@ -359,7 +367,9 @@ On a machine with a browser:
 agr harness web "$HARNESS_ID" --region "$AGR_REGION" -o text
 ```
 
-The command acquires a short-lived Deployment token, requests a browser launch on the machine running the CLI, and exits. It opens the HTTPS Webview root on service port **3080**; ACP still uses port **8080** and `/acp`. No local proxy or persistent CLI process is needed. `Browser launch requested: true` means the launch was requested; it does not prove the page is ready. The browser visit can start an instance, so the first page load may take longer.
+The command acquires a short-lived Deployment token and waits for HTTP 200 on the HTTPS Webview root on service port **3080**. ACP still uses port **8080** and `/acp`. Preparation and readiness share a 90-second deadline. Use `--timeout 2m` to adjust it or Ctrl+C to cancel. The command retries startup HTTP 404, 502, and 503. Authentication errors fail immediately.
+
+The readiness probe may start an instance. The CLI carries the gateway's confirmed affinity into the browser URL and requests a browser launch on the machine running the CLI, then exits. `Browser launch requested: true` confirms that request. Page rendering happens in the browser. The console needs no local proxy or persistent CLI process.
 
 Once the page opens:
 
@@ -393,7 +403,7 @@ agr harness web "$HARNESS_ID" --region "$AGR_REGION" --no-open --show-token -o j
   --jq '.Data | {AccessURL, ExpiresAt}'
 ```
 
-`WebURL` never contains a token. `AccessURL` contains a token and is returned only with `--show-token`; treat it as a credential and keep it out of shared logs. If the token or browser authentication expires, run the command again for a new link.
+`WebURL` never contains a token. `AccessURL` contains a token and is returned only with `--show-token`. Treat it as a credential and keep it out of shared logs. If the token or browser authentication expires, run the command again for a new link. Both `--no-open` forms skip the readiness probe, so opening `AccessURL` in the browser may trigger a cold start.
 
 To request the instance affinity obtained in step 2 when entering the console:
 
@@ -420,9 +430,11 @@ rm -f acp.env
 | `ACP_UNAVAILABLE` with `PlatformCode` `sandbox_tool_unavailable` | The underlying Tool was deleted or is unavailable, and the harness does not recreate it. Delete the harness and create a new one |
 | `ACP_AUTH_FAILED` | The token is invalid or expired. Acquire a new one; with `agr` commands, check `--domain` and the `AcquireDeploymentToken` permission |
 | `SESSION_RESTORE_FAILED` | The old session is not on the current instance. Pass the `--affinity-id` and `--cwd` used when the session was created, or configure a session space |
-| `PROMPT_TIMEOUT` | No reply within `--timeout`; `session/cancel` was sent. Raise `--timeout`, or continue with `--session-id` and `--affinity-id` |
+| `PROMPT_TIMEOUT` | No reply within `--timeout`. The error says whether the cancellation request was accepted or went unconfirmed. The remote turn may still finish. Check its outcome before continuing with the session and affinity IDs from JSON or NDJSON |
 | `PROXY_BIND_FAILED` | The local port is in use. Choose another `--port`, or use `--port 0` for a free one |
 | `HARNESS_WEB_UNSUPPORTED_ENGINE` | The published revision is not DSH. A DSH draft alone is insufficient; create and publish a DSH revision and replace old instances, or start with the DSH harness in step 1 |
 | `HARNESS_NOT_PUBLISHED` or `HARNESS_NOT_DEPLOYED` | Check `harness status` and finish publishing a DSH revision before opening the console |
 | `DEPLOYMENT_NOT_ACTIVE` | Check `deployment get` and wait for the Deployment to become `ACTIVE` |
+| `WEB_READY_TIMEOUT` | The Web console did not become ready before the deadline. Check Deployment and instance health or raise `--timeout` |
+| `WEB_READY_FAILED` | The readiness probe failed. Check the reported HTTP status or network access. For HTTP 401 or 403, check Deployment access permissions and request a fresh token |
 | `BROWSER_OPEN_FAILED` | The CLI could not start a browser on that machine. Use `--no-open --show-token` and copy `AccessURL` to your browser |

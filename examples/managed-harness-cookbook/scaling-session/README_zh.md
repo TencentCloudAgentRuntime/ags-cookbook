@@ -164,27 +164,41 @@ agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" -o json \
 ```bash
 export HARNESS_SESSION_ID='replace-with-session-id'
 export HARNESS_AFFINITY_ID='replace-with-affinity-id'
-
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
 ```
 
-列表中会出现一个 `RUNNING` 实例。停止访问至少 60 秒后再次查询，实例会进入 `PAUSED`。回收是异步的，实际时间可能略长于配置值：
+```bash
+running_instance() {
+  agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION" \
+    --all -o json --jq '[.Data.Items[] | select(.Status == "RUNNING")] | if length == 1 then .[0].InstanceId else empty end'
+}
+HARNESS_INSTANCE_ID=$(running_instance) &&
+test -n "$HARNESS_INSTANCE_ID" &&
+printf 'Original instance %s\n' "$HARNESS_INSTANCE_ID"
+```
+
+这一步记录专用 Harness 下唯一的 `RUNNING` 实例 ID。停止发送请求至少 60 秒，再用 `agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"` 查询，直到该 ID 进入 `PAUSED`。空闲暂停是异步的。
 
 ```text
 ID                    TOOL                   STATUS  TIMEOUT  EXPIRES  MOUNTS  CREATED
 <masked-instance-id>  hns-********-********  PAUSED  0s       -        -       <masked-time>
 ```
 
-带上同一个亲和值继续对话，Deployment 会恢复这个实例。暂停会保留内存和磁盘，因此即使不配置 Session Space 也能记住之前的内容：
+先确认记录的实例处于 `PAUSED`，再用同一 Session ID 和 Affinity ID 继续。验证回复包含 `maple`、两个 ID 保持一致，且唯一的 `RUNNING` 实例是原实例。使用 `BEST_EFFORT` 时，替代实例也能从 Session Space 恢复历史，因此答对口令只能证明会话延续。
 
 ```bash
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
+test -n "${HARNESS_INSTANCE_ID:-}" && test -n "${HARNESS_SESSION_ID:-}" && test -n "${HARNESS_AFFINITY_ID:-}" &&
+PAUSED_STATUS=$(agr instance get "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" -o json --jq '.Data.Status') &&
+test "$PAUSED_STATUS" = PAUSED &&
+TURN_IDS=$(agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
   --session-id "$HARNESS_SESSION_ID" \
   --affinity-id "$HARNESS_AFFINITY_ID" \
-  'What was the code word?'
+  -o json --jq '.Data | select(.StopReason == "end_turn" and (.Reply | test("\\bmaple\\b"; "i"))) | [.SessionId, .AffinityId] | @tsv' \
+  'What was the code word?') &&
+test "$TURN_IDS" = "$(printf '%s\t%s' "$HARNESS_SESSION_ID" "$HARNESS_AFFINITY_ID")" &&
+RESUMED_INSTANCE_ID=$(running_instance) &&
+test "$RESUMED_INSTANCE_ID" = "$HARNESS_INSTANCE_ID" &&
+printf 'Verified original instance %s is RUNNING and remembered maple\n' "$RESUMED_INSTANCE_ID"
 ```
-
-回复应包含 `maple`。
 
 ## 5. 删除实例后在新实例上继续会话
 
@@ -200,11 +214,10 @@ agr session event list --region "$AGR_REGION" --space-id "$SESSION_SPACE_ID" \
 
 确认事件中包含带有 `maple` 的消息。prompt 成功不代表云端同步成功；如果还没有历史，先等待并检查运行角色对 Session Space 的权限，再删除实例。
 
-找到并删除当前实例：
+删除前面记录的原实例。
 
 ```bash
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
+test -n "${HARNESS_INSTANCE_ID:-}" &&
 agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
 ```
 
@@ -217,12 +230,19 @@ agr harness endpoint "$HARNESS_ID" --region "$AGR_REGION" --check
 旧的亲和值指向已删除的实例，因此这次**不带** `--affinity-id`，只带 `--session-id`。替代实例会从 Session Space 加载同一个会话：
 
 ```bash
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
+test -n "${HARNESS_INSTANCE_ID:-}" && test -n "${HARNESS_SESSION_ID:-}" &&
+RESTORED_SESSION_ID=$(agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" \
   --session-id "$HARNESS_SESSION_ID" \
-  'What was the code word?'
+  -o json --jq '.Data | select(.StopReason == "end_turn" and (.Reply | test("\\bmaple\\b"; "i"))) | .SessionId' \
+  'What was the code word?') &&
+test "$RESTORED_SESSION_ID" = "$HARNESS_SESSION_ID" &&
+REPLACEMENT_INSTANCE_ID=$(running_instance) &&
+test -n "$REPLACEMENT_INSTANCE_ID" &&
+test "$REPLACEMENT_INSTANCE_ID" != "$HARNESS_INSTANCE_ID" &&
+printf 'Verified the session was restored on replacement instance %s\n' "$REPLACEMENT_INSTANCE_ID"
 ```
 
-回复仍应包含 `maple`。删除后立即恢复，可能短暂返回 `SESSION_RESTORE_FAILED` 和 HTTP `404`，提示沙箱实例已删除。如果云端历史已存在，稍等后重新检查端点，再用相同的 SessionId 和 cwd 重试上述恢复命令，不带旧的亲和值。
+删除后立即恢复，可能短暂返回 `SESSION_RESTORE_FAILED` 和 HTTP `404`，提示沙箱实例已删除。如果云端历史已存在，稍等后重新检查端点，再用相同的 SessionId 和 cwd 重试上述恢复命令，不带旧的亲和值。
 
 使用 Session Space 时需要注意：
 

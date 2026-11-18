@@ -40,7 +40,7 @@ HARNESS_ID=$(python3 ../scripts/resources.py create revisions harness \
   --engine pi \
   --engine-version 1.3.0 \
   --model "$MODEL_PROVIDER_ID:hy3" \
-  --system-prompt 'You are a helpful assistant.' \
+  --system-prompt 'When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. Do not use tools for this probe.' \
   --role-arn "$AGR_ROLE_ARN" \
   --subnet-id "$HARNESS_SUBNET_ID" \
   --security-group-id "$HARNESS_SECURITY_GROUP_ID" \
@@ -54,6 +54,28 @@ HARNESS_TOOL_ID=$(python3 ../scripts/resources.py get revisions ToolId) && expor
 echo "$HARNESS_TOOL_ID"
 ```
 
+先用固定的 `REVISION` 请求验证 v1。探针要求模型正常结束并返回该修订独有的标记，同时记录专用 Harness 下唯一的运行中实例 ID。后续步骤会在同一终端复用这个函数。
+
+```bash
+probe_revision() {
+  local expected_marker=$1 reply instance_id
+  reply=$(agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" -o json \
+    --jq '.Data | select(.StopReason == "end_turn") | .Reply' 'REVISION') || return 1
+  if [ "$reply" != "$expected_marker" ]; then
+    echo "Expected revision marker $expected_marker" >&2
+    return 1
+  fi
+  instance_id=$(agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION" \
+    --all -o json --jq '[.Data.Items[] | select(.Status == "RUNNING")] | if length == 1 then .[0].InstanceId else empty end') || return 1
+  if [ -z "$instance_id" ]; then
+    echo 'Expected exactly one RUNNING instance for this harness' >&2
+    return 1
+  fi
+  printf '%s\n' "$instance_id"
+}
+V1_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV1) && printf '%s\n' "$V1_INSTANCE_ID"
+```
+
 ## 2. 修改草稿并比较差异
 
 `revision diff`（text 和 JSON）及 `harness status -o json` 会脱敏 MCP 请求头值。差异仍按原值计算，因此即使显示的前后值都已脱敏，也可能报告请求头发生变化。存储方式和读取权限见 [MCP 请求头和凭据](../tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
@@ -62,8 +84,7 @@ echo "$HARNESS_TOOL_ID"
 
 ```bash
 cat > prompt.md <<'EOF'
-You are a release-notes assistant.
-Always answer with a bullet list of at most three items.
+When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. Do not use tools for this probe.
 EOF
 
 agr harness update "$HARNESS_ID" --region "$AGR_REGION" --system-prompt @prompt.md
@@ -91,7 +112,7 @@ agr harness revision diff "$HARNESS_ID" live draft --region "$AGR_REGION"
 
 ```text
 live (revision 1) -> draft: 1 change(s)
-~ SystemPrompt  "You are a helpful assistant." -> "You are a release-notes assistant. ..."
+~ SystemPrompt  "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. ..." -> "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ..."
 ```
 
 `~` 表示修改，`+` 表示新增，`-` 表示删除。`revision diff` 的两个参数可以是修订号，也可以是 `live`（线上修订）、`latest`（最新修订）或 `draft`（草稿）。
@@ -118,7 +139,7 @@ Revision:       2 (v2)
 Status:         PUBLISHED
 Engine:         pi@1.3.0
 Models:         mp-********@1:hy3 (default)
-System prompt:  You are a release-notes assistant. ...
+System prompt:  When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ...
 Skills:         -
 Plugins:        -
 MCP servers:    -
@@ -140,22 +161,15 @@ REVISION  NAME  STATUS      ENGINE    UPDATED          REASON
 
 一个 Harness 同一时刻最多只有一个 `PUBLISHED` 修订；被替换的修订变为 `SUPERSEDED`。
 
-发布只影响之后新建的实例。已经在运行的实例继续使用旧配置，新会话也可能被路由到旧实例。要确认新提示词已生效，可以先删除旧实例，再发送一次 prompt：
+发布只影响之后新建的实例。旧实例仍可能接收新会话，所以先停止记录的 v1 实例。用相同的 `REVISION` 请求验证 v2，断言标记已改变，且运行中的实例 ID 与 v1 不同。
 
 ```bash
-agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"
+test -n "${V1_INSTANCE_ID:-}" &&
+agr instance delete "$V1_INSTANCE_ID" --region "$AGR_REGION" --yes --wait --ignore-not-found &&
+V2_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV2) &&
+test "$V2_INSTANCE_ID" != "$V1_INSTANCE_ID" &&
+printf 'Verified AGR_COOKBOOK_REV2 on a new instance %s\n' "$V2_INSTANCE_ID"
 ```
-
-复制每个 `RUNNING` 或 `PAUSED` 实例的 ID 并删除，然后在 prompt 中提供版本变更内容，无需准备本地仓库：
-
-```bash
-export HARNESS_INSTANCE_ID='replace-with-instance-id'
-agr instance delete "$HARNESS_INSTANCE_ID" --region "$AGR_REGION" --yes --wait
-
-agr harness prompt "$HARNESS_ID" --region "$AGR_REGION" 'Write release notes for a todo app: added recurring tasks, fixed missed reminders, and improved startup time.'
-```
-
-回复应为不超过三条的列表。
 
 ## 4. 回滚到修订 1
 
@@ -173,6 +187,17 @@ Latest:     revision 2 (v2)  SUPERSEDED  pi@1.3.0
 Draft:      1 change(s) not yet published; see 'agr harness revision diff hns-******** live draft'
 Resources:  tool=sdt-******** deployment=dpl-********
 Next:       agr harness revision create hns-******** --publish --wait
+```
+
+停止记录的 v2 实例后，再用同一个请求验证回滚。此时应返回 v1 标记，且运行中的实例 ID 与前两次都不同。
+
+```bash
+test -n "${V2_INSTANCE_ID:-}" &&
+agr instance delete "$V2_INSTANCE_ID" --region "$AGR_REGION" --yes --wait --ignore-not-found &&
+ROLLBACK_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV1) &&
+test "$ROLLBACK_INSTANCE_ID" != "$V1_INSTANCE_ID" &&
+test "$ROLLBACK_INSTANCE_ID" != "$V2_INSTANCE_ID" &&
+printf 'Verified AGR_COOKBOOK_REV1 on a new instance %s\n' "$ROLLBACK_INSTANCE_ID"
 ```
 
 回滚不改变草稿，所以草稿仍然包含新提示词，`Next` 也提示可以重新发布它。这里先不执行，第 5 步会把它和模型变更一起发布。对已经是 `PUBLISHED` 的修订再次发布是安全的：CLI 直接返回成功，不发送请求。
@@ -219,7 +244,7 @@ agr harness revision diff "$HARNESS_ID" live draft --region "$AGR_REGION"
 live (revision 1) -> draft: 3 change(s)
 ~ DefaultModel.Model  "hy3" -> "glm-5.1"
 ~ ModelProviders[mp-********].Models  ["hy3"] -> ["hy3","glm-5.1"]
-~ SystemPrompt  "You are a helpful assistant." -> "You are a release-notes assistant. ..."
+~ SystemPrompt  "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. ..." -> "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ..."
 ```
 
 发布后再比较修订 1 和最新修订，可以看到提供方修订从 1 变为 2：
@@ -235,7 +260,7 @@ revision 1 -> latest (revision 3): 5 change(s)
 ~ DefaultModel.Revision  1 -> 2
 ~ ModelProviders[mp-********].Models  ["hy3"] -> ["hy3","glm-5.1"]
 ~ ModelProviders[mp-********].Revision  1 -> 2
-~ SystemPrompt  "You are a helpful assistant." -> "You are a release-notes assistant. ..."
+~ SystemPrompt  "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV1. ..." -> "When the entire user message is REVISION, reply exactly AGR_COOKBOOK_REV2. ..."
 ```
 
 只有两个修订之间的比较会展示提供方修订；与草稿比较时会忽略它，因为草稿尚未固定提供方修订。

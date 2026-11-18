@@ -4,6 +4,7 @@
 import argparse
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ RESOURCES = {
     "session-space": (["session", "space"], "SessionSpace", "SpaceId"),
     "credential-provider": (["credential", "provider"], None, "ProviderId"),
 }
+STOPPABLE_INSTANCES = ("RUNNING", "PAUSED", "STOPPING_FAILED", "PAUSE_FAILED", "RESUME_FAILED", "FORK_FAILED", "FAILED")
 
 
 def missing(reply):
@@ -48,12 +50,32 @@ def call(region, args, allow_missing=False):
     return reply.get("Data") or {}
 
 
-def current_endpoint(region):
+def current_settings(region):
     data = call(region, ["config", "show"])
-    endpoint = data.get("Values", {}).get("cloud_endpoint", {}).get("Value")
+    values = data.get("Values", {})
+    endpoint = values.get("cloud_endpoint", {}).get("Value")
     if not isinstance(endpoint, str) or not endpoint.strip():
-        raise RuntimeError("agr config show returned no cloud_endpoint; check the preview CLI before creating resources.")
-    return endpoint
+        raise RuntimeError("agr config show returned no cloud_endpoint; check the preview CLI configuration.")
+    auth = values.get("secret_id", {})
+    if auth.get("Present") is not True:
+        raise RuntimeError("Configure the original Tencent Cloud credentials with agr before managing resources.")
+    # Viper's automatic environment lookup precedes the explicit environment binding.
+    secret_id = os.environ.get("AGR_AUTH.SECRET_ID") or os.environ.get("TENCENTCLOUD_SECRET_ID")
+    if not secret_id and auth.get("Source") == "config auth.secret_id" and data.get("Loaded"):
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            raise RuntimeError("Use Python 3.11 or newer to read agr's credential ID from TOML, or export TENCENTCLOUD_SECRET_ID.") from None
+        try:
+            with Path(data["ConfigFile"]).open("rb") as stream:
+                config = tomllib.load(stream)
+            auth_table = next(value for key, value in config.items() if key.lower() == "auth")
+            secret_id = next(value for key, value in auth_table.items() if key.lower() == "secret_id")
+        except (AttributeError, KeyError, OSError, StopIteration, TypeError, ValueError):
+            raise RuntimeError("Could not read the credential ID from agr's configuration file.") from None
+    if not isinstance(secret_id, str) or not secret_id.strip():
+        raise RuntimeError("Could not determine the active Tencent Cloud credential ID; verify your agr configuration.")
+    return endpoint, secret_id
 
 
 def recorded_endpoint(state):
@@ -62,6 +84,27 @@ def recorded_endpoint(state):
         raise RuntimeError("No CloudEndpoint is recorded. Verify the original creation endpoint and add CloudEndpoint "
                            "to the state file before continuing; do not guess from the current CLI configuration.")
     return endpoint
+
+
+def recorded_fingerprint(state):
+    fingerprint = state.get("CredentialFingerprint")
+    if not isinstance(fingerprint, str) or not fingerprint:
+        raise RuntimeError("No CredentialFingerprint is recorded. Keep the state file and verify or clean up its IDs "
+                           "manually with the original agr credentials before archiving the file.")
+    return fingerprint
+
+
+def credential_fingerprint(secret_id):
+    return hashlib.sha256(secret_id.encode("utf-8")).hexdigest()
+
+
+def require_recorded_credentials(region, state):
+    fingerprint = recorded_fingerprint(state)
+    _, secret_id = current_settings(region)
+    if credential_fingerprint(secret_id) != fingerprint:
+        raise RuntimeError("This scenario was created with different Tencent Cloud credentials. "
+                           "Restore the original credential ID before continuing; the saved IDs are kept.")
+    os.environ["TENCENTCLOUD_SECRET_ID"] = secret_id
 
 
 def save(path, state):
@@ -103,6 +146,7 @@ def create(args, path, state):
         raise RuntimeError("Load managed-harness-cookbook/.env before creating resources.")
     if state:
         recorded_endpoint(state)
+        recorded_fingerprint(state)
     if state.get("Cleaned"):
         state.clear()
     if state.get("Region", region) != region:
@@ -112,16 +156,22 @@ def create(args, path, state):
         raise RuntimeError(f"{field} is already recorded. Use get to continue, or cleanup before starting again.")
     if state.get("Pending"):
         raise RuntimeError("A create result is unknown. Inspect the recorded name before creating more resources.")
-    if any(flag.split("=", 1)[0] in ("--dry-run", "--jq", "-o", "--output", "--region", "--cloud-endpoint", "--config")
+    if any(flag.split("=", 1)[0] in ("--dry-run", "--jq", "-o", "--output", "--region", "--cloud-endpoint", "--config",
+                                   "--secret-id", "--secret-key", "--token")
            or flag.startswith("-o") and not flag.startswith("--") for flag in args.flags):
         raise RuntimeError("Use agr directly for dry-run. The helper supplies region, endpoint and JSON output; "
-                           "configure the endpoint with AGR_CLOUD_ENDPOINT or agr config before creating resources.")
-    endpoint = current_endpoint(region)
+                           "configure the endpoint and credentials before creating resources.")
+    endpoint, secret_id = current_settings(region)
     if state.get("CloudEndpoint", endpoint) != endpoint:
         raise RuntimeError("This scenario already has resources at another endpoint; clean it up before changing endpoints.")
+    fingerprint = credential_fingerprint(secret_id)
+    if state.get("CredentialFingerprint", fingerprint) != fingerprint:
+        raise RuntimeError("This scenario already has resources created with different Tencent Cloud credentials.")
     state["Region"] = region
     state["CloudEndpoint"] = endpoint
+    state["CredentialFingerprint"] = fingerprint
     os.environ["AGR_CLOUD_ENDPOINT"] = endpoint
+    os.environ["TENCENTCLOUD_SECRET_ID"] = secret_id
     name = next((args.flags[index + 1] for index, flag in enumerate(args.flags[:-1]) if flag == "--name"),
                 "<inspect agr list>")
     state["Pending"] = {"Resource": args.resource, "Name": name}
@@ -167,6 +217,7 @@ def cleanup(args, path, state):
         raise RuntimeError("Use cleanup <scenario> --dry-run to inspect, or --yes to delete the recorded resources.")
     os.environ["AGR_CLOUD_ENDPOINT"] = recorded_endpoint(state)
     region = state["Region"]
+    require_recorded_credentials(region, state)
     bindings(region, state, path)
     if args.dry_run:
         print(json.dumps(state, indent=2))
@@ -189,10 +240,10 @@ def cleanup(args, path, state):
             if not active:
                 break
             for item in active:
-                if item["Status"] == "FAILED" or item["Status"].endswith("_FAILED"):
+                if item["Status"] in STOPPABLE_INSTANCES:
+                    call(region, ["instance", "delete", item["InstanceId"], "--yes", "--wait", "--ignore-not-found"])
+                elif item["Status"].endswith("_FAILED"):
                     raise RuntimeError(f"Instance {item['InstanceId']} is {item['Status']}; inspect it with agr instance get before retrying cleanup.")
-                if item["Status"] in ("RUNNING", "PAUSED"):
-                    call(region, ["instance", "delete", item["InstanceId"], "--yes", "--wait"], allow_missing=True)
             if time.monotonic() >= deadline:
                 raise RuntimeError("Instances are still changing state; retry cleanup after they settle.")
             time.sleep(3)
@@ -267,6 +318,7 @@ def main():
         else:
             if args.field in ("ToolId", "DeploymentId") and state.get("HarnessId") and not state.get(args.field) and not state.get("Cleaned"):
                 os.environ["AGR_CLOUD_ENDPOINT"] = recorded_endpoint(state)
+                require_recorded_credentials(state["Region"], state)
                 bindings(state["Region"], state, path)
             if state.get("Cleaned") or not state.get(args.field):
                 raise RuntimeError(f"No saved {args.field} for {args.scenario}; inspect the state file or create the resource first.")

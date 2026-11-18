@@ -179,13 +179,29 @@ Store the secret first: 'agr credential provider create --type SecretMultiUser',
 GITHUB_CREDENTIAL_PROVIDER_ID=$(python3 ../scripts/resources.py create tool-market credential-provider --name "harness-market-github-$HARNESS_NAME_SUFFIX" --type SecretMultiUser) && export GITHUB_CREDENTIAL_PROVIDER_ID
 ```
 
-Provider ID 已保存到 `GITHUB_CREDENTIAL_PROVIDER_ID`，接下来保存 Token。用户 ID 和 scope 由应用定义；本示例的 Harness 引用和清理脚本统一使用 `harness-market` 和 `github`。跟随教程时请保留这两个值；如果自定义，需要同步修改密钥命令、`--mcp-credential` 和 `scripts/resources.py` 中的凭据清理逻辑：
+Provider ID 已保存到 `GITHUB_CREDENTIAL_PROVIDER_ID`，接下来保存 Token。用户 ID 和 scope 由应用定义；本示例的 Harness 引用和清理脚本统一使用 `harness-market` 和 `github`。跟随教程时请保留这两个值；如果自定义，需要同步修改密钥命令、`--mcp-credential` 和 `scripts/resources.py` 中的凭据清理逻辑。
+
+在交互式终端运行这段命令，并在隐藏输入的提示中粘贴 GitHub 个人访问令牌（PAT）。Bash 通过 stdin 将原值传给 `agr`，不附加换行。这样 PAT 不会进入 shell 历史或命令行参数。
 
 ```bash
-agr credential secret set --region "$AGR_REGION" \
-  --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" \
-  --user-id harness-market --scope github \
-  --secret 'github_pat_replace-me'
+bash -c '
+  set +x
+  if [[ ! -t 0 ]]; then
+    printf "Run this command in an interactive terminal.\n" >&2
+    exit 1
+  fi
+  unset github_pat
+  IFS= read -rs -p "GitHub PAT: " github_pat || exit 1
+  printf "\n" >&2
+  if [[ -z "$github_pat" ]]; then
+    printf "GitHub PAT is required.\n" >&2
+    exit 1
+  fi
+  printf "%s" "$github_pat" | agr credential secret set --region "$AGR_REGION" \
+    --credential-provider-id "$GITHUB_CREDENTIAL_PROVIDER_ID" \
+    --user-id harness-market --scope github \
+    --from-stdin
+'
 ```
 
 **第二步：添加 MCP。** `--mcp` 会替换全部 MCP，因此要同时写上第 3 步的 DeepWiki：
