@@ -36,6 +36,7 @@ mobile-use/
 ├── batch_dump_logcat.py       # Batch dump logcat logs from existing sandboxes
 ├── batch_sandbox_kill.py      # Batch kill sandboxes with confirmation
 ├── batch_sandbox_create.py    # Batch create sandboxes
+├── sms_inject.py              # Simulate an incoming SMS (adb / SDK)
 ├── apk/                       # APK files directory
 └── output/                    # Screenshots and logs output
 ```
@@ -50,6 +51,7 @@ mobile-use/
 | `batch_dump_logcat.py` | Batch dump full logcat logs from existing sandboxes, organized by sandbox ID |
 | `batch_sandbox_kill.py` | Batch kill sandboxes from YAML config with manual confirmation |
 | `batch_sandbox_create.py` | Batch create sandboxes with concurrency control |
+| `sms_inject.py` | Simulate an incoming SMS (replacement for `adb emu sms send`) over adb or the SDK |
 
 ## Quick Start
 
@@ -328,6 +330,72 @@ python sandbox_connect.py --sandbox-id abc123 --action get_app_state --app-name 
 ```bash
 python sandbox_connect.py --help
 ```
+
+## Simulate an Incoming SMS
+
+The mobile sandbox runs containerized Android without an emulator console, so `adb emu sms send` does not work. The sandbox image ships an equivalent device-side tool, `/system/bin/smartrun-sms-inject`, which writes a received SMS (and its conversation thread) into the system SMS database. The message then appears in `content://sms/inbox` and in SMS apps.
+
+`sms_inject.py` shows the three ways to call it:
+
+| Method | When to use | Tool flag |
+|--------|-------------|-----------|
+| adb + stdin (default) | You run adb yourself and can write to its stdin | `--from-stdin` (line 1 = number, rest = body) |
+| adb + base64 | Your caller can only pass command-line arguments to adb | `--b64 <b64 number> <b64 body>` |
+| SDK (e2b + Appium) | You drive the sandbox through Appium `mobile: shell` (no stdin) | `--b64` |
+
+None of them goes through shell quoting, so quotes, `$`, backticks, newlines, CJK and emoji are stored byte-for-byte.
+
+**adb**: get the adb address with the AGS CLI, then inject:
+
+```bash
+agr instance mobile connect <sandbox_id>
+# connected to 127.0.0.1:<port>
+
+uv run sms_inject.py adb --serial 127.0.0.1:<port> +8613800000000 "Hello"
+uv run sms_inject.py adb --serial 127.0.0.1:<port> --method b64 +8613800000000 "Hello"
+```
+
+**SDK** (requires `E2B_API_KEY` and `E2B_DOMAIN`):
+
+```bash
+uv run sms_inject.py sdk --sandbox-id <sandbox_id> +8613800000000 "Hello"
+```
+
+**From your own code**, import the functions instead of the CLI:
+
+```python
+from sms_inject import inject_sms_via_adb, inject_sms_via_appium
+
+inject_sms_via_adb("127.0.0.1:5555", "+8613800000000", "Hello")
+inject_sms_via_appium(driver, "+8613800000000", "Hello")  # an existing Appium driver
+```
+
+**Without Python**:
+
+```bash
+# adb + stdin
+printf '%s\n%s' "$NUM" "$MSG" | adb -s "$SERIAL" shell smartrun-sms-inject --from-stdin
+
+# adb + base64 (pass -w0 on Linux: GNU base64 wraps at 76 columns)
+adb -s "$SERIAL" shell smartrun-sms-inject --b64 \
+    "$(printf '%s' "$NUM" | base64 -w0)" "$(printf '%s' "$MSG" | base64 -w0)"
+```
+
+Notes:
+
+- Requires a sandbox image that ships `smartrun-sms-inject` (SmartRun redroid `android_world` image v33.3 or later).
+- Do **not** call the tool as `smartrun-sms-inject '<number>' '<message>'`: the arguments are parsed by both the local and the device shell, and a message with spaces or quotes is truncated (for example `"plain arg msg"` is stored as `plain`).
+- Without `-w0` on Linux, a long base64 value is wrapped, the device shell runs the wrapped lines as commands, and the message is silently truncated while the exit status is still 0.
+- An SMS app that is already open does not refresh until it is reopened.
+
+Common failures:
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `failed (exit 127): ... smartrun-sms-inject: inaccessible or not found` | The sandbox image predates the tool. Use a template on SmartRun redroid `android_world` v33.3 or later |
+| `failed (exit 2): usage: smartrun-sms-inject ...` | Empty number or message reached the tool |
+| `adb: device offline` / `device not found` | The `agr` tunnel was dropped (for example by `adb disconnect` or `adb kill-server`). Run `agr instance mobile connect <sandbox_id>` again and use the new port |
+| `E2B_API_KEY is required for sdk mode` | Set `E2B_API_KEY` and `E2B_DOMAIN` (environment or `.env`) |
 
 ## Configuration
 
