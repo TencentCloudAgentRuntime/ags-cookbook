@@ -19,6 +19,7 @@ This directory contains runnable AGS examples. Each example keeps its own README
 - `browser-agent` — browser automation agent with an OpenAI-compatible LLM backend
 - `data-analysis` — multi-context data workflow with multiple generated artifacts
 - [`deployment-cookbook`](./deployment-cookbook/README.md) — Deployment management with `agr`, from httpbin basics and a native MCP server to a persistent agent workspace
+- [`managed-harness-cookbook`](./managed-harness-cookbook/README.md) — create, publish, roll back, connect to, and scale platform-managed agent harnesses with `agr` (preview)
 - [`session-cookbook`](./session-cookbook/README.md) — cloud Session persistence and versioned DSH/pi replica-handoff references
 - `dind` — self-starting Docker-in-Docker Tool that runs a real Terminal-Bench Compose task with Harbor Oracle
 - `envd-oci-env` — preserve OCI image environment variables when envd is PID 1
@@ -57,6 +58,7 @@ Some heavier or externally overlaid examples are exceptions, but they should sti
 | `custom-image-go-sdk` | advanced | Go | `make run` | Requires custom tool/image setup in AGS account |
 | `data-analysis` | advanced | Python + code sandbox | `make run` | Generates multiple output files |
 | [`deployment-cookbook`](./deployment-cookbook/README.md) | advanced | agr CLI + Markdown + Python | Follow a scenario README | Covers deployment, scaling, lifecycle, affinity, a native MCP server, and a persistent agent workspace |
+| [`managed-harness-cookbook`](./managed-harness-cookbook/README.md) | advanced | agr CLI (preview) + Markdown | Follow a scenario README | Covers harness creation, revisions and rollback, the tool market, ACP connections, scaling, and session persistence; requires a VPC subnet and a TokenHub API key |
 | [`session-cookbook`](./session-cookbook/README.md) | advanced | Docker + Node.js + Python | Follow a framework README | Cloud Session persistence and versioned DSH/pi replica-handoff references |
 | `dind` | advanced | Docker + Compose + envd + Harbor + agr | `make run` | Creates a DinD Tool and runs a real Terminal-Bench Compose task with Harbor Oracle |
 | `envd-oci-env` | advanced | Bash + Docker + agr | `make run` | Reproduces and validates envd OCI environment inheritance |
