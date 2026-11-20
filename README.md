@@ -95,6 +95,7 @@ You can also enter an example directory directly and run its local `make setup` 
 | `custom-image-go-sdk` | Go | Custom-image / custom-tool startup |
 | `data-analysis` | Python + code sandbox | Multi-context data workflow |
 | [`deployment-cookbook`](./examples/deployment-cookbook/README.md) | agr CLI + Markdown + Python | Deployment, scaling, lifecycle, affinity, native MCP server, and persistent agent workspace scenarios |
+| [`endpoint-cookbook`](./examples/endpoint-cookbook/README.md) | agr CLI (preview) + Python MCP SDK | Attach a Registry MCP version to an Endpoint and verify token-authenticated MCP access |
 | [`session-cookbook`](./examples/session-cookbook/README.md) | Docker + Node.js + Python | Cloud Session persistence and versioned DSH/pi replica-handoff references |
 | `dind` | Docker + Compose + envd + Harbor + agr | Self-starting DinD Sandbox that runs a real Terminal-Bench Compose task with Harbor Oracle |
 | `envd-oci-env` | Bash + Docker + agr | Preserve OCI image environment variables when envd is PID 1 |
