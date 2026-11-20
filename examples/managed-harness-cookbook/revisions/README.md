@@ -78,7 +78,7 @@ V1_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV1) && printf '%s\n' "$V1_INSTANC
 
 ## 2. Edit the draft and compare
 
-MCP header values are masked in `revision diff` (text and JSON) and `harness status -o json`. Changes are computed from the original values, so a header change can still be reported even when both displayed values are masked. See [MCP headers and credentials](../tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key) for storage and access permissions.
+All MCP header values (including `${credential}` templates) are masked as `[REDACTED]` in `revision diff` (text and JSON) and `harness status -o json`. Changes are computed from the original values, so a header change can still be reported even when both displayed values are masked; `harness get` and `revision get` still return the stored values. See [MCP headers and credentials](../tool-market/README.md#4-add-an-mcp-server-that-needs-an-api-key) for storage and access permissions.
 
 `harness update` changes only the draft; live instances are unaffected. The system prompt can be passed inline or read with `@file`:
 

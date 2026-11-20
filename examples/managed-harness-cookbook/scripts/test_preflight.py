@@ -66,6 +66,7 @@ class PreflightTests(unittest.TestCase):
         result = self.run_preflight()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("connect needs agr harness web", result.stderr)
+        self.assertIn("v0.9.0-preview.1", result.stderr)
         self.assertNotIn("doctor", self.calls.read_text())
 
     def test_missing_required_value_still_blocks_connect(self):

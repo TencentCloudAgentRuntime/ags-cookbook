@@ -78,7 +78,7 @@ V1_INSTANCE_ID=$(probe_revision AGR_COOKBOOK_REV1) && printf '%s\n' "$V1_INSTANC
 
 ## 2. 修改草稿并比较差异
 
-`revision diff`（text 和 JSON）及 `harness status -o json` 会脱敏 MCP 请求头值。差异仍按原值计算，因此即使显示的前后值都已脱敏，也可能报告请求头发生变化。存储方式和读取权限见 [MCP 请求头和凭据](../tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
+`revision diff`（text 和 JSON）及 `harness status -o json` 会将所有 MCP 请求头值（包括 `${credential}` 模板）脱敏为 `[REDACTED]`。差异仍按原值计算，因此即使显示的前后值都已脱敏，也可能报告请求头发生变化；`harness get` 和 `revision get` 仍会返回实际保存的值。存储方式和读取权限见 [MCP 请求头和凭据](../tool-market/README_zh.md#4-添加需要-api-key-的-mcp)。
 
 `harness update` 只修改草稿，线上实例不受影响。系统提示词可以直接写在参数里，也可以用 `@文件` 读取：
 

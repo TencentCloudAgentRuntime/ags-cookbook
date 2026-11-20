@@ -275,6 +275,70 @@ class ResourceTests(unittest.TestCase):
         self.assertLess(verbs.index(["instance", "delete"]), verbs.index(["tool", "delete"]))
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
+    def test_auth_failure_during_create_clears_pending(self):
+        reply = {"Status": "failed", "Failure": {"Code": "AUTH_FAILED", "Kind": "auth"}}
+        state = {}
+        with patch.object(resources, "execute", return_value=(4, reply)):
+            with self.assertRaisesRegex(RuntimeError, "AUTH_FAILED"):
+                self.create("model-provider", state)
+        saved = json.loads(self.path.read_text())
+        self.assertNotIn("Pending", saved)
+
+    def test_session_cleanup_sleeps_between_retries(self):
+        args = argparse.Namespace(scenario="scaling-session", yes=True, dry_run=False)
+        state = self.bound_state(HarnessId="hns-owned", SpaceId="space-owned")
+        list_calls = 0
+        space_exists = True
+        not_found = (1, {"Status": "failed", "Failure": {"Code": "ResourceNotFound", "Kind": "not_found"}})
+
+        def execute(region, command):
+            nonlocal list_calls, space_exists
+            if command[:2] == ["harness", "get"]:
+                return not_found
+            if command[:3] == ["session", "space", "get"]:
+                return (0, {"Status": "succeeded", "Data": {}}) if space_exists else not_found
+            if command[:3] == ["session", "space", "delete"]:
+                space_exists = False
+                return 0, {"Status": "succeeded", "Data": {}}
+            if command[:2] == ["session", "list"]:
+                list_calls += 1
+                sessions = [{"SessionId": "sess-1"}] if list_calls <= 2 else []
+                return 0, {"Status": "succeeded", "Data": {"Sessions": sessions}}
+            if command[:2] == ["session", "delete"]:
+                return 0, {"Status": "succeeded", "Data": {}}
+            return 0, {"Status": "succeeded", "Data": {}}
+
+        with patch.object(resources, "execute", side_effect=execute), \
+                patch.object(resources.time, "sleep") as sleep, redirect_stdout(io.StringIO()):
+            resources.cleanup(args, self.path, state)
+        self.assertTrue(state["Cleaned"])
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_disabled_credential_provider_skips_redundant_disable_update(self):
+        args = argparse.Namespace(scenario="tool-market", yes=True, dry_run=False)
+        state = self.bound_state(ProviderId="agc-owned")
+        present = True
+        calls = []
+
+        def execute(region, command):
+            nonlocal present
+            calls.append(command)
+            if command[:3] == ["credential", "provider", "get"]:
+                if not present:
+                    return 1, {"Status": "failed", "Failure": {"Code": "PROVIDER_NOT_FOUND", "Kind": "not_found"}}
+                return 0, {"Status": "succeeded", "Data": {"ProviderId": "agc-owned", "Status": "DISABLED"}}
+            if command[:3] == ["credential", "secret", "list"]:
+                return 0, {"Status": "succeeded", "Data": {"TotalCount": 0, "ManagedSecretSet": []}}
+            if command[:3] == ["credential", "provider", "delete"]:
+                present = False
+                return 0, {"Status": "succeeded", "Data": {}}
+            return 0, {"Status": "succeeded", "Data": {}}
+
+        with patch.object(resources, "execute", side_effect=execute), redirect_stdout(io.StringIO()):
+            resources.cleanup(args, self.path, state)
+        self.assertTrue(state["Cleaned"])
+        self.assertFalse(any(call[:3] == ["credential", "provider", "update"] for call in calls))
+
 
 if __name__ == "__main__":
     unittest.main()

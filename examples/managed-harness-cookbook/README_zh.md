@@ -19,10 +19,13 @@
 
 ## 前置条件
 
-- 已安装 **preview 通道**的 `agr`，完成凭证初始化，并包含 [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171) 中的托管 Harness 命令。较旧的 preview 构建可能尚未包含这些命令。从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载包含这些命令且带 `-preview` 后缀的版本，或从源码安装：
+- 已安装 **preview 通道**的 `agr`（`v0.9.0-preview.1` 或更新版本，已包含 [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171) 中的托管 Harness 命令），并完成凭证初始化。较旧的 preview 构建不包含这些命令。可通过一键安装脚本安装，或从 [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases) 下载：
 
   ```bash
-  go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>'
+  curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | VERSION=v0.9.0-preview.1 sh
+  # 使用 GitHub Releases 镜像源：
+  # curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | AGR_DOWNLOAD_MIRROR=github VERSION=v0.9.0-preview.1 sh
+
   agr version   # channel: preview
   agr harness --help
   agr harness web --help
@@ -31,20 +34,10 @@
   agr doctor
   ```
 
-  将 `<preview-tag>` 替换为目标 preview release 的 tag。`go install` 必须带 `-tags=preview`，否则安装的是 stable 版本，不包含这些命令。
-
-  如果尚无包含这些命令的 release，使用 Go 1.25 或更新版本在单独目录构建 CLI PR，并在所有示例中使用该二进制：
+  也可以使用 Go 1.25 或更新版本从源码安装（必须带 `-tags=preview`，否则安装的是不包含这些命令的 stable 版本）：
 
   ```bash
-  git clone https://github.com/TencentCloudAgentRuntime/ags-cli.git
-  git -C ags-cli fetch origin pull/171/head
-  git -C ags-cli switch --detach FETCH_HEAD
-  (cd ags-cli && go build -tags preview -o ./build/agr ./cmd/agr)
-  export PATH="$PWD/ags-cli/build:$PATH"
-  agr version   # channel: preview
-  agr harness --help
-  agr harness web --help
-  agr model-provider --help
+  go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@v0.9.0-preview.1'
   ```
 
 - 按官方[自定义沙箱角色与权限指南](https://cloud.tencent.com/document/product/1814/129691)创建 Agent Runtime CAM 角色，并向 CLI 使用的身份授予该角色的 `cam:PassRole` 权限。平台用这个角色创建 Sandbox Tool，并在后台读取 Agent Registry 与 TokenHub。
@@ -116,7 +109,7 @@ make cleanup SCENARIO=simple
 
 - 支持 `-o json` 的命令输出统一信封：`Status`、`Data`、`Failure{Code,Kind,Message,Hint,Fix,Details}`。用 `Failure.Kind` 判断 `not_found` 等错误类别，用 `Failure.Code` 区分具体错误，不要匹配 `Message`。`harness acp` 使用 stdio 上的原始 ACP 消息，应显式加 `-o text`，包括默认输出已配置为 JSON 的情况。
 - `agr harness status <harness-id> -o json --jq '.Data.Next'` 返回建议的下一条命令；没有待处理事项时为空字符串。
-- `agr schema harness.create -o json` 查看参数、副作用与失败码；`--dry-run` 打印最终请求但不发送。
+- `agr schema harness.create -o json` 查看参数、请求结构、变更/鉴权属性与通用失败码；`--dry-run` 打印最终请求但不发送。
 - 无 TTY 时，`harness delete` 和 `model-provider delete` 不加 `--yes` 会立即返回 `CONFIRMATION_REQUIRED`，不会挂起等待输入。
 - `harness create` 和 `model-provider create` 不幂等，CLI 也不会自动重试。超时后先用 `agr harness list --name <name>` 核实，再决定是否重新创建。
 - 接入 Session Space 后，同一个 Harness 的所有会话都使用 Harness ID 作为 UserId。应用需要记录会话归属并校验访问权限，这不会自动隔离应用里的不同用户。

@@ -182,7 +182,7 @@ agr harness proxy "$HARNESS_ID" --region "$AGR_REGION" --port 0 -o ndjson
 {"SchemaVersion":"agr.events.v1","Type":"ready","Data":{"AcpURL":"http://127.0.0.1:54321/acp","RemoteAcpURL":"https://8080-dpl-********.ap-chongqing.agents.tencentags.com/acp","HarnessId":"hns-********","DeploymentId":"dpl-********","AffinityHeader":"X-Tencent-Agr-Affinity-Id"}}
 ```
 
-代理仅用于本地调试，默认只监听 `127.0.0.1`。验证后按 `Ctrl+C` 停止。
+代理仅用于本地调试，默认只监听 `127.0.0.1`。`harness proxy` 不支持单条信封的 `-o json`（会返回 `UNSUPPORTED_OUTPUT`），默认输出配置为 JSON 时请显式传入 `-o text` 或 `-o ndjson`。验证后按 `Ctrl+C` 停止。
 
 ## 5. `endpoint`：在自己的服务中直连
 

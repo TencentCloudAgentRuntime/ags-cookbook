@@ -191,7 +191,7 @@ def create(args, path, state):
             bindings(region, state, path)
     if code or reply.get("Status") != "succeeded":
         failure = reply.get("Failure") or {}
-        if failure.get("Kind") == "usage" and not resource_id:
+        if failure.get("Kind") in ("usage", "auth") and not resource_id:
             state.pop("Pending", None)
             save(path, state)
         raise RuntimeError(f"agr create failed: {failure.get('Code', 'UNKNOWN')}. {failure.get('Hint', '')}")
@@ -261,16 +261,18 @@ def cleanup(args, path, state):
                                              "--user-ids", state["HarnessId"]]).get("Sessions") or []
                     if not sessions:
                         break
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("Sessions are still present; retry cleanup after they settle.")
                     for session in sessions:
                         call(region, ["session", "delete", "--space-id", space, "--user-id",
                                       state["HarnessId"], "--session-id", session["SessionId"]], allow_missing=True)
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("Sessions are still present; retry cleanup after they settle.")
+                    time.sleep(2)
             remove(region, ["session", "space", "delete", "--space-id", space],
                    ["session", "space", "get", "--space-id", space])
     if state.get("ProviderId"):
         provider = state["ProviderId"]
-        if call(region, ["credential", "provider", "get", provider], allow_missing=True) is not None:
+        provider_info = call(region, ["credential", "provider", "get", provider], allow_missing=True)
+        if provider_info is not None:
             metadata = call(region, ["credential", "secret", "list", "--credential-provider-id", provider,
                                      "--user-ids", "harness-market", "--filter", "scope=github"])
             if "TotalCount" not in metadata:
@@ -278,7 +280,8 @@ def cleanup(args, path, state):
             if metadata["TotalCount"]:
                 call(region, ["credential", "secret", "delete", "--credential-provider-id", provider,
                               "--user-id", "harness-market", "--scope", "github"], allow_missing=True)
-            call(region, ["credential", "provider", "update", provider, "--status", "DISABLED"])
+            if provider_info.get("Status") != "DISABLED":
+                call(region, ["credential", "provider", "update", provider, "--status", "DISABLED"])
             remove(region, ["credential", "provider", "delete", provider], ["credential", "provider", "get", provider])
     if state.get("Pending"):
         pending = state["Pending"]

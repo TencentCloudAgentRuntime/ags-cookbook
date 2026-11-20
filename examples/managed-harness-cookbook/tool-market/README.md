@@ -25,10 +25,10 @@ Other types, such as A2A, cannot be referenced by a harness.
 | Access identity | When saving and publishing, the platform reads Registry with the initialization role of the harness (`--role-arn`), not with the caller. |
 | Plugin compatibility | A Plugin version must declare **exactly** the engine and version of the harness (for example `pi` + `1.3.0`). This is checked when the draft is saved, and every selected Plugin is checked again when the engine or engine version changes. |
 | Skill check timing | Skills are not checked when saving; they are downloaded at publish. An unreadable version, or two Skills whose `SKILL.md` names are the same, makes the revision `PUBLISH_FAILED`. Skills work with every engine. |
-| MCP transport | Only the first `streamable-http` remote of the MCP declaration is used; an MCP server with only `sse`, stdio, or a local package cannot be used. MCP servers work with every engine. |
+| MCP transport | Only the first `streamable-http` remote of the MCP declaration is used; an MCP server with only `sse`, stdio, a local package, or unset required URL variables cannot be referenced from the market (use a direct `--mcp <name>=<url>` when needed). MCP servers work with every engine. |
 | MCP headers | When the market declares a required header without a default (usually an API key), you must supply it with `--mcp-header`, or the save is rejected. Header names are case-insensitive, and your value overrides the market default. |
 | MCP credentials | A managed credential replaces only the `${credential}` you write in `--mcp-header`; it is never filled into headers declared by the market. Each MCP server takes one credential. |
-| MCP names | pi and dsh accept only 1-32 letters, digits, `_`, or `-`. The CLI checks this locally; with raw `--mcp-servers` JSON an invalid name fails only when an instance starts. |
+| MCP names | pi and dsh accept only 1-32 letters, digits, `_`, or `-`. pi treats `-` and `_` alike, so colliding names such as `my-tool` and `my_tool` are rejected locally by the CLI (`DUPLICATE_MCP_NAME`); with raw `--mcp-servers` JSON, invalid or colliding names fail only when an instance starts. |
 | Takedown | After a referenced version is taken down, new publishes fail; running instances are unaffected. Skill and Plugin download links can no longer be refreshed, so new instances may fail to start once the links expire. |
 
 ## 1. Set environment variables and create the harness
@@ -227,9 +227,9 @@ More about headers and credentials:
 
 - With only `--mcp github=...` and no `Authorization`, the save fails with `Registry MCP header "Authorization" is required and has no value or default`.
 - With `--mcp-credential` but no `--mcp-header` using `${credential}`, the credential would never be read, so the CLI rejects it (`UNUSED_MCP_CREDENTIAL`).
-- Some MCP servers need several secret headers (for example both a SecretId and a SecretKey). One MCP server takes one credential, so the other headers can only be passed as plain-text `--mcp-header` values, **which are stored in the harness configuration** and visible to anyone who can read the harness. Use least-privilege sub-account keys for such tools.
+- Some MCP servers need several secret headers (for example both a SecretId and a SecretKey). One MCP server takes one credential, so the other headers can only be passed as plain-text `--mcp-header` values, **which are stored in the harness configuration** and visible to anyone who can read the harness. `agr harness create` and `agr harness update` emit a warning when a header name containing `Authorization`, `Key`, `Token`, or `Secret` uses a non-empty plain-text value without `${credential}`. Use least-privilege sub-account keys for such tools.
 
-The current CLI masks MCP header values in `agr harness revision diff` (text and JSON) and `agr harness status -o json`. This does not change how the backend stores those headers or who can read the harness configuration.
+`agr harness revision diff` (text and JSON) and `agr harness status -o json` mask all MCP header values as `[REDACTED]`, including `${credential}` templates (so `[REDACTED]` in the `revision diff` output above is expected). Other configuration outputs such as `agr harness get`, `agr harness revision get`, and `--dry-run` still display stored plain-text header values; redaction in diagnostic commands does not change how the backend stores headers or who can read the harness configuration.
 
 ## 5. Add Skills and Plugins
 

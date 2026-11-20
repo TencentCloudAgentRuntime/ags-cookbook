@@ -19,10 +19,13 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
 
 ## Prerequisites
 
-- `agr` from the **preview channel**, with credentials initialized, including the managed harness commands from [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171). Older preview builds may not include them. Download a release containing these commands with a `-preview` suffix from [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases), or install from source:
+- `agr` from the **preview channel** (`v0.9.0-preview.1` or newer, which includes the managed harness commands from [CLI PR #171](https://github.com/TencentCloudAgentRuntime/ags-cli/pull/171)), with credentials initialized. Older preview builds do not include these commands. Install a preview release with the one-line installer or download binaries from [GitHub Releases](https://github.com/TencentCloudAgentRuntime/ags-cli/releases):
 
   ```bash
-  go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@<preview-tag>'
+  curl -fsSL https://dl.tencentags.com/agr-cli/latest/install.sh | VERSION=v0.9.0-preview.1 sh
+  # GitHub Releases mirror:
+  # curl -fsSL https://github.com/TencentCloudAgentRuntime/ags-cli/releases/latest/download/install.sh | AGR_DOWNLOAD_MIRROR=github VERSION=v0.9.0-preview.1 sh
+
   agr version   # channel: preview
   agr harness --help
   agr harness web --help
@@ -31,20 +34,10 @@ A configuration change always follows **edit the draft (`update`) → freeze a r
   agr doctor
   ```
 
-  Replace `<preview-tag>` with the desired preview release tag. `go install` must include `-tags=preview`; otherwise it installs the stable build without these commands.
-
-  If no release contains these commands yet, use Go 1.25 or newer to build the CLI PR in a separate directory, then use that binary for every example:
+  Or install from source with Go 1.25 or newer (`-tags=preview` is required; otherwise `go install` builds the stable channel without these commands):
 
   ```bash
-  git clone https://github.com/TencentCloudAgentRuntime/ags-cli.git
-  git -C ags-cli fetch origin pull/171/head
-  git -C ags-cli switch --detach FETCH_HEAD
-  (cd ags-cli && go build -tags preview -o ./build/agr ./cmd/agr)
-  export PATH="$PWD/ags-cli/build:$PATH"
-  agr version   # channel: preview
-  agr harness --help
-  agr harness web --help
-  agr model-provider --help
+  go install -tags=preview 'github.com/TencentCloudAgentRuntime/ags-cli/cmd/agr@v0.9.0-preview.1'
   ```
 
 - Create an Agent Runtime CAM role by following the official [custom sandbox role and permission guide](https://cloud.tencent.com/document/product/1814/129691), and grant the CLI identity `cam:PassRole` on that role. The platform uses this role to create the Sandbox Tool and to read Agent Registry and TokenHub in the background.
@@ -116,7 +109,7 @@ In each scenario directory, `README.md` is English and `README_zh.md` is Chinese
 
 - Commands that support `-o json` use one envelope: `Status`, `Data`, and `Failure{Code,Kind,Message,Hint,Fix,Details}`. Use `Failure.Kind` for categories such as `not_found`, and `Failure.Code` for specific errors; do not match `Message`. `harness acp` carries raw ACP over stdio instead; launch it with `-o text`, including when your configured default is JSON.
 - `agr harness status <harness-id> -o json --jq '.Data.Next'` returns the suggested next command, or an empty string when nothing is pending.
-- `agr schema harness.create -o json` lists flags, side effects, and failure codes; `--dry-run` prints the final request without sending it.
+- `agr schema harness.create -o json` lists flags, request schema, mutation/auth metadata, and common failure codes; `--dry-run` prints the final request without sending it.
 - Without a TTY, `harness delete` and `model-provider delete` fail immediately with `CONFIRMATION_REQUIRED` unless `--yes` is set; they never wait for input.
 - `harness create` and `model-provider create` are not idempotent, and the CLI never retries them. After a timeout, check with `agr harness list --name <name>` before creating again.
 - With a session space, all sessions of one harness use its Harness ID as UserId. Your application must track session ownership and authorize access; this does not automatically isolate your application's users.

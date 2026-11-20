@@ -129,6 +129,7 @@ Tool:          sdt-********
 Status:        ACTIVE
 Tags:          <none>
 Created:       <masked-time>
+Updated:       <masked-time>
 Scaling:
   Min Instances:                0
   Max Instances:                2
@@ -179,8 +180,8 @@ printf 'Original instance %s\n' "$HARNESS_INSTANCE_ID"
 The check saves the ID of the only `RUNNING` instance for this dedicated harness. Stop sending requests and wait at least 60 seconds, then query the Tool again with `agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"` until that ID is `PAUSED`. Idle pause is asynchronous.
 
 ```text
-ID                    TOOL                   STATUS  TIMEOUT  EXPIRES  MOUNTS  CREATED
-<masked-instance-id>  hns-********-********  PAUSED  0s       -        -       <masked-time>
+ID                    TOOL                   STATUS  TIMEOUT  EXPIRES  MOUNTS  CREATED        KEEPALIVE MODE  KEEPALIVE TIMEOUT  AUTO PAUSE  AUTO RESUME
+<masked-instance-id>  hns-********-********  PAUSED  0s       -        -       <masked-time>  -               -                  -           -
 ```
 
 Check that the recorded instance is `PAUSED`, then continue with the same Session ID and Affinity ID. Verify that the reply contains `maple`, both IDs match, and the original instance is the only `RUNNING` instance. With `BEST_EFFORT`, a replacement instance could also remember the word after restoring the session from the session space.

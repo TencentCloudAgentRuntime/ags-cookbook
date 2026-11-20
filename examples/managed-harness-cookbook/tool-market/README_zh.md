@@ -25,10 +25,10 @@
 | 访问身份 | 平台在保存和发布时都使用创建 Harness 时的初始化角色（`--role-arn`）读取 Registry，而不是当前调用者。 |
 | Plugin 兼容性 | Plugin 版本必须声明与 Harness **完全一致**的引擎和版本（例如 `pi` + `1.3.0`）。保存草稿时就会校验；修改引擎或引擎版本时，会重新校验已选的全部 Plugin。 |
 | Skill 校验时机 | Skill 保存时不校验，发布时才下载。版本不可读，或两个 Skill 的 `SKILL.md` 名称相同，都会让修订进入 `PUBLISH_FAILED`。Skill 适用于所有引擎。 |
-| MCP 传输 | 只使用 MCP 声明中的第一个 `streamable-http` 远端；只有 `sse`、stdio 或本地包的 MCP 无法使用。MCP 适用于所有引擎。 |
+| MCP 传输 | 只使用 MCP 声明中的第一个 `streamable-http` 远端；只有 `sse`、stdio、本地包，或远端 URL 存在未赋值必填变量的 MCP 无法直接通过工具市场引用（必要时可改用直连 `--mcp <name>=<url>`）。MCP 适用于所有引擎。 |
 | MCP 请求头 | 市场声明了必填请求头但没有默认值时（通常是 API Key），必须用 `--mcp-header` 显式提供，否则保存时被拒绝。同名请求头不区分大小写，你提供的值会覆盖市场的默认值。 |
 | MCP 凭据 | 托管凭据只会替换你自己写在 `--mcp-header` 中的 `${credential}`，不会自动填进市场声明的请求头。每个 MCP 只能绑定一个凭据。 |
-| MCP 名称 | pi 和 dsh 只接受 1～32 个字母、数字、`_` 或 `-`。CLI 在本地校验；用 `--mcp-servers` JSON 绕过时，不合规的名称要等到实例启动才失败。 |
+| MCP 名称 | pi 和 dsh 只接受 1～32 个字母、数字、`_` 或 `-`。pi 会将 `-` 和 `_` 视为相同，因此像 `my-tool` 和 `my_tool` 这样冲突的名称会在本地被 CLI 拒绝（`DUPLICATE_MCP_NAME`）；用 `--mcp-servers` JSON 绕过时，不合规或冲突的名称要等到实例启动才失败。 |
 | 下架 | 已引用的版本被下架后，新的发布会失败；已运行的实例不受影响。Skill 和 Plugin 的下载链接无法再刷新，链接过期后新建的实例可能启动失败。 |
 
 ## 1. 设置环境变量并创建 Harness
@@ -227,9 +227,9 @@ agr harness revision create "$HARNESS_ID" --region "$AGR_REGION" --publish --wai
 
 - 只写 `--mcp github=...` 而不提供 `Authorization`，保存时会报 `Registry MCP header "Authorization" is required and has no value or default`。
 - 只写 `--mcp-credential` 而没有任何 `--mcp-header` 使用 `${credential}`，凭据永远不会被读取，CLI 会直接拒绝（`UNUSED_MCP_CREDENTIAL`）。
-- 有的 MCP 需要多个密钥请求头（例如同时需要 SecretId 和 SecretKey）。一个 MCP 只能绑定一个凭据，所以其余请求头只能用明文 `--mcp-header` 提供，**明文值会保存在 Harness 配置中**，有 Harness 读取权限的人都能看到。这类工具请使用权限最小的子账号密钥。
+- 有的 MCP 需要多个密钥请求头（例如同时需要 SecretId 和 SecretKey）。一个 MCP 只能绑定一个凭据，所以其余请求头只能用明文 `--mcp-header` 提供，**明文值会保存在 Harness 配置中**，有 Harness 读取权限的人都能看到。名称包含 `Authorization`、`Key`、`Token` 或 `Secret` 的请求头若使用不含 `${credential}` 的非空明文值，`agr harness create` 和 `agr harness update` 会输出警告。这类工具请使用权限最小的子账号密钥。
 
-当前 CLI 会在 `agr harness revision diff`（text 和 JSON）及 `agr harness status -o json` 中脱敏 MCP 请求头值。这不会改变后端保存这些请求头的方式，也不改变 Harness 配置的读取权限。
+`agr harness revision diff`（text 和 JSON）及 `agr harness status -o json` 会将所有 MCP 请求头值脱敏为 `[REDACTED]`，包括 `${credential}` 模板本身（因此上一步 `revision diff` 显示 `[REDACTED]` 属于正常现象）。`agr harness get`、`agr harness revision get` 和 `--dry-run` 等配置读取或预览命令仍会展示保存的明文请求头值；诊断输出脱敏不会改变后端保存方式，也不改变 Harness 配置的读取权限。
 
 ## 5. 添加 Skill 和 Plugin
 

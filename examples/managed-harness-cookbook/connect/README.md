@@ -182,7 +182,7 @@ agr harness proxy "$HARNESS_ID" --region "$AGR_REGION" --port 0 -o ndjson
 {"SchemaVersion":"agr.events.v1","Type":"ready","Data":{"AcpURL":"http://127.0.0.1:54321/acp","RemoteAcpURL":"https://8080-dpl-********.ap-chongqing.agents.tencentags.com/acp","HarnessId":"hns-********","DeploymentId":"dpl-********","AffinityHeader":"X-Tencent-Agr-Affinity-Id"}}
 ```
 
-The proxy is for local debugging only and listens on `127.0.0.1` by default. Press `Ctrl+C` to stop it.
+The proxy is for local debugging only and listens on `127.0.0.1` by default. Single-envelope `-o json` is rejected with `UNSUPPORTED_OUTPUT`, so pass `-o text` or `-o ndjson` explicitly if your configured default output is JSON. Press `Ctrl+C` to stop it.
 
 ## 5. `endpoint`: direct connection from your own service
 

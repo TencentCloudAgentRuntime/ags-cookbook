@@ -129,6 +129,7 @@ Tool:          sdt-********
 Status:        ACTIVE
 Tags:          <none>
 Created:       <masked-time>
+Updated:       <masked-time>
 Scaling:
   Min Instances:                0
   Max Instances:                2
@@ -179,8 +180,8 @@ printf 'Original instance %s\n' "$HARNESS_INSTANCE_ID"
 这一步记录专用 Harness 下唯一的 `RUNNING` 实例 ID。停止发送请求至少 60 秒，再用 `agr instance list --tool-id "$HARNESS_TOOL_ID" --region "$AGR_REGION"` 查询，直到该 ID 进入 `PAUSED`。空闲暂停是异步的。
 
 ```text
-ID                    TOOL                   STATUS  TIMEOUT  EXPIRES  MOUNTS  CREATED
-<masked-instance-id>  hns-********-********  PAUSED  0s       -        -       <masked-time>
+ID                    TOOL                   STATUS  TIMEOUT  EXPIRES  MOUNTS  CREATED        KEEPALIVE MODE  KEEPALIVE TIMEOUT  AUTO PAUSE  AUTO RESUME
+<masked-instance-id>  hns-********-********  PAUSED  0s       -        -       <masked-time>  -               -                  -           -
 ```
 
 先确认记录的实例处于 `PAUSED`，再用同一 Session ID 和 Affinity ID 继续。验证回复包含 `maple`、两个 ID 保持一致，且唯一的 `RUNNING` 实例是原实例。使用 `BEST_EFFORT` 时，替代实例也能从 Session Space 恢复历史，因此答对口令只能证明会话延续。
